@@ -16,9 +16,11 @@ import type {
 import { ApiError, ValidationError } from '../../../../src/generated/server/worldmonitor/news/v1/service_server';
 import { markNoCacheResponse } from '../../../_shared/response-headers';
 import {
+  claimReview,
   isTrustReviewer,
   listErrorReports as readReports,
   readErrorReport,
+  releaseReview,
   reviewErrorReport as recordReview,
   storeErrorReport,
   type StoredErrorReport,
@@ -129,11 +131,19 @@ export async function reviewErrorReport(
   const id = (req.reportId ?? '').trim().toLowerCase();
   if (!REPORT_ID_RE.test(id)) throw new ValidationError([{ field: 'report_id', description: 'Invalid report id' }]);
 
-  const report = await readErrorReport(id);
-  if (report === 'unavailable') throw new ApiError(503, 'Reports are temporarily unavailable', '');
-  if (!report) throw new ApiError(404, 'Report not found', '');
-  if (report.status !== 'pending') throw new ApiError(409, `Report already ${report.status}`, '');
-  const reviewed = await recordReview(report, decision, publicNote, Date.now());
-  if (reviewed === 'unavailable') throw new ApiError(503, 'Review could not be saved', '');
-  return { report: toWire(reviewed) };
+  // One reviewer at a time: two decisions on one report must not both apply.
+  const claim = await claimReview(id);
+  if (claim === 'unavailable') throw new ApiError(503, 'Reports are temporarily unavailable', '');
+  if (!claim) throw new ApiError(409, 'Report is being reviewed', '');
+  try {
+    const report = await readErrorReport(id);
+    if (report === 'unavailable') throw new ApiError(503, 'Reports are temporarily unavailable', '');
+    if (!report) throw new ApiError(404, 'Report not found', '');
+    if (report.status !== 'pending') throw new ApiError(409, `Report already ${report.status}`, '');
+    const reviewed = await recordReview(report, decision, publicNote, Date.now());
+    if (reviewed === 'unavailable') throw new ApiError(503, 'Review could not be saved; the report is still pending', '');
+    return { report: toWire(reviewed) };
+  } finally {
+    await releaseReview(id);
+  }
 }

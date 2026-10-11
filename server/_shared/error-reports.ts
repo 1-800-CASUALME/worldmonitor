@@ -9,7 +9,7 @@
  * new reports are refused rather than evicting older ones, so spam can never
  * push a real report out unseen.
  */
-import { runRedisPipeline, type RedisCommandResult } from './redis';
+import { runRedisPipeline, runRedisTransaction, type RedisCommandResult } from './redis';
 import { correctionEntry, labelChangeCommands } from './label-history';
 import { timingSafeEqual } from './internal-auth';
 
@@ -20,6 +20,10 @@ export const PENDING_REPORTS_MAX = 1000;
 const REVIEWED_REPORTS_MAX = 500;
 const LIST_LIMIT = 200;
 export const ERROR_REPORT_TTL_S = 90 * 24 * 60 * 60;
+const ERROR_REPORT_TTL_MS = ERROR_REPORT_TTL_S * 1000;
+/** One reviewer at a time per report; a crashed review frees it after this. */
+const REVIEW_LOCK_KEY = (id: string) => `trust:report-review-lock:v1:${id}`;
+const REVIEW_LOCK_TTL_S = 60;
 
 /** Header carrying the operator secret (TRUST_REVIEW_SECRET). */
 export const TRUST_REVIEW_HEADER = 'x-trust-review-key';
@@ -70,32 +74,58 @@ function parseReport(raw: unknown): StoredErrorReport | null {
 const confirmed = (results: RedisCommandResult[], count: number) =>
   results.length === count && results.every((result) => !result.error);
 
-/** 'received', 'queue-full', or 'unavailable' when Redis could not confirm the write. */
+/**
+ * 'received', 'queue-full', or 'unavailable' when Redis could not confirm the write.
+ *
+ * One transaction prunes ids whose records have expired, inserts the report
+ * and counts the queue. A report that lands past the cap is taken back out, so
+ * the queue never holds more than PENDING_REPORTS_MAX: two concurrent
+ * submissions at 999 may both be refused, never both kept.
+ */
 export async function storeErrorReport(report: StoredErrorReport): Promise<'received' | 'queue-full' | 'unavailable'> {
-  const [size] = await runRedisPipeline([['ZCARD', PENDING_REPORTS_KEY]]);
-  if (!size || size.error || typeof size.result !== 'number') return 'unavailable';
-  if (size.result >= PENDING_REPORTS_MAX) return 'queue-full';
   const commands = [
+    ['ZREMRANGEBYSCORE', PENDING_REPORTS_KEY, '-inf', report.createdAt - ERROR_REPORT_TTL_MS],
     ['SET', ERROR_REPORT_KEY(report.id), JSON.stringify(report), 'NX', 'EX', ERROR_REPORT_TTL_S],
     ['ZADD', PENDING_REPORTS_KEY, report.createdAt, report.id],
+    ['ZCARD', PENDING_REPORTS_KEY],
   ];
-  return confirmed(await runRedisPipeline(commands), commands.length) ? 'received' : 'unavailable';
+  const results = await runRedisTransaction(commands);
+  if (!confirmed(results, commands.length)) return 'unavailable';
+  if (Number(results[3]!.result) <= PENDING_REPORTS_MAX) return 'received';
+  await runRedisPipeline([['ZREM', PENDING_REPORTS_KEY, report.id], ['DEL', ERROR_REPORT_KEY(report.id)]]);
+  return 'queue-full';
 }
 
-/** Pending reports oldest first, or reviewed reports newest first; null when Redis is unreadable. */
-export async function listErrorReports(status: 'pending' | 'reviewed'): Promise<StoredErrorReport[] | null> {
-  const [ids] = await runRedisPipeline([
-    status === 'pending'
-      ? ['ZRANGE', PENDING_REPORTS_KEY, 0, LIST_LIMIT - 1]
-      : ['ZREVRANGE', REVIEWED_REPORTS_KEY, 0, LIST_LIMIT - 1],
+/**
+ * Pending reports oldest first, or reviewed reports newest first; null when
+ * Redis is unreadable. Ids whose records have expired are pruned first, so
+ * they cannot fill the page or the queue.
+ */
+export async function listErrorReports(status: 'pending' | 'reviewed', now = Date.now()): Promise<StoredErrorReport[] | null> {
+  const key = status === 'pending' ? PENDING_REPORTS_KEY : REVIEWED_REPORTS_KEY;
+  const results = await runRedisPipeline([
+    ['ZREMRANGEBYSCORE', key, '-inf', now - ERROR_REPORT_TTL_MS],
+    status === 'pending' ? ['ZRANGE', key, 0, LIST_LIMIT - 1] : ['ZREVRANGE', key, 0, LIST_LIMIT - 1],
   ]);
-  if (!ids || ids.error || !Array.isArray(ids.result)) return null;
+  const ids = results[1];
+  if (results.length !== 2 || !ids || ids.error || !Array.isArray(ids.result)) return null;
   const keys = ids.result.filter((id): id is string => typeof id === 'string');
   if (keys.length === 0) return [];
   const records = await runRedisPipeline(keys.map((id) => ['GET', ERROR_REPORT_KEY(id)]));
-  if (records.length !== keys.length) return null;
-  // A record past its TTL is gone; its id is skipped rather than shown empty.
+  if (records.length !== keys.length || records.some((record) => record.error)) return null;
+  // A record that expired between the prune and the read is skipped, not shown empty.
   return records.map((record) => parseReport(record.result)).filter((r): r is StoredErrorReport => r !== null);
+}
+
+/** true when this caller now reviews the report alone, false when another review holds it, 'unavailable' on error. */
+export async function claimReview(id: string): Promise<boolean | 'unavailable'> {
+  const [lock] = await runRedisPipeline([['SET', REVIEW_LOCK_KEY(id), String(Date.now()), 'NX', 'EX', REVIEW_LOCK_TTL_S]]);
+  if (!lock || lock.error) return 'unavailable';
+  return lock.result === 'OK';
+}
+
+export async function releaseReview(id: string): Promise<void> {
+  await runRedisPipeline([['DEL', REVIEW_LOCK_KEY(id)]]);
 }
 
 export async function readErrorReport(id: string): Promise<StoredErrorReport | null | 'unavailable'> {
@@ -105,9 +135,10 @@ export async function readErrorReport(id: string): Promise<StoredErrorReport | n
 }
 
 /**
- * Record a decision. Accepting appends the public note to the label log with
- * trigger 'report'. Returns the reviewed report, or 'unavailable' when the
- * write was not confirmed.
+ * Record a decision in one transaction: the record, the queue move and, when
+ * accepting, the label-log entry commit together or not at all. The caller
+ * holds the review claim. Returns the reviewed report, or 'unavailable' when
+ * the transaction was not confirmed (nothing applied; the report stays pending).
  */
 export async function reviewErrorReport(
   report: StoredErrorReport,
@@ -123,5 +154,5 @@ export async function reviewErrorReport(
     ['ZREMRANGEBYRANK', REVIEWED_REPORTS_KEY, 0, -(REVIEWED_REPORTS_MAX + 1)],
     ...(decision === 'accepted' ? labelChangeCommands(correctionEntry(report, publicNote, now)) : []),
   ];
-  return confirmed(await runRedisPipeline(commands), commands.length) ? reviewed : 'unavailable';
+  return confirmed(await runRedisTransaction(commands), commands.length) ? reviewed : 'unavailable';
 }

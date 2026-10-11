@@ -996,8 +996,9 @@ describe('public OpenAPI dedupe (real bundle)', () => {
   });
 
   it('engages the exact repeated headers and generated scalar/date schemas', () => {
-    // #9093 adds two POST operations to the YAML bundle (2 idempotency headers each).
-    assert.deepEqual(headerStats, { hoisted: 4, replacedRefs: 43 });
+    // #9093 adds two POST operations to the YAML bundle; only submit carries
+    // the 2 idempotency headers (review is exempt from replay).
+    assert.deepEqual(headerStats, { hoisted: 4, replacedRefs: 41 });
     assert.equal(int64Stats.replacedRefs, 41);
     // Described int64 fields (own comment + generated warning) keep their
     // comment beside the shared $ref; a regression to zero would silently give

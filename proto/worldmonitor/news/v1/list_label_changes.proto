@@ -27,19 +27,20 @@ message LabelChangePublisher {
   int32 tier = 2;
 }
 
-// LabelChange records one story moving between single-publisher and corroborated coverage.
+// LabelChange records one story moving between single-publisher and corroborated
+// coverage, or one correction a reviewer accepted from a reader report.
 message LabelChange {
-  // Story identity hash.
+  // Story identity hash; empty for a correction that names no story.
   string story_id = 1;
-  // Label that changed. Always "corroboration".
+  // corroboration (a label moved) | correction (an accepted reader report).
   string field = 2;
-  // Previous state: single-publisher | corroborated.
+  // Previous state: single-publisher | corroborated; empty for a correction.
   string previous = 3;
-  // New state: single-publisher | corroborated.
+  // New state: single-publisher | corroborated; empty for a correction.
   string next = 4;
-  // Publisher families behind the previous label.
+  // Publisher families behind the previous label; 0 for a correction.
   int32 previous_publishers = 5;
-  // Publisher families behind the new label.
+  // Publisher families behind the new label; 0 for a correction.
   int32 next_publishers = 6;
   // Time the change was recorded, Unix epoch milliseconds.
   int64 at = 7 [(sebuf.http.int64_encoding) = INT64_ENCODING_NUMBER];

@@ -109,14 +109,20 @@
     return item;
   }
 
+  // Only the latest load may render: switching tabs while a slower response is
+  // in flight must not show the other tab's reports under this one.
+  var loadSeq = 0;
   function load() {
     if (!keyInput.value) {
       setStatus('Enter the review key.', false);
       return;
     }
+    var seq = ++loadSeq;
+    var status = current;
     setStatus('Loading…', false);
-    api('/api/news/v1/list-error-reports?status=' + current, { method: 'GET' })
+    api('/api/news/v1/list-error-reports?status=' + status, { method: 'GET' })
       .then(function (body) {
+        if (seq !== loadSeq) return;
         listEl.replaceChildren();
         if (body.state !== 'ok') {
           setStatus('Reports could not be read. Nothing was changed; try again.', true);
@@ -125,10 +131,11 @@
         var reports = Array.isArray(body.reports) ? body.reports : [];
         reports.forEach(function (report) { listEl.appendChild(renderReport(report)); });
         setStatus(reports.length === 0
-          ? (current === 'pending' ? 'No pending reports.' : 'No reviewed reports yet.')
-          : reports.length + (current === 'pending' ? ' pending, oldest first.' : ' reviewed, newest first.'), false);
+          ? (status === 'pending' ? 'No pending reports.' : 'No reviewed reports yet.')
+          : reports.length + (status === 'pending' ? ' pending, oldest first.' : ' reviewed, newest first.'), false);
       })
       .catch(function (err) {
+        if (seq !== loadSeq) return;
         listEl.replaceChildren();
         setStatus(err.message, true);
       });

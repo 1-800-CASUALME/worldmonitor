@@ -28,6 +28,8 @@ function fakeRedis() {
   const lists = new Map<string, string[]>();
   const commands: Command[] = [];
   let failing = false;
+  let failingTransactions = false;
+  let failingGets = false;
   const zrange = (key: string, start: number, stop: number, reverse: boolean) => {
     const entries = [...(zsets.get(key) ?? new Map())].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
     if (reverse) entries.reverse();
@@ -37,7 +39,10 @@ function fakeRedis() {
   const run = (command: Command): unknown => {
     const [verb, key, ...args] = command.map(String) as [string, string, ...string[]];
     switch (verb) {
-      case 'GET': return strings.get(key) ?? null;
+      case 'GET':
+        if (failingGets && key.startsWith('trust:report:')) throw new Error('read failed');
+        return strings.get(key) ?? null;
+      case 'DEL': return strings.delete(key) ? 1 : 0;
       case 'SET': {
         if (args.includes('NX') && strings.has(key)) return null;
         if (args.includes('XX') && !strings.has(key)) return null;
@@ -54,6 +59,14 @@ function fakeRedis() {
       case 'ZREM': return zsets.get(key)?.delete(args[0]!) ? 1 : 0;
       case 'ZRANGE': return zrange(key, Number(args[0]), Number(args[1]), false);
       case 'ZREVRANGE': return zrange(key, Number(args[0]), Number(args[1]), true);
+      case 'ZREMRANGEBYSCORE': {
+        const max = args[1] === '+inf' ? Infinity : Number(args[1]);
+        let removed = 0;
+        for (const [member, score] of zsets.get(key) ?? []) {
+          if (score <= max) { zsets.get(key)!.delete(member); removed++; }
+        }
+        return removed;
+      }
       case 'ZREMRANGEBYRANK': {
         for (const member of zrange(key, Number(args[0]), Number(args[1]), false)) zsets.get(key)?.delete(member);
         return 0;
@@ -74,13 +87,29 @@ function fakeRedis() {
       default: throw new Error(`fake redis: unsupported ${verb}`);
     }
   };
-  const fetchImpl = (async (_input: unknown, init?: { body?: string }) => {
-    if (failing) return { ok: false, status: 500, json: async () => ({}) };
+  const fetchImpl = (async (input: unknown, init?: { body?: string }) => {
+    const transaction = String(input).endsWith('/multi-exec');
+    if (failing || (transaction && failingTransactions)) return { ok: false, status: 500, json: async () => ({}) };
     const body = JSON.parse(init?.body ?? '[]') as Command[];
     commands.push(...body);
-    return { ok: true, status: 200, json: async () => body.map((command) => ({ result: run(command) })) };
+    return {
+      ok: true,
+      status: 200,
+      json: async () => body.map((command) => {
+        try {
+          return { result: run(command) };
+        } catch (error) {
+          return { error: (error as Error).message };
+        }
+      }),
+    };
   }) as unknown as typeof fetch;
-  return { strings, zsets, lists, commands, fetchImpl, fail: () => { failing = true; } };
+  return {
+    strings, zsets, lists, commands, fetchImpl,
+    fail: () => { failing = true; },
+    failTransactions: () => { failingTransactions = true; },
+    failReportReads: () => { failingGets = true; },
+  };
 }
 
 const SECRET = 'review-secret-for-tests';
@@ -156,11 +185,22 @@ describe('SubmitErrorReport', () => {
 
   it('a full queue refuses new reports instead of evicting older ones', async () => {
     const queue = new Map<string, number>();
-    for (let i = 0; i < PENDING_REPORTS_MAX; i++) queue.set(`id-${i}`, i);
+    for (let i = 0; i < PENDING_REPORTS_MAX; i++) queue.set(`id-${i}`, Date.now() - i);
     redis.zsets.set(PENDING_REPORTS_KEY, queue);
     const response = await submitErrorReport(ctx(), report());
     assert.deepEqual(response, { status: 'queue-full', reportId: '' });
-    assert.equal(queue.size, PENDING_REPORTS_MAX);
+    assert.equal(queue.size, PENDING_REPORTS_MAX, 'the over-cap report is taken back out');
+    assert.equal([...redis.strings.keys()].filter((key) => key.startsWith('trust:report:v1:')).length, 0, 'and its record deleted');
+  });
+
+  it('ids whose records expired leave the queue, so they cannot fill it', async () => {
+    const queue = new Map<string, number>();
+    const expired = Date.now() - 91 * 24 * 60 * 60 * 1000;
+    for (let i = 0; i < PENDING_REPORTS_MAX; i++) queue.set(`id-${i}`, expired);
+    redis.zsets.set(PENDING_REPORTS_KEY, queue);
+    const response = await submitErrorReport(ctx(), report());
+    assert.equal(response.status, 'received');
+    assert.deepEqual([...queue.keys()], [response.reportId]);
   });
 
   it('an unreachable store is a 503, never a false "received"', async () => {
@@ -181,8 +221,8 @@ describe('operator review', () => {
   it('lists pending reports oldest first, with the private fields', async () => {
     const first = await submitErrorReport(ctx(), report({ message: 'First report about a wrong label.' }));
     const second = await submitErrorReport(ctx(), report({ message: 'Second report about a wrong label.' }));
-    redis.zsets.get(PENDING_REPORTS_KEY)!.set(first.reportId, 1);
-    redis.zsets.get(PENDING_REPORTS_KEY)!.set(second.reportId, 2);
+    redis.zsets.get(PENDING_REPORTS_KEY)!.set(first.reportId, Date.now() - 2);
+    redis.zsets.get(PENDING_REPORTS_KEY)!.set(second.reportId, Date.now() - 1);
     const listed = await listErrorReports(operator(), { status: 'pending' });
     assert.equal(listed.state, 'ok');
     assert.deepEqual(listed.reports.map((r) => r.id), [first.reportId, second.reportId]);
@@ -229,6 +269,32 @@ describe('operator review', () => {
     const { report: reviewed } = await reviewErrorReport(operator(), { reportId, decision: 'reject', publicNote: '' });
     assert.equal(reviewed!.status, 'rejected');
     assert.equal(redis.lists.size, 0);
+  });
+
+  it('an unreadable report record makes the list unavailable, not shorter', async () => {
+    await submitErrorReport(ctx(), report());
+    redis.failReportReads();
+    assert.equal((await listErrorReports(operator(), { status: 'pending' })).state, 'unavailable');
+  });
+
+  it('a second reviewer is refused while the first holds the report', async () => {
+    const { reportId } = await submitErrorReport(ctx(), report());
+    redis.strings.set(`trust:report-review-lock:v1:${reportId}`, '1');
+    assert.equal(await statusOf(reviewErrorReport(operator(), { reportId, decision: 'reject', publicNote: '' })), 409);
+    assert.equal(JSON.parse(redis.strings.get(ERROR_REPORT_KEY(reportId))!).status, 'pending');
+  });
+
+  it('a review that fails to save changes nothing and frees the report', async () => {
+    const { reportId } = await submitErrorReport(ctx(), report());
+    redis.failTransactions();
+    assert.equal(
+      await statusOf(reviewErrorReport(operator(), { reportId, decision: 'accept', publicNote: 'Two mastheads now count once.' })),
+      503,
+    );
+    assert.equal(JSON.parse(redis.strings.get(ERROR_REPORT_KEY(reportId))!).status, 'pending');
+    assert.ok(redis.zsets.get(PENDING_REPORTS_KEY)?.has(reportId));
+    assert.equal(redis.lists.size, 0, 'no correction published');
+    assert.equal(redis.strings.has(`trust:report-review-lock:v1:${reportId}`), false, 'lock released');
   });
 
   it('rejects unknown decisions, malformed ids and missing reports', async () => {
