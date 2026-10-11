@@ -154,6 +154,26 @@ export interface LabelChangePublisher {
   tier: number;
 }
 
+export interface SearchFactChecksRequest {
+  claim: string;
+}
+
+export interface SearchFactChecksResponse {
+  factChecks: FactCheck[];
+  state: string;
+  caveat: string;
+}
+
+export interface FactCheck {
+  publisher: string;
+  site: string;
+  rating: string;
+  reviewedAt: string;
+  url: string;
+  title: string;
+  claimReviewed: string;
+}
+
 export type StoryPhase = "STORY_PHASE_UNSPECIFIED" | "STORY_PHASE_BREAKING" | "STORY_PHASE_DEVELOPING" | "STORY_PHASE_SUSTAINED" | "STORY_PHASE_FADING";
 
 export type SummarizeStatus = "SUMMARIZE_STATUS_UNSPECIFIED" | "SUMMARIZE_STATUS_SUCCESS" | "SUMMARIZE_STATUS_CACHED" | "SUMMARIZE_STATUS_SKIPPED" | "SUMMARIZE_STATUS_ERROR";
@@ -332,6 +352,31 @@ export class NewsServiceClient {
     }
 
     return await resp.json() as ListLabelChangesResponse;
+  }
+
+  async searchFactChecks(req: SearchFactChecksRequest, options?: NewsServiceCallOptions): Promise<SearchFactChecksResponse> {
+    let path = "/api/news/v1/search-fact-checks";
+    const params = new URLSearchParams();
+    if (req.claim != null && req.claim !== "") params.set("claim", String(req.claim));
+    const url = this.baseURL + path + (params.toString() ? "?" + params.toString() : "");
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...this.defaultHeaders,
+      ...options?.headers,
+    };
+
+    const resp = await this.fetchFn(url, {
+      method: "GET",
+      headers,
+      signal: options?.signal,
+    });
+
+    if (!resp.ok) {
+      return this.handleError(resp);
+    }
+
+    return await resp.json() as SearchFactChecksResponse;
   }
 
   private async handleError(resp: Response): Promise<never> {

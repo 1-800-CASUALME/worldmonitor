@@ -25643,6 +25643,87 @@ paths:
                                 oneOf:
                                     - $ref: '#/components/schemas/Error'
                                     - $ref: '#/components/schemas/GatewayError'
+    /api/news/v1/search-fact-checks:
+        get:
+            tags:
+                - NewsService
+            summary: SearchFactChecks
+            description: SearchFactChecks returns ratings that IFCN-verified fact-checkers published about claims similar to the one given, for citation with attribution.
+            operationId: SearchFactChecks
+            security: []
+            parameters:
+                - name: claim
+                  in: query
+                  description: The claim or headline, up to 300 characters.
+                  required: false
+                  example: "example"
+                  schema:
+                    type: string
+                - name: jmespath
+                  in: query
+                  description: |-
+                    Optional JMESPath expression applied server-side to project or reduce the JSON response before it is returned (mirrors the MCP jmespath argument). Invalid expressions, expressions larger than 1024 UTF-8 bytes, or projections that exceed the 256 KB output cap return HTTP 400 with a {_jmespath_error, original_keys} envelope. Grammar and worked examples: https://www.worldmonitor.app/docs/mcp-jmespath.
+                  required: false
+                  example: "keys(@)"
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            example:
+                                "caveat": "2026-01-15T12:00:00Z"
+                                "factChecks":
+                                    - "claimReviewed": "example"
+                                      "publisher": "example"
+                                      "rating": "example"
+                                      "reviewedAt": "2026-01-15T12:00:00Z"
+                                      "site": "example"
+                                "state": "example"
+                            schema:
+                                $ref: '#/components/schemas/worldmonitor_news_v1_SearchFactChecksResponse'
+                "400":
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/ValidationError'
+                                    - $ref: '#/components/schemas/JmespathProjectionError'
+                "429":
+                    description: Rate limit exceeded.
+                    headers:
+                        X-RateLimit-Limit:
+                            description: Maximum requests allowed in the active rate-limit window.
+                            schema:
+                                type: string
+                        X-RateLimit-Remaining:
+                            description: Requests remaining in the active rate-limit window.
+                            schema:
+                                type: string
+                        X-RateLimit-Reset:
+                            description: Unix epoch milliseconds when the active rate-limit window resets.
+                            schema:
+                                type: string
+                        Retry-After:
+                            description: Seconds to wait before retrying the request.
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/Error'
+                                    - $ref: '#/components/schemas/RateLimitError'
+                default:
+                    description: Gateway or handler error response.
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/Error'
+                                    - $ref: '#/components/schemas/GatewayError'
     /api/positive-events/v1/list-positive-geo-events:
         get:
             tags:
@@ -53661,6 +53742,53 @@ components:
                     format: int32
                     description: Declared source tier 1-4; 0 when no feed label declares one.
             description: LabelChangePublisher is one publisher family behind the new label.
+        worldmonitor_news_v1_SearchFactChecksRequest:
+            type: object
+            properties:
+                claim:
+                    type: string
+                    maxLength: 300
+                    description: The claim or headline, up to 300 characters.
+            description: SearchFactChecksRequest names the claim to look up published fact-checks for.
+        worldmonitor_news_v1_SearchFactChecksResponse:
+            type: object
+            properties:
+                factChecks:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/worldmonitor_news_v1_FactCheck'
+                state:
+                    type: string
+                    description: ok | unavailable | not-configured. Only ok means the search ran; an empty list is then no published fact-check found.
+                caveat:
+                    type: string
+                    description: Fixed reminder that ratings are the fact-checkers' own and never change the coverage result.
+            description: SearchFactChecksResponse lists published fact-checks of claims similar to the one searched.
+        worldmonitor_news_v1_FactCheck:
+            type: object
+            properties:
+                publisher:
+                    type: string
+                    description: The fact-checker's name as it publishes it.
+                site:
+                    type: string
+                    description: The IFCN-allowlisted domain the link belongs to.
+                rating:
+                    type: string
+                    description: The fact-checker's own rating, verbatim. WorldMonitor does not rate claims.
+                reviewedAt:
+                    type: string
+                    description: When the fact-check was published, ISO 8601.
+                url:
+                    type: string
+                    description: Link to the fact-check.
+                title:
+                    type: string
+                    description: The fact-check's headline; empty when the feed gives none.
+                claimReviewed:
+                    type: string
+                    description: 'The claim the fact-checker rated: similar to the claim searched, not necessarily the same.'
+            description: FactCheck is one rating an IFCN-verified fact-checker published about a similar claim, cited with attribution.
         worldmonitor_positive_events_v1_ListPositiveGeoEventsRequest:
             type: object
         worldmonitor_positive_events_v1_ListPositiveGeoEventsResponse:

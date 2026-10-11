@@ -17,6 +17,11 @@ const unavailableDigest = {
   coverage: { state: 'unavailable', itemsServed: 0, publisherCount: 0 },
 };
 let digest;
+let factChecks;
+const FACT_CHECK = {
+  publisher: 'PolitiFact', site: 'politifact.com', rating: 'False', reviewedAt: '2026-10-03T00:00:00.000Z',
+  url: 'https://www.politifact.com/factchecks/2026/oct/03/x/', title: 'No', claimReviewed: 'Trump struck a diesel deal with Putin',
+};
 const liveDigest = {
   generatedAt: '2026-10-09T21:00:00.000Z',
   feedStatuses: { Reuters: 'ok' },
@@ -43,11 +48,13 @@ describe('verify_claim MCP tool', () => {
     process.env.UPSTASH_REDIS_REST_TOKEN = 'fake-token';
     requests = [];
     digest = liveDigest;
+    factChecks = () => Response.json({ state: 'ok', factChecks: [FACT_CHECK], caveat: 'c' });
     globalThis.fetch = async (input) => {
       const url = String(input);
       requests.push(url);
       if (new URL(url).hostname === 'fake-upstash.test') return Response.json([{ result: null }]);
       if (url.includes('/api/news/v1/list-feed-digest')) return Response.json(digest);
+      if (url.includes('/api/news/v1/search-fact-checks')) return factChecks();
       throw new Error(`unexpected fetch: ${url}`);
     };
     const mod = await import(`../api/mcp.ts?verify=${Date.now()}-${Math.random()}`);
@@ -124,6 +131,29 @@ describe('verify_claim MCP tool', () => {
     const result = await callTool({ claim: '   ' });
     assert.equal(result.error, 'claim is required');
     assert.equal(requests.filter((url) => url.includes('list-feed-digest')).length, 0);
+  });
+
+  it('cites published fact-checks beside the coverage result, which they never change (#9094)', async () => {
+    const result = await callTool({ claim: 'Trump strikes diesel deal with Putin' });
+    assert.equal(result.state, 'corroborated', 'a rating never changes the coverage state');
+    assert.equal(result.factChecks.state, 'ok');
+    assert.equal(result.factChecks.label, 'A published fact-check of a similar claim');
+    assert.match(result.factChecks.caveat, /WorldMonitor does not rate claims/);
+    assert.deepEqual(result.factChecks.items, [FACT_CHECK]);
+    const lookup = requests.find((url) => url.includes('/api/news/v1/search-fact-checks'));
+    assert.equal(new URL(lookup).searchParams.get('claim'), 'Trump strikes diesel deal with Putin');
+  });
+
+  it('a failed fact-check lookup is unavailable and does not fail the tool', async () => {
+    factChecks = () => new Response('{}', { status: 503 });
+    const failed = await callTool({ claim: 'Trump strikes diesel deal with Putin' });
+    assert.equal(failed.state, 'corroborated');
+    assert.deepEqual({ state: failed.factChecks.state, items: failed.factChecks.items }, { state: 'unavailable', items: [] });
+    factChecks = () => { throw new Error('network'); };
+    assert.equal((await callTool({ claim: 'Trump strikes diesel deal with Putin' })).factChecks.state, 'unavailable');
+    factChecks = () => Response.json({ state: 'surprise', factChecks: [FACT_CHECK] });
+    const odd = await callTool({ claim: 'Trump strikes diesel deal with Putin' });
+    assert.deepEqual({ state: odd.factChecks.state, items: odd.factChecks.items }, { state: 'unavailable', items: [] });
   });
 
   it('found and not-found results both carry every documented required key', async () => {

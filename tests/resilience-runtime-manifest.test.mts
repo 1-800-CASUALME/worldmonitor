@@ -272,6 +272,7 @@ describe('resilience runtime manifest gateway auth', () => {
         '/api/resilience/v1/get-runtime-manifest',
         '/api/leads/v1/submit-contact',
         '/api/leads/v1/register-interest',
+        '/api/news/v1/search-fact-checks',
       ],
     );
     assert.equal(PREMIUM_RPC_PATHS.has('/api/resilience/v1/get-runtime-manifest'), false);

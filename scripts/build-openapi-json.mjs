@@ -200,6 +200,7 @@ export function shortenGeneratedSuccessDescriptions(spec) {
  */
 export const SCANNER_BUNDLE_EXCLUDED_OPERATIONS = Object.freeze({
   '/api/news/v1/list-label-changes': 'Label history read by the /trust page (#9093); documented in the NewsService spec.',
+  '/api/news/v1/search-fact-checks': 'Fact-check lookup for the /verify page and verify_claim (#9094); documented in the NewsService spec.',
 });
 
 /**

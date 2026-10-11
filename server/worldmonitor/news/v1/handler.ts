@@ -5,6 +5,7 @@ import { getSummarizeArticleCache } from './get-summarize-article-cache';
 import { listFeedDigest } from './list-feed-digest';
 import { listCountryHeadlines } from './list-country-headlines';
 import { listLabelChanges } from './list-label-changes';
+import { searchFactChecks } from './search-fact-checks';
 
 export const newsHandler: NewsServiceHandler = {
   summarizeArticle,
@@ -12,4 +13,5 @@ export const newsHandler: NewsServiceHandler = {
   listFeedDigest,
   listCountryHeadlines,
   listLabelChanges,
+  searchFactChecks,
 };

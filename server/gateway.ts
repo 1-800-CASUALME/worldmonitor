@@ -413,6 +413,8 @@ const RPC_CACHE_TIER: Record<string, CacheTier> = {
   '/api/news/v1/list-feed-digest': 'slow',
   '/api/news/v1/list-country-headlines': 'fast',
   '/api/news/v1/list-label-changes': 'fast',
+  // #9094: per-claim fact-check lookup; the CDN key includes the claim.
+  '/api/news/v1/search-fact-checks': 'slow',
   '/api/intelligence/v1/get-country-facts': 'daily',
   '/api/intelligence/v1/list-security-advisories': 'slow',
   '/api/intelligence/v1/list-satellites': 'static',
@@ -550,6 +552,10 @@ export const PUBLIC_NO_AUTH_RPC_PATHS = new Set<string>([
   // throttle. Pinned by tests/leads-gateway-public.test.mts.
   '/api/leads/v1/submit-contact',
   '/api/leads/v1/register-interest',
+  // #9094 /verify: published fact-checks for a claim, cited with attribution.
+  // Free like /verify (owner decision), which needs no account; bounded by a
+  // fail-closed per-IP limit and a day-long per-claim cache of the upstream.
+  '/api/news/v1/search-fact-checks',
 ]);
 
 // Cacheable, non-premium RPC endpoints the Railway relay periodically warm-pings

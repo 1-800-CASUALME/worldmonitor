@@ -38,6 +38,7 @@ import {
   toPublisherRosterJson,
 } from '../../../server/_shared/corroboration';
 import { CLAIM_CARD_MAX_HEADLINES, CLAIM_CARD_STATES, CLAIM_MAX_CHARS, buildClaimCard } from '../../../server/_shared/claim-match';
+import { FACT_CHECK_CAVEAT, FACT_CHECK_LABEL, FACT_CHECK_MAX_RESULTS, type FactCheck } from '../../../server/_shared/fact-checks';
 import { buildAuthHeaders } from '../auth';
 import { fetchMcpDownstream } from '../downstream';
 import { assertToolFetchOk } from '../billing-denial';
@@ -63,6 +64,57 @@ const CLASSIFY_SEVERITIES = [
 const EXTRACT_TEXT_MAX_CHARS = 2048; // issue #5697's 2 KB arbitrary-text cap
 const NLP_DIGEST_TIMEOUT_MS = 6_000;
 const NLP_UA = 'worldmonitor-mcp-edge/1.0';
+const FACT_CHECK_TIMEOUT_MS = 6_000;
+const FACT_CHECK_STATES = ['ok', 'unavailable', 'not-configured'] as const;
+type FactCheckState = typeof FACT_CHECK_STATES[number];
+
+/** verify_claim's published fact-checks (#9094): cited ratings, never a WorldMonitor verdict. */
+type FactCheckBlock = {
+  state: FactCheckState;
+  label: string;
+  caveat: string;
+  items: FactCheck[];
+};
+
+function factCheckBlock(state: FactCheckState, items: FactCheck[] = []): FactCheckBlock {
+  return { state, label: FACT_CHECK_LABEL, caveat: FACT_CHECK_CAVEAT, items };
+}
+
+function isFactCheck(value: unknown): value is FactCheck {
+  const v = value as Record<string, unknown> | null;
+  return !!v && ['publisher', 'site', 'rating', 'reviewedAt', 'url', 'title', 'claimReviewed']
+    .every((field) => typeof v[field] === 'string');
+}
+
+/**
+ * Published fact-checks for the claim, from the same endpoint /verify reads.
+ * Never fails the tool: any error is `unavailable`, which says the lookup did
+ * not run, not that no fact-check exists.
+ */
+async function fetchFactCheckBlock(
+  base: string,
+  context: Parameters<typeof buildAuthHeaders>[0],
+  claim: string,
+  execution: McpToolExecutionContext | undefined,
+): Promise<FactCheckBlock> {
+  try {
+    const url = `${base}/api/news/v1/search-fact-checks?claim=${encodeURIComponent(claim)}`;
+    const auth = await buildAuthHeaders(context, 'GET', url, null);
+    const res = await fetchMcpDownstream(url, {
+      headers: { ...auth, 'User-Agent': NLP_UA },
+      signal: AbortSignal.timeout(FACT_CHECK_TIMEOUT_MS),
+    }, execution);
+    if (!res.ok) return factCheckBlock('unavailable');
+    const body = await res.json() as { state?: unknown; factChecks?: unknown };
+    const state = FACT_CHECK_STATES.find((s) => s === body.state) ?? 'unavailable';
+    const items = state === 'ok' && Array.isArray(body.factChecks)
+      ? body.factChecks.filter(isFactCheck).slice(0, FACT_CHECK_MAX_RESULTS)
+      : [];
+    return factCheckBlock(state, items);
+  } catch {
+    return factCheckBlock('unavailable');
+  }
+}
 const NLP_DIGEST_SOURCE_MAX_BYTES = 160;
 const NLP_DIGEST_TITLE_MAX_BYTES = 512;
 const NLP_DIGEST_LINK_MAX_BYTES = 2_048;
@@ -839,7 +891,7 @@ export const NLP_TOOLS: ToolDef[] = [
   {
     name: 'verify_claim',
     _outputBudgetBytes: 65536,
-    description: 'Evidence card for a claim or headline (#9092): finds the live-digest clusters reporting the same event and returns a result state (corroborated, single-publisher, tier4-only, unknown, or not-found when the digest was searched and nothing reports it; unknown when the digest had no headlines to search) with WorldMonitor\'s coverage verdict over the matched clusters, the publishers roster with declared tiers, the matched headlines with fail-closed source provenance, a figure check (numbers and dates in the claim that no matched headline states), and first/last sighting. found=false means the claim was not matched (state tells whether the digest was searched), never that it is false. Coverage, not accuracy: nothing here says a claim is true or false. Deterministic — no LLM.',
+    description: 'Evidence card for a claim or headline (#9092): finds the live-digest clusters reporting the same event and returns a result state (corroborated, single-publisher, tier4-only, unknown, or not-found when the digest was searched and nothing reports it; unknown when the digest had no headlines to search) with WorldMonitor\'s coverage verdict over the matched clusters, the publishers roster with declared tiers, the matched headlines with fail-closed source provenance, a figure check (numbers and dates in the claim that no matched headline states), and first/last sighting. found=false means the claim was not matched (state tells whether the digest was searched), never that it is false. Coverage, not accuracy: nothing here says a claim is true or false. factChecks (#9094) cites ratings that IFCN-verified fact-checkers published about a similar claim, each with the fact-checker, date and link; the rating is theirs, quoted verbatim, and never changes state. Deterministic — no LLM.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -892,6 +944,32 @@ export const NLP_TOOLS: ToolDef[] = [
           },
         },
         caveat: { type: 'string', description: 'Fixed reminder that the verdict describes coverage, not accuracy.' },
+        factChecks: {
+          type: 'object',
+          required: ['state', 'label', 'caveat', 'items'],
+          description: 'Published fact-checks of a similar claim (#9094), cited with attribution. Strong text matches only, from IFCN-verified fact-checkers, English, newest first; disagreeing ratings are all listed. The ratings are the fact-checkers\' own and never change state or corroboration.',
+          properties: {
+            state: { type: 'string', enum: [...FACT_CHECK_STATES], description: 'ok when the lookup ran (an empty list then means no published fact-check of a similar claim was found); unavailable or not-configured when it did not run.' },
+            label: { type: 'string', description: 'How to introduce each item: a fact-check of a similar claim, never of this claim.' },
+            caveat: { type: 'string' },
+            items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['publisher', 'site', 'rating', 'reviewedAt', 'url', 'title', 'claimReviewed'],
+                properties: {
+                  publisher: { type: 'string', description: 'The fact-checker.' },
+                  site: { type: 'string', description: 'Its IFCN-allowlisted domain.' },
+                  rating: { type: 'string', description: 'The fact-checker\'s own rating, verbatim.' },
+                  reviewedAt: { type: 'string', description: 'When the fact-check was published (ISO 8601).' },
+                  url: { type: 'string' },
+                  title: { type: 'string' },
+                  claimReviewed: { type: 'string', description: 'The claim the fact-checker rated (similar, not necessarily identical).' },
+                },
+              },
+            },
+          },
+        },
         generatedAt: { type: 'string' },
         variant: { type: 'string', enum: [...NLP_DIGEST_VARIANTS] },
         digestCoverage: NLP_DIGEST_COVERAGE_OUTPUT_SCHEMA,
@@ -907,9 +985,13 @@ export const NLP_TOOLS: ToolDef[] = [
       if (!claim) return { ...empty, error: 'claim is required' };
       if (!variant) return { ...empty, error: `variant must be one of: ${NLP_DIGEST_VARIANTS.join(', ')}` };
 
-      const digest = await fetchNlpDigestItems(base, context, variant, '', execution);
+      const [digest, factChecks] = await Promise.all([
+        fetchNlpDigestItems(base, context, variant, '', execution),
+        fetchFactCheckBlock(base, context, claim, execution),
+      ]);
       return {
         ...buildClaimCard(claim, digest.items),
+        factChecks,
         generatedAt: digest.generatedAt,
         variant: digest.variant,
         ...(digest.digestCoverage ? { digestCoverage: digest.digestCoverage } : {}),
@@ -917,6 +999,7 @@ export const NLP_TOOLS: ToolDef[] = [
     },
     _apiPaths: [
       'GET /api/news/v1/list-feed-digest',
+      'GET /api/news/v1/search-fact-checks',
     ],
   },
   {

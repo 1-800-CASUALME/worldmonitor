@@ -1595,6 +1595,16 @@ Evidence card for a claim or headline. Finds the live-digest clusters that repor
 
 The result reports `found`, `state` (the coverage verdict; `not-found` when the digest was searched and nothing reports the claim; `unknown` with `found: false` when the digest was empty or unavailable, so nothing was searched), `corroboration` (`single-publisher`, `tier4-only`, `corroborated`, `unknown`), the `publishers` roster with declared tiers, up to 10 matched `headlines` with fail-closed source provenance, `credibilityScore` of the best match, `firstSeen` / `lastUpdated`, and `figures`: numbers and dates in the claim checked against the matched headlines with the brief grounding rule. `figures.ungrounded` lists figures no matched headline states; it does not mean the figure is wrong. `found: false` means no match: with `state: not-found` the claim is not in WorldMonitor's current sources; with `state: unknown` nothing was searched. It never means the claim is false. Every response carries the same `caveat`: coverage, not accuracy.
 
+`factChecks` cites ratings that fact-checkers have already published about a similar claim. WorldMonitor does not rate claims; it quotes theirs with attribution, the way it would quote a wire report. Each item gives the fact-checker (`publisher`, `site`), its own `rating` verbatim, the date it was published (`reviewedAt`), the `url`, and the `claimReviewed` it rated, introduced by `label`: a fact-check of a similar claim, never of this claim. The rules:
+
+- Only verified signatories of the [IFCN Code of Principles](https://github.com/IFCN/verified-signatories), kept in `shared/fact-checkers.json` and reviewed like source tiers. The link's own domain decides, not the name the feed reports.
+- Strong matches only: the claim and the rated claim must each carry at least 60% of the other's content words, and share at least three. A weaker match shows nothing.
+- English fact-checks of any age, newest first. Ratings that disagree are all listed, with no tie-breaking.
+- The same rules apply whoever made the claim: nothing in the matching names a person, party, topic or country.
+- A rating never changes `state`, `corroboration` or anything else in the card.
+
+`factChecks.state` is `ok` when the lookup ran (an empty `items` list then means none was found) and `unavailable` or `not-configured` when it did not. A failed lookup never fails the tool. Ratings come from the Google Fact Check Tools API.
+
 **Parameters (tool-specific):**
 
 | Name | Type | Description |
@@ -1602,7 +1612,7 @@ The result reports `found`, `state` (the coverage verdict; `not-found` when the 
 | `claim` | string | The claim or headline to check, up to 300 characters. Required. |
 | `variant` | `string: full / tech` | Headline digest variant to search. Defaults to full. |
 
-- **API endpoint:** `GET /api/news/v1/list-feed-digest`
+- **API endpoints:** `GET /api/news/v1/list-feed-digest`, `GET /api/news/v1/search-fact-checks`
 - **Access:** `subscription` — requires a Pro subscription.
 - **Kind:** deterministic local compute over the live digest window, not a historical index. No LLM.
 - **Quota:** standard — every call consumes the MCP daily reservation.

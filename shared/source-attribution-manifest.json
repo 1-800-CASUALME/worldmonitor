@@ -3992,6 +3992,20 @@
       ]
     },
     {
+      "host": "factchecktools.googleapis.com",
+      "provider": "factchecktools.googleapis.com",
+      "kind": "structured",
+      "observed": true,
+      "license": "Provider terms for this upstream API/dataset; verify before redistribution",
+      "attribution": "Credit factchecktools.googleapis.com and link to the original upstream API/dataset.",
+      "status": "terms-review",
+      "references": [
+        {
+          "path": "server/_shared/fact-checks.ts"
+        }
+      ]
+    },
+    {
       "host": "fao.org",
       "provider": "fao.org",
       "kind": "feed",
