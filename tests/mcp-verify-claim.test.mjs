@@ -10,7 +10,14 @@ const originalFetch = globalThis.fetch;
 const originalEnv = { ...process.env };
 
 const T0 = Date.parse('2026-10-09T18:00:00Z');
-const digest = {
+const unavailableDigest = {
+  generatedAt: '2026-10-09T21:00:00.000Z',
+  feedStatuses: {},
+  categories: {},
+  coverage: { state: 'unavailable', itemsServed: 0, publisherCount: 0 },
+};
+let digest;
+const liveDigest = {
   generatedAt: '2026-10-09T21:00:00.000Z',
   feedStatuses: { Reuters: 'ok' },
   categories: {
@@ -35,6 +42,7 @@ describe('verify_claim MCP tool', () => {
     process.env.UPSTASH_REDIS_REST_URL = 'https://fake-upstash.test';
     process.env.UPSTASH_REDIS_REST_TOKEN = 'fake-token';
     requests = [];
+    digest = liveDigest;
     globalThis.fetch = async (input) => {
       const url = String(input);
       requests.push(url);
@@ -102,6 +110,14 @@ describe('verify_claim MCP tool', () => {
     assert.deepEqual(result.headlines, []);
     assert.equal(result.matchedClusters, 0);
     assert.doesNotMatch(JSON.stringify(result), /\bfalse claim\b|\bfake\b|\bdebunked\b/i);
+  });
+
+  it('an unavailable digest is unknown, not not-found: nothing was searched', async () => {
+    digest = unavailableDigest;
+    const result = await callTool({ claim: 'Trump strikes diesel deal with Putin' });
+    assert.equal(result.found, false);
+    assert.equal(result.state, 'unknown');
+    assert.equal(result.digestCoverage?.state, 'unavailable');
   });
 
   it('rejects an empty claim without fetching', async () => {

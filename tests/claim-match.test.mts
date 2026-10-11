@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 
 import {
   CLAIM_MATCH_MAX_CLUSTERS,
+  buildClaimCard,
   checkClaimFigures,
   claimOverlap,
   claimTokens,
@@ -141,5 +142,20 @@ describe('checkClaimFigures', () => {
 
   it('a claim without figures has nothing to check', () => {
     assert.deepEqual(checkClaimFigures('Trump announces diesel deal', ['anything']), { claimed: [], grounded: [], ungrounded: [] });
+  });
+});
+
+describe('buildClaimCard state', () => {
+  const items = [item('Reuters', 'Trump announces diesel deal with Russia'), item('BBC World', 'Trump diesel deal with Russia announced')];
+
+  it('the verdict when the claim is found', () => {
+    assert.equal(buildClaimCard('Trump announces diesel deal with Russia', items).state, 'corroborated');
+  });
+
+  it('not-found only when there were headlines to search', () => {
+    assert.equal(buildClaimCard('Mars colony declares independence', items).state, 'not-found');
+    const empty = buildClaimCard('Mars colony declares independence', []);
+    assert.equal(empty.state, 'unknown');
+    assert.equal(empty.found, false);
   });
 });

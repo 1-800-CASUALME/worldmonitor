@@ -208,7 +208,7 @@ export const CLAIM_CARD_STATES: readonly ClaimCardState[] = ['corroborated', 'si
 export type ClaimCard = {
   readonly claim: string;
   readonly found: boolean;
-  /** not-found when no digest cluster reports the claim (never "false"); otherwise corroboration.state. */
+  /** not-found when the digest was searched and no cluster reports the claim (never "false"); unknown when there was no digest to search; otherwise corroboration.state. */
   readonly state: ClaimCardState;
   readonly corroboration: CorroborationJson;
   readonly matchedClusters: number;
@@ -231,7 +231,9 @@ export function buildClaimCard(claim: string, digestItems: readonly NewsItemCore
     return {
       claim,
       found: false,
-      state: 'not-found',
+      // not-found claims a search happened: with no digest items (coverage
+      // unavailable) nothing was searched, so the state stays unknown.
+      state: digestItems.length > 0 ? 'not-found' : 'unknown',
       corroboration: toCorroborationJson({ state: 'unknown' }),
       publishers: [],
       publishersUnlisted: 0,

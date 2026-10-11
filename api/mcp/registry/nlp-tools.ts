@@ -858,7 +858,7 @@ export const NLP_TOOLS: ToolDef[] = [
       properties: {
         claim: { type: 'string', description: 'The claim as checked (trimmed, capped).' },
         found: { type: 'boolean', description: 'True when at least one digest cluster reports the same event. False means not in WorldMonitor\'s current sources, not false.' },
-        state: { type: 'string', enum: [...CLAIM_CARD_STATES], description: 'not-found when no digest cluster reports the claim (not in WorldMonitor\'s sources, never false); otherwise corroboration.state.' },
+        state: { type: 'string', enum: [...CLAIM_CARD_STATES], description: 'not-found when the digest was searched and no cluster reports the claim (not in WorldMonitor\'s sources, never false); unknown when the digest had no headlines to search (see digestCoverage); otherwise corroboration.state.' },
         corroboration: CORROBORATION_OUTPUT_SCHEMA,
         ...PUBLISHER_ROSTER_OUTPUT_PROPERTIES,
         matchedClusters: { type: 'number', description: 'Digest clusters about this event (one event often spans several).' },
