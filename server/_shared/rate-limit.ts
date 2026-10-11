@@ -758,6 +758,11 @@ export const ENDPOINT_RATE_POLICIES: Record<string, EndpointRatePolicy> = {
   // these hit Convex + Resend per request.
   '/api/leads/v1/submit-contact': { limit: 3, window: '1 h' },
   '/api/leads/v1/register-interest': { limit: 5, window: '1 h' },
+  // #9093 reader error reports: anonymous writes to the review queue.
+  '/api/news/v1/submit-error-report': { limit: 5, window: '1 h' },
+  // Operator review: secret-gated, but still bounded against secret guessing.
+  '/api/news/v1/list-error-reports': { limit: 60, window: '60 s' },
+  '/api/news/v1/review-error-report': { limit: 60, window: '60 s' },
   // Scenario engine: legacy /api/scenario/v1/run capped at 10 jobs/min/IP via
   // inline Upstash INCR. Gateway preserves the same budget while using a
   // trusted paid-user principal when available, otherwise the client IP.
@@ -1004,6 +1009,15 @@ export const FAIL_CLOSED_ENDPOINT_RATE_POLICY_REQUIRED: Record<string, RateLimit
   },
   '/api/leads/v1/register-interest': {
     reason: 'Lead capture writes to Convex and sends email.',
+  },
+  '/api/news/v1/submit-error-report': {
+    reason: 'Anonymous error reports write to the review queue (#9093).',
+  },
+  '/api/news/v1/list-error-reports': {
+    reason: 'Operator review is gated by a shared secret; the limit bounds guessing (#9093).',
+  },
+  '/api/news/v1/review-error-report': {
+    reason: 'Operator review is gated by a shared secret; the limit bounds guessing (#9093).',
   },
   '/api/scenario/v1/run-scenario': {
     reason: 'Scenario runs are mutation-like jobs with a historical 10/min cap.',

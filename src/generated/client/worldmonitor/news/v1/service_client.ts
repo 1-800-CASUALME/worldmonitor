@@ -154,6 +154,50 @@ export interface LabelChangePublisher {
   tier: number;
 }
 
+export interface SubmitErrorReportRequest {
+  message: string;
+  storyId: string;
+  url: string;
+  contact: string;
+  website: string;
+}
+
+export interface SubmitErrorReportResponse {
+  status: string;
+  reportId: string;
+}
+
+export interface ListErrorReportsRequest {
+  status: string;
+}
+
+export interface ListErrorReportsResponse {
+  reports: ErrorReport[];
+  state: string;
+}
+
+export interface ErrorReport {
+  id: string;
+  status: string;
+  message: string;
+  storyId: string;
+  url: string;
+  contact: string;
+  createdAt: number;
+  reviewedAt: number;
+  publicNote: string;
+}
+
+export interface ReviewErrorReportRequest {
+  reportId: string;
+  decision: string;
+  publicNote: string;
+}
+
+export interface ReviewErrorReportResponse {
+  report?: ErrorReport;
+}
+
 export type StoryPhase = "STORY_PHASE_UNSPECIFIED" | "STORY_PHASE_BREAKING" | "STORY_PHASE_DEVELOPING" | "STORY_PHASE_SUSTAINED" | "STORY_PHASE_FADING";
 
 export type SummarizeStatus = "SUMMARIZE_STATUS_UNSPECIFIED" | "SUMMARIZE_STATUS_SUCCESS" | "SUMMARIZE_STATUS_CACHED" | "SUMMARIZE_STATUS_SKIPPED" | "SUMMARIZE_STATUS_ERROR";
@@ -332,6 +376,79 @@ export class NewsServiceClient {
     }
 
     return await resp.json() as ListLabelChangesResponse;
+  }
+
+  async submitErrorReport(req: SubmitErrorReportRequest, options?: NewsServiceCallOptions): Promise<SubmitErrorReportResponse> {
+    let path = "/api/news/v1/submit-error-report";
+    const url = this.baseURL + path;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...this.defaultHeaders,
+      ...options?.headers,
+    };
+
+    const resp = await this.fetchFn(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(req),
+      signal: options?.signal,
+    });
+
+    if (!resp.ok) {
+      return this.handleError(resp);
+    }
+
+    return await resp.json() as SubmitErrorReportResponse;
+  }
+
+  async listErrorReports(req: ListErrorReportsRequest, options?: NewsServiceCallOptions): Promise<ListErrorReportsResponse> {
+    let path = "/api/news/v1/list-error-reports";
+    const params = new URLSearchParams();
+    if (req.status != null && req.status !== "") params.set("status", String(req.status));
+    const url = this.baseURL + path + (params.toString() ? "?" + params.toString() : "");
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...this.defaultHeaders,
+      ...options?.headers,
+    };
+
+    const resp = await this.fetchFn(url, {
+      method: "GET",
+      headers,
+      signal: options?.signal,
+    });
+
+    if (!resp.ok) {
+      return this.handleError(resp);
+    }
+
+    return await resp.json() as ListErrorReportsResponse;
+  }
+
+  async reviewErrorReport(req: ReviewErrorReportRequest, options?: NewsServiceCallOptions): Promise<ReviewErrorReportResponse> {
+    let path = "/api/news/v1/review-error-report";
+    const url = this.baseURL + path;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...this.defaultHeaders,
+      ...options?.headers,
+    };
+
+    const resp = await this.fetchFn(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(req),
+      signal: options?.signal,
+    });
+
+    if (!resp.ok) {
+      return this.handleError(resp);
+    }
+
+    return await resp.json() as ReviewErrorReportResponse;
   }
 
   private async handleError(resp: Response): Promise<never> {

@@ -323,6 +323,7 @@ const EXCLUDED_RPC_ROUTES = {
   "/api/military/v1/list-military-bases": "Map viewport feed; needs a bounding box and zoom",
   "/api/military/v1/list-military-flights": "Map viewport feed; needs a bounding box",
   "/api/natural/v1/list-natural-events": "Same data as bootstrap key naturalEvents",
+  "/api/news/v1/list-error-reports": "Operator review queue (#9093), secret-gated",
   "/api/news/v1/list-label-changes": "Trust-page label history (#9093), not a widget data source",
   "/api/news/v1/summarize-article-cache": "Blocked by relay widget endpoint policy",
   "/api/positive-events/v1/list-positive-geo-events": "Same data as bootstrap key positiveGeoEvents",

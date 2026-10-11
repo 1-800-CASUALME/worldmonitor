@@ -65,11 +65,17 @@ export interface LabelChangePublisher {
   readonly tier: number | null;
 }
 
+/**
+ * One log entry. `corroboration` entries are automatic label changes.
+ * `correction` entries are reader reports an operator accepted: they carry the
+ * operator's public note as the reason, no label states, and may name a URL
+ * instead of a story.
+ */
 export interface LabelChange {
   readonly storyId: string;
-  readonly field: 'corroboration';
-  readonly previous: LabelHistoryState;
-  readonly next: LabelHistoryState;
+  readonly field: 'corroboration' | 'correction';
+  readonly previous: LabelHistoryState | '';
+  readonly next: LabelHistoryState | '';
   readonly previousPublishers: number;
   readonly nextPublishers: number;
   /** Epoch ms. */
@@ -178,15 +184,39 @@ export function labelChangeFor(
 /** Redis commands that append one change to both logs. */
 export function labelChangeCommands(change: LabelChange): RedisPipelineCommand[] {
   const member = JSON.stringify(change);
-  const storyKey = STORY_LABEL_HISTORY_KEY(change.storyId);
-  return [
+  const commands: RedisPipelineCommand[] = [
     ['LPUSH', LABEL_CHANGES_KEY, member],
     ['LTRIM', LABEL_CHANGES_KEY, 0, LABEL_CHANGES_MAX - 1],
     ['EXPIRE', LABEL_CHANGES_KEY, RETENTION_S],
-    ['LPUSH', storyKey, member],
-    ['LTRIM', storyKey, 0, STORY_LABEL_HISTORY_MAX - 1],
-    ['EXPIRE', storyKey, RETENTION_S],
   ];
+  if (change.storyId) {
+    const storyKey = STORY_LABEL_HISTORY_KEY(change.storyId);
+    commands.push(
+      ['LPUSH', storyKey, member],
+      ['LTRIM', storyKey, 0, STORY_LABEL_HISTORY_MAX - 1],
+      ['EXPIRE', storyKey, RETENTION_S],
+    );
+  }
+  return commands;
+}
+
+/** The log entry for an accepted reader report: the operator's public note, never the reader's text. */
+export function correctionEntry(report: { storyId: string; url: string }, publicNote: string, at: number): LabelChange {
+  return {
+    storyId: report.storyId,
+    field: 'correction',
+    previous: '',
+    next: '',
+    previousPublishers: 0,
+    nextPublishers: 0,
+    at,
+    trigger: 'report',
+    reason: publicNote,
+    sources: [],
+    title: '',
+    link: report.url,
+    credibilityScore: null,
+  };
 }
 
 /**
@@ -265,17 +295,22 @@ export function parseLabelChange(raw: unknown, now: number): LabelChange | null 
   const entry = value as Record<string, unknown>;
   const at = Number(entry.at);
   if (!Number.isFinite(at) || at < now - LABEL_HISTORY_RETENTION_MS) return null;
-  if (typeof entry.storyId !== 'string' || entry.storyId === '') return null;
-  if (!isLabelHistoryState(entry.previous) || !isLabelHistoryState(entry.next)) return null;
+  if (typeof entry.storyId !== 'string') return null;
+  const correction = entry.field === 'correction';
+  if (correction) {
+    if (entry.trigger !== 'report' || typeof entry.reason !== 'string' || entry.reason === '') return null;
+  } else if (entry.storyId === '' || !isLabelHistoryState(entry.previous) || !isLabelHistoryState(entry.next)) {
+    return null;
+  }
   const previousPublishers = Number(entry.previousPublishers);
   const nextPublishers = Number(entry.nextPublishers);
   if (!Number.isInteger(previousPublishers) || !Number.isInteger(nextPublishers)) return null;
   const score = Number(entry.credibilityScore);
   return {
     storyId: entry.storyId,
-    field: 'corroboration',
-    previous: entry.previous,
-    next: entry.next,
+    field: correction ? 'correction' : 'corroboration',
+    previous: correction ? '' : (entry.previous as LabelHistoryState),
+    next: correction ? '' : (entry.next as LabelHistoryState),
     previousPublishers,
     nextPublishers,
     at,

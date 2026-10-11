@@ -272,6 +272,10 @@ describe('resilience runtime manifest gateway auth', () => {
         '/api/resilience/v1/get-runtime-manifest',
         '/api/leads/v1/submit-contact',
         '/api/leads/v1/register-interest',
+        // #9093: anonymous error reports and the secret-gated review queue.
+        '/api/news/v1/submit-error-report',
+        '/api/news/v1/list-error-reports',
+        '/api/news/v1/review-error-report',
       ],
     );
     assert.equal(PREMIUM_RPC_PATHS.has('/api/resilience/v1/get-runtime-manifest'), false);
