@@ -193,10 +193,12 @@ export function labelChangeCommands(change: LabelChange): RedisPipelineCommand[]
  * Append changes, each at most once per guard window: two digest builds racing
  * over the same previous label would otherwise both log it.
  *
- * Returns the story ids whose change is recorded: appended here, or held by a
- * concurrent build's guard. The caller persists the new label only for those,
- * so a story whose entry was not written keeps its previous label and the
- * change is detected again next cycle. A failed append releases its guards
+ * Returns the story ids whose change this build confirmed appending. The caller
+ * persists the new label only for those, so a story whose entry was not
+ * written keeps its previous label and the change is detected again next
+ * cycle. A build that loses the guard leaves the label to the winner: the
+ * winner persists it after a confirmed append, or fails and releases the
+ * guard, and the next cycle detects the change again. A failed append releases its guards
  * (best effort) for that retry; when the failure was a timeout after Redis
  * applied the write, the retry can log the change twice, which is preferred
  * to losing it. Never throws.
@@ -211,13 +213,7 @@ export async function recordLabelChanges(changes: readonly LabelChange[], timeou
     timeoutMs,
   );
   if (guards.length !== changes.length) return recorded;
-  const won: number[] = [];
-  changes.forEach((change, i) => {
-    const guard = guards[i]!;
-    if (guard.error) return;
-    if (guard.result === 'OK') won.push(i);
-    else recorded.add(change.storyId); // another build holds the guard and records it
-  });
+  const won = changes.flatMap((_, i) => (guards[i]!.result === 'OK' ? [i] : []));
   if (won.length === 0) return recorded;
   const commands = won.flatMap((i) => labelChangeCommands(changes[i]!));
   const results = await runRedisPipeline(commands, false, timeoutMs);

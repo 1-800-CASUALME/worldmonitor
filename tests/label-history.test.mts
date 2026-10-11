@@ -217,10 +217,10 @@ describe('recording', () => {
     }
   });
 
-  it('a racing build that loses the guard appends nothing; the winner records it', async () => {
+  it('a racing build that loses the guard appends nothing and leaves the label to the winner', async () => {
     const redis = installFakeRedis((command) => (command[0] === 'SET' ? null : 'OK'));
     try {
-      assert.deepEqual([...await recordLabelChanges([change])], [HASH_A], 'recorded by the guard holder');
+      assert.equal((await recordLabelChanges([change])).size, 0, 'only a confirmed append persists the label');
       assert.equal(redis.commands.some((command) => command[0] === 'LPUSH'), false);
     } finally {
       redis.restore();
