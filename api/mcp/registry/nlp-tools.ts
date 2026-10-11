@@ -899,7 +899,8 @@ export const NLP_TOOLS: ToolDef[] = [
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     _execute: async (params, base, context, execution) => {
-      const claim = argStr(params.claim).trim().slice(0, CLAIM_MAX_CHARS);
+      // Not argStr: it lowercases, and the card echoes the claim as given.
+      const claim = (typeof params.claim === 'string' ? params.claim : '').trim().slice(0, CLAIM_MAX_CHARS);
       const empty = { ...buildClaimCard(claim, []), generatedAt: '' };
       const variant = resolveNlpDigestVariant(params.variant);
       if (!claim) return { ...empty, error: 'claim is required' };

@@ -1591,7 +1591,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `verify_claim`
 
-Evidence card for a claim or headline. Finds the live-digest clusters that report the same event (one event often spans several clusters) and returns WorldMonitor's coverage verdict over all of them. A cluster matches when one of its headlines carries at least half of the claim's content words, and at least two of them. The verdict is `assessCorroboration` over every matched headline, so syndicated feeds of one publisher count once.
+Evidence card for a claim or headline. Finds the live-digest clusters that report the same event (one event often spans several clusters) and returns WorldMonitor's coverage verdict over them. A cluster matches when one of its headlines carries at least half of the claim's content words, and at least two of them; the 8 best-matching clusters are kept. The verdict is `assessCorroboration` over every matched headline, so syndicated feeds of one publisher count once.
 
 The result reports `found`, `corroboration` (`single-publisher`, `tier4-only`, `corroborated`, `unknown`), the `publishers` roster with declared tiers, up to 10 matched `headlines` with fail-closed source provenance, `credibilityScore` of the best match, `firstSeen` / `lastUpdated`, and `figures`: numbers and dates in the claim checked against the matched headlines with the brief grounding rule. `figures.ungrounded` lists figures no matched headline states; it does not mean the figure is wrong. `found: false` means the claim is not in WorldMonitor's current sources, never that it is false. Every response carries the same `caveat`: coverage, not accuracy.
 

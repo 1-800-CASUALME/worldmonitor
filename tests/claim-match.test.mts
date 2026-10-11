@@ -126,6 +126,13 @@ describe('checkClaimFigures', () => {
     assert.deepEqual(check.ungrounded, []);
   });
 
+  it('a count equal to part of a date is still its own figure', () => {
+    const check = checkClaimFigures('Panama earthquake kills 9 on October 9, 2026', ['Panama earthquake on Oct 9 leaves dozens hurt']);
+    assert.deepEqual(check.claimed, ['2026-10-09', '9']);
+    assert.deepEqual(check.grounded, ['2026-10-09']);
+    assert.deepEqual(check.ungrounded, ['9']);
+  });
+
   it('readable figures: percentages and scaled amounts', () => {
     const check = checkClaimFigures('Prices up 3.5% after $12 billion deal', ['Prices rise 3.5% as deal closes']);
     assert.deepEqual(check.claimed, ['12000000000', '3.5%']);

@@ -164,24 +164,22 @@ function factLabel(fact: string): string {
  * uses it) applied to the claim against matched coverage. "Ungrounded" means
  * no matched headline states the figure, not that the figure is wrong.
  *
- * extractNumericFacts also records a date's month, day and year as numbers,
- * and a dated claim as both `date:YYYY-MM-DD` and `date:MM-DD`; those parts are
- * not figures the claim states, so they are not listed. A full date is
- * grounded when a headline gives the same month and day, because headlines
- * routinely omit the year.
+ * A date counts once, on both sides: its month, day and year are not read as
+ * separate numbers, so "kills 9 on October 9" lists 9 and a headline's "Oct 9"
+ * does not state it. A dated claim's short
+ * `date:MM-DD` is dropped beside its full date. A full date is grounded when a
+ * headline gives the same month and day, because headlines routinely omit the
+ * year.
  */
 export function checkClaimFigures(claim: string, coverageTexts: readonly string[]): FigureCheck {
-  const facts = extractNumericFacts(claim);
-  const ground = extractNumericFacts(coverageTexts.join('\n'));
-  const dateParts = new Set<string>();
+  const facts = extractNumericFacts(claim, { dateParts: false });
+  const ground = extractNumericFacts(coverageTexts.join('\n'), { dateParts: false });
   const fullDateMonthDays = new Set<string>();
   for (const fact of facts) {
-    const full = fact.match(/^date:(\d{4})-(\d{2})-(\d{2})$/);
-    const short = fact.match(/^date:(\d{2})-(\d{2})$/);
-    if (full) fullDateMonthDays.add(`date:${full[2]}-${full[3]}`);
-    for (const part of (full ?? short ?? []).slice(1)) dateParts.add(`number:${Number(part)}`);
+    const full = fact.match(/^date:\d{4}-(\d{2}-\d{2})$/);
+    if (full) fullDateMonthDays.add(`date:${full[1]}`);
   }
-  const listed = [...facts].filter((fact) => !dateParts.has(fact) && !fullDateMonthDays.has(fact)).sort();
+  const listed = [...facts].filter((fact) => !fullDateMonthDays.has(fact)).sort();
   const isGrounded = (fact: string) => {
     if (ground.has(fact)) return true;
     const full = fact.match(/^date:\d{4}-(\d{2}-\d{2})$/);

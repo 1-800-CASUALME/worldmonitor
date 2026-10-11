@@ -38,7 +38,7 @@ describe('verify_claim MCP tool', () => {
     globalThis.fetch = async (input) => {
       const url = String(input);
       requests.push(url);
-      if (url.startsWith('https://fake-upstash.test')) return Response.json([{ result: null }]);
+      if (new URL(url).hostname === 'fake-upstash.test') return Response.json([{ result: null }]);
       if (url.includes('/api/news/v1/list-feed-digest')) return Response.json(digest);
       throw new Error(`unexpected fetch: ${url}`);
     };
@@ -80,6 +80,7 @@ describe('verify_claim MCP tool', () => {
     assert.ok(result.headlines.every((h) => typeof h.tier === 'number' || h.tier === null));
     assert.equal(result.firstSeen, new Date(T0).toISOString());
     assert.match(result.caveat, /Coverage, not accuracy/);
+    assert.equal(result.claim, 'Trump strikes diesel deal with Putin', 'the claim is echoed as given, not lowercased');
     assert.equal(result.generatedAt, digest.generatedAt);
     assert.ok(requests.some((url) => url.includes('variant=full')));
   });
