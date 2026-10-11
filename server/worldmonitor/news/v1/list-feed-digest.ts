@@ -101,6 +101,7 @@ import { computeCredibilityScore } from '../../../../shared/news-credibility.js'
 import {
   STORY_LABEL_FIELD,
   encodeStoryLabel,
+  keepUnrecordedLabels,
   labelChangeFor,
   recordLabelChanges,
   storyLabel,
@@ -2577,9 +2578,7 @@ function storyLabelChanges(
   const labelChanges: LabelChange[] = [];
   for (const [hash, members] of itemsByHash) {
     const label = storyLabel(members);
-    const encoded = encodeStoryLabel(label);
-    if (!encoded) continue;
-    labelByHash.set(hash, encoded);
+    labelByHash.set(hash, encodeStoryLabel(label));
     const lead = members.reduce((best, item) => (item.importanceScore > best.importanceScore ? item : best));
     const change = labelChangeFor(hash, tracks.get(hash)?.label, label, {
       at: now,
@@ -3369,6 +3368,20 @@ async function buildDigest(
       ? storyLabelChanges(allSliced, storyTracks, now)
       : { labelByHash: undefined, labelChanges: [] };
 
+    // Record changes before persisting the new labels: a story whose entry
+    // was not written keeps its previous label, so the change is detected
+    // again next cycle instead of being lost.
+    if (labelByHash && labelChanges.length > 0) {
+      const timeoutMs = redisTimeoutForDeadline(storyTrackingDeadlineAt);
+      const recorded = timeoutMs === undefined
+        ? new Set<string>()
+        : await recordLabelChanges(labelChanges, timeoutMs).catch((err: unknown) => {
+          console.warn('[digest] label history write failed:', err);
+          return new Set<string>();
+        });
+      keepUnrecordedLabels(labelByHash, labelChanges, recorded);
+    }
+
     // Write story tracking. Errors never fail the digest build.
     await writeStoryTracking(
       allSliced,
@@ -3382,13 +3395,6 @@ async function buildDigest(
     ).catch((err: unknown) =>
       console.warn('[digest] story tracking write failed:', err),
     );
-    if (labelChanges.length > 0) {
-      const timeoutMs = redisTimeoutForDeadline(storyTrackingDeadlineAt);
-      if (timeoutMs !== undefined) {
-        await recordLabelChanges(labelChanges, timeoutMs)
-          .catch((err: unknown) => console.warn('[digest] label history write failed:', err));
-      }
-    }
 
     for (const [category, sliced] of slicedByCategory) {
       categories[category] = {

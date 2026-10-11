@@ -14,6 +14,7 @@
  * The label describes coverage, not accuracy: a change to "corroborated" means
  * more publishers carry the story, not that it was confirmed.
  */
+import { publisherFamilyFor } from '../../shared/publisher-families.js';
 import {
   assessCorroboration,
   evidenceFromCluster,
@@ -43,8 +44,14 @@ export const STORY_LABEL_HISTORY_MAX = 20;
 /** Publishers listed per entry; the count is always complete. */
 const ENTRY_PUBLISHERS_MAX = 12;
 
-/** Story-track hash field holding the last recorded label, as `state|publishers`. */
+/** Story-track hash field holding the last recorded label, as `state|publishers`, or UNTRACKED_LABEL. */
 export const STORY_LABEL_FIELD = 'corrState';
+/**
+ * Written when a cycle's label is tier4-only or unknown, so the next tracked
+ * label is compared with that, not with an older one: corroborated, then
+ * tier4-only, then single-publisher must not log corroborated → single-publisher.
+ */
+export const UNTRACKED_LABEL = 'untracked';
 
 export interface StoryLabel {
   readonly state: Corroboration['state'];
@@ -78,11 +85,32 @@ export interface LabelChange {
   readonly credibilityScore: number | null;
 }
 
+/**
+ * The publisher label an item counts under: its trusted originating publisher
+ * when it has one the family map knows (an aggregator or topic feed carrying
+ * Reuters copy counts as Reuters), else its feed label. Mirrors
+ * publisherFamilyForItem, which the digest's corroborationCount uses.
+ */
+function publisherLabel(item: { source: string; originPublisher?: string; originPublisherTrusted?: boolean }): string {
+  if (item.originPublisherTrusted === true && typeof item.originPublisher === 'string'
+    && publisherFamilyFor(item.originPublisher) !== '') {
+    return item.originPublisher;
+  }
+  return item.source;
+}
+
 /** The label a story carries this cycle, from the items the digest kept for it. */
 export function storyLabel(
-  items: readonly { readonly source: string; readonly corroborationCount?: number }[],
+  items: readonly {
+    readonly source: string;
+    readonly originPublisher?: string;
+    readonly originPublisherTrusted?: boolean;
+    readonly corroborationCount?: number;
+  }[],
 ): StoryLabel {
-  const evidence = evidenceFromCluster({ allItems: items });
+  const evidence = evidenceFromCluster({
+    allItems: items.map((item) => ({ source: publisherLabel(item), corroborationCount: item.corroborationCount })),
+  });
   const corroboration = assessCorroboration(evidence);
   return {
     state: corroboration.state,
@@ -91,9 +119,9 @@ export function storyLabel(
   };
 }
 
-/** Value written to STORY_LABEL_FIELD, or null for a state the history does not track. */
-export function encodeStoryLabel(label: StoryLabel): string | null {
-  if (!isLabelHistoryState(label.state) || label.publishers === null) return null;
+/** Value written to STORY_LABEL_FIELD: `state|publishers`, or UNTRACKED_LABEL for a state the history does not track. */
+export function encodeStoryLabel(label: StoryLabel): string {
+  if (!isLabelHistoryState(label.state) || label.publishers === null) return UNTRACKED_LABEL;
   return `${label.state}|${label.publishers}`;
 }
 
@@ -163,30 +191,68 @@ export function labelChangeCommands(change: LabelChange): RedisPipelineCommand[]
 
 /**
  * Append changes, each at most once per guard window: two digest builds racing
- * over the same previous label would otherwise both log it. Returns the number
- * appended. Never throws; a failed write loses the entry, never the digest.
+ * over the same previous label would otherwise both log it.
+ *
+ * Returns the story ids whose change is recorded: appended here, or held by a
+ * concurrent build's guard. The caller persists the new label only for those,
+ * so a story whose entry was not written keeps its previous label and the
+ * change is detected again next cycle. A failed append releases its guards
+ * (best effort) for that retry; when the failure was a timeout after Redis
+ * applied the write, the retry can log the change twice, which is preferred
+ * to losing it. Never throws.
  */
-export async function recordLabelChanges(changes: readonly LabelChange[], timeoutMs?: number): Promise<number> {
-  if (changes.length === 0) return 0;
+export async function recordLabelChanges(changes: readonly LabelChange[], timeoutMs?: number): Promise<Set<string>> {
+  const recorded = new Set<string>();
+  if (changes.length === 0) return recorded;
+  const guardKeys = changes.map((change) => LABEL_CHANGE_GUARD_KEY(change.storyId, change.previous, change.next));
   const guards = await runRedisPipeline(
-    changes.map((change) => [
-      'SET', LABEL_CHANGE_GUARD_KEY(change.storyId, change.previous, change.next), String(change.at),
-      'NX', 'EX', LABEL_CHANGE_GUARD_TTL_S,
-    ]),
+    changes.map((change, i) => ['SET', guardKeys[i]!, String(change.at), 'NX', 'EX', LABEL_CHANGE_GUARD_TTL_S]),
     false,
     timeoutMs,
   );
-  const won = changes.filter((_, i) => guards[i]?.result === 'OK');
-  if (won.length === 0) return 0;
-  const results = await runRedisPipeline(won.flatMap(labelChangeCommands), false, timeoutMs);
-  return results.length > 0 ? won.length : 0;
+  if (guards.length !== changes.length) return recorded;
+  const won: number[] = [];
+  changes.forEach((change, i) => {
+    const guard = guards[i]!;
+    if (guard.error) return;
+    if (guard.result === 'OK') won.push(i);
+    else recorded.add(change.storyId); // another build holds the guard and records it
+  });
+  if (won.length === 0) return recorded;
+  const commands = won.flatMap((i) => labelChangeCommands(changes[i]!));
+  const results = await runRedisPipeline(commands, false, timeoutMs);
+  if (results.length === commands.length && results.every((result) => !result.error)) {
+    for (const i of won) recorded.add(changes[i]!.storyId);
+  } else {
+    await runRedisPipeline(won.map((i) => ['DEL', guardKeys[i]!]), false, timeoutMs);
+  }
+  return recorded;
+}
+
+/** Source-credibility tiers (1-4), not account tiers. */
+const DECLARED_TIERS: readonly unknown[] = [1, 2, 3, 4];
+
+/**
+ * Drop the new label of every story whose change was not recorded, so the
+ * story keeps its previous label and the change is detected again next cycle.
+ * Mutates and returns `labelByHash`.
+ */
+export function keepUnrecordedLabels(
+  labelByHash: Map<string, string>,
+  changes: readonly LabelChange[],
+  recorded: ReadonlySet<string>,
+): Map<string, string> {
+  for (const change of changes) {
+    if (!recorded.has(change.storyId)) labelByHash.delete(change.storyId);
+  }
+  return labelByHash;
 }
 
 function asPublisher(raw: unknown): LabelChangePublisher | null {
   if (!raw || typeof raw !== 'object') return null;
   const { name, tier } = raw as { name?: unknown; tier?: unknown };
   if (typeof name !== 'string' || name === '') return null;
-  return { name, tier: typeof tier === 'number' && tier >= 1 && tier <= 4 ? tier : null };
+  return { name, tier: DECLARED_TIERS.includes(tier as number) ? (tier as number) : null };
 }
 
 /** A stored entry, or null when it is malformed or older than the retention window. */

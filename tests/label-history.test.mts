@@ -10,7 +10,9 @@ import {
   STORY_LABEL_FIELD,
   STORY_LABEL_HISTORY_KEY,
   decodeStoryLabel,
+  UNTRACKED_LABEL,
   encodeStoryLabel,
+  keepUnrecordedLabels,
   labelChangeFor,
   parseLabelChange,
   recordLabelChanges,
@@ -69,12 +71,28 @@ describe('story label', () => {
     assert.deepEqual(label.roster.map((p) => p.name).sort(), ['BBC', 'Reuters']);
   });
 
+  it('counts a trusted originating publisher, as the digest count does', () => {
+    // Reuters copy carried by two topic feeds is one publisher, not two.
+    const label = storyLabel([
+      { source: 'Reuters Crypto', originPublisher: 'Reuters', originPublisherTrusted: true, corroborationCount: 1 },
+      { source: 'DeFi News', originPublisher: 'Reuters', originPublisherTrusted: true, corroborationCount: 1 },
+    ]);
+    assert.equal(label.state, 'single-publisher');
+    assert.deepEqual(label.roster.map((p) => p.name), ['Reuters']);
+    // An untrusted origin claim is ignored.
+    assert.equal(storyLabel([
+      { source: 'Reuters World', corroborationCount: 1 },
+      { source: 'DeFi News', originPublisher: 'Reuters', originPublisherTrusted: false, corroborationCount: 1 },
+    ]).state, 'corroborated');
+  });
+
   it('encodes only the two tracked states, and round-trips them', () => {
     const corroborated = storyLabel([{ source: 'Reuters World', corroborationCount: 2 }, { source: 'BBC World' }]);
     assert.equal(encodeStoryLabel(corroborated), 'corroborated|2');
     assert.deepEqual(decodeStoryLabel('corroborated|2'), { state: 'corroborated', publishers: 2 });
-    assert.equal(encodeStoryLabel({ state: 'unknown', publishers: null, roster: [] }), null);
-    assert.equal(encodeStoryLabel({ state: 'tier4-only', publishers: 2, roster: [] }), null);
+    assert.equal(encodeStoryLabel({ state: 'unknown', publishers: null, roster: [] }), UNTRACKED_LABEL);
+    assert.equal(encodeStoryLabel({ state: 'tier4-only', publishers: 2, roster: [] }), UNTRACKED_LABEL);
+    assert.equal(decodeStoryLabel(UNTRACKED_LABEL), null);
     for (const bad of [undefined, '', 'corroborated', 'verified|2', 'corroborated|0', 'corroborated|x', 42]) {
       assert.equal(decodeStoryLabel(bad), null, String(bad));
     }
@@ -110,6 +128,11 @@ describe('label change detection', () => {
       { source: 'Reuters World', corroborationCount: 4 }, { source: 'BBC World' },
     ]), context), null, 'a count change inside one state is not a label change');
     assert.equal(labelChangeFor(HASH_A, 'single-publisher|1', { state: 'tier4-only', publishers: 2, roster: [] }, context), null);
+  });
+
+  it('an untracked cycle in between resets the comparison, so no stale change is logged', () => {
+    // corroborated → tier4-only (persisted as untracked) → single-publisher.
+    assert.equal(labelChangeFor(HASH_A, UNTRACKED_LABEL, single, context), null);
   });
 });
 
@@ -179,7 +202,7 @@ describe('recording', () => {
   it('appends to the global and per-story logs, bounded and expiring after seven days', async () => {
     const redis = installFakeRedis();
     try {
-      assert.equal(await recordLabelChanges([change]), 1);
+      assert.deepEqual([...await recordLabelChanges([change])], [HASH_A]);
       const guard = redis.commands.find((command) => command[0] === 'SET')!;
       assert.ok(guard.includes('NX'), 'a guard key decides who records the change');
       for (const key of [LABEL_CHANGES_KEY, STORY_LABEL_HISTORY_KEY(HASH_A)]) {
@@ -194,14 +217,40 @@ describe('recording', () => {
     }
   });
 
-  it('a racing build that loses the guard appends nothing', async () => {
+  it('a racing build that loses the guard appends nothing; the winner records it', async () => {
     const redis = installFakeRedis((command) => (command[0] === 'SET' ? null : 'OK'));
     try {
-      assert.equal(await recordLabelChanges([change]), 0);
+      assert.deepEqual([...await recordLabelChanges([change])], [HASH_A], 'recorded by the guard holder');
       assert.equal(redis.commands.some((command) => command[0] === 'LPUSH'), false);
     } finally {
       redis.restore();
     }
+  });
+
+  it('a failed append is not recorded, and releases its guard for the retry', async () => {
+    const redis = installFakeRedis();
+    const realFetch = globalThis.fetch;
+    let call = 0;
+    globalThis.fetch = (async (input: unknown, init?: { body?: string }) => {
+      call += 1;
+      if (call === 2) return { ok: false, status: 500, json: async () => ({}) };
+      return (realFetch as unknown as (i: unknown, x?: unknown) => Promise<unknown>)(input, init);
+    }) as unknown as typeof fetch;
+    try {
+      assert.equal((await recordLabelChanges([change])).size, 0);
+      assert.ok(redis.commands.some((command) => command[0] === 'DEL' && String(command[1]).includes(HASH_A)));
+    } finally {
+      redis.restore();
+    }
+  });
+
+  it('a story whose change was not recorded keeps its previous label', () => {
+    const labels = new Map([[HASH_A, 'corroborated|2'], [HASH_B, 'single-publisher|1']]);
+    keepUnrecordedLabels(labels, [change], new Set());
+    assert.deepEqual([...labels.keys()], [HASH_B], 'only the unchanged story is persisted');
+    const recorded = new Map([[HASH_A, 'corroborated|2']]);
+    keepUnrecordedLabels(recorded, [change], new Set([HASH_A]));
+    assert.equal(recorded.get(HASH_A), 'corroborated|2');
   });
 });
 
