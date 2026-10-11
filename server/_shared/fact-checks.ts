@@ -14,7 +14,7 @@
  * (tests/fact-checks.test.mts checks this).
  */
 import FACT_CHECKERS from '../../shared/fact-checkers.json';
-import { CLAIM_MAX_CHARS, claimOverlap, claimTokens } from './claim-match';
+import { claimOverlap, claimTokens } from './claim-match';
 
 /** Google Fact Check Tools API, claims:search (v1alpha1). */
 export const FACT_CHECK_SEARCH_URL = 'https://factchecktools.googleapis.com/v1alpha1/claims:search';
@@ -47,7 +47,13 @@ export const FACT_CHECK_LABEL = 'A published fact-check of a similar claim';
 /** Shown with every fact-check list, found or not. */
 export const FACT_CHECK_CAVEAT = 'Ratings are the fact-checkers\' own, quoted with attribution from IFCN-verified signatories. WorldMonitor does not rate claims, and a rating never changes the coverage result above.';
 
-const RATING_MAX_CHARS = 80;
+/**
+ * Longest rating and rated claim accepted. Text is never cut: a longer one is
+ * dropped, because a cut rating is no longer the fact-checker's words and a
+ * cut claim would be matched on its opening alone.
+ */
+const RATING_MAX_CHARS = 200;
+const REVIEWED_CLAIM_MAX_CHARS = 1000;
 const TITLE_MAX_CHARS = 200;
 
 /** IFCN-verified fact-checker domains (shared/fact-checkers.json). */
@@ -129,6 +135,12 @@ export type FactCheck = {
   readonly claimReviewed: string;
 };
 
+/** The text with whitespace collapsed, or '' when it is longer than max (never cut). */
+function whole(text: unknown, max: number): string {
+  const value = typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : '';
+  return value.length <= max ? value : '';
+}
+
 function clip(text: unknown, max: number): string {
   return typeof text === 'string' ? text.replace(/\s+/g, ' ').trim().slice(0, max) : '';
 }
@@ -144,22 +156,22 @@ export function selectFactChecks(claim: string, apiClaims: readonly FactCheckApi
   const seen = new Set<string>();
   const out: FactCheck[] = [];
   for (const apiClaim of apiClaims) {
-    const claimReviewed = clip(apiClaim?.text, CLAIM_MAX_CHARS);
+    const claimReviewed = whole(apiClaim?.text, REVIEWED_CLAIM_MAX_CHARS);
     if (!claimReviewed || !isStrongFactCheckMatch(claim, claimReviewed)) continue;
     for (const review of apiClaim.claimReview ?? []) {
-      const url = clip(review?.url, 2048);
+      const url = whole(review?.url, 2048);
       const site = factCheckerDomainFor(url);
       if (!site || seen.has(url)) continue;
       const language = clip(review.languageCode, 16).toLowerCase();
       if (language && language !== FACT_CHECK_LANGUAGE && !language.startsWith(`${FACT_CHECK_LANGUAGE}-`)) continue;
-      const rating = clip(review.textualRating, RATING_MAX_CHARS);
+      const rating = whole(review.textualRating, RATING_MAX_CHARS);
       const reviewedMs = Date.parse(clip(review.reviewDate, 64));
       // Every rating shown names its date (#9094 acceptance), so one without
       // a valid date is not shown.
       if (!rating || !Number.isFinite(reviewedMs)) continue;
       seen.add(url);
       out.push({
-        publisher: clip(review.publisher?.name, 120) || site,
+        publisher: whole(review.publisher?.name, 120) || site,
         site,
         rating,
         reviewedAt: new Date(reviewedMs).toISOString(),
@@ -193,13 +205,13 @@ export function compactApiClaims(body: unknown): FactCheckApiClaim[] {
   const claims = (body as { claims?: unknown })?.claims;
   if (!Array.isArray(claims)) return [];
   return claims.slice(0, FACT_CHECK_SEARCH_PAGE_SIZE).map((raw: FactCheckApiClaim) => ({
-    text: clip(raw?.text, CLAIM_MAX_CHARS),
+    text: whole(raw?.text, REVIEWED_CLAIM_MAX_CHARS),
     claimReview: (Array.isArray(raw?.claimReview) ? raw.claimReview : []).slice(0, 10).map((review) => ({
-      publisher: { name: clip(review?.publisher?.name, 120), site: clip(review?.publisher?.site, 253) },
-      url: clip(review?.url, 2048),
+      publisher: { name: whole(review?.publisher?.name, 120), site: whole(review?.publisher?.site, 253) },
+      url: whole(review?.url, 2048),
       title: clip(review?.title, TITLE_MAX_CHARS),
       reviewDate: clip(review?.reviewDate, 64),
-      textualRating: clip(review?.textualRating, RATING_MAX_CHARS),
+      textualRating: whole(review?.textualRating, RATING_MAX_CHARS),
       languageCode: clip(review?.languageCode, 16),
     })),
   }));

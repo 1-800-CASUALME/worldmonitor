@@ -6,7 +6,7 @@
  */
 import { cachedFetchJson } from './redis';
 import { sha256Hex } from './hash';
-import { CLAIM_MAX_CHARS, claimTokens } from './claim-match';
+import { CLAIM_MAX_CHARS } from './claim-match';
 import {
   FACT_CHECK_API_KEY_ENV,
   claimCanMatchFactChecks,
@@ -31,15 +31,24 @@ export type FactCheckLookup = {
 
 type CachedSearch = { claims: FactCheckApiClaim[] };
 
+/** The exact claims:search query for a claim: whitespace collapsed, capped. */
+export function factCheckQuery(rawClaim: string): string {
+  return String(rawClaim ?? '').replace(/\s+/g, ' ').trim().slice(0, CLAIM_MAX_CHARS);
+}
+
+/** The cache identity of a search: the query sent upstream, so every word that changes the search changes the key. */
+export async function factCheckCacheKey(query: string): Promise<string> {
+  return `factcheck:search:v2:${await sha256Hex(query)}`;
+}
+
 /**
- * Published fact-checks for a claim. The upstream answer is cached by the
- * claim's content words, so "Kyiv struck" and "kyiv struck!" share one entry;
- * matching and the allowlist run on every read, so changing them needs no
- * cache bump. Never throws: a failed search is `unavailable` and is never
+ * Published fact-checks for a claim. The upstream answer is cached under the
+ * exact query sent; matching and the allowlist run on every read, so changing
+ * them needs no cache bump. Never throws: a failed search is `unavailable` and is never
  * cached as "none"; no key is `not-configured`.
  */
 export async function lookupFactChecks(rawClaim: string): Promise<FactCheckLookup> {
-  const claim = String(rawClaim ?? '').trim().slice(0, CLAIM_MAX_CHARS);
+  const claim = factCheckQuery(rawClaim);
   // Too few content words to match anything strongly: nothing to look up.
   if (!claimCanMatchFactChecks(claim)) return { state: 'ok', factChecks: [] };
 
@@ -48,7 +57,7 @@ export async function lookupFactChecks(rawClaim: string): Promise<FactCheckLooku
 
   let cached: CachedSearch | null;
   try {
-    const cacheKey = `factcheck:search:v1:${await sha256Hex(claimTokens(claim).join(' '))}`;
+    const cacheKey = await factCheckCacheKey(claim);
     cached = await cachedFetchJson<CachedSearch>(cacheKey, SEARCH_CACHE_TTL_S, async () => {
       const res = await globalThis.fetch(factCheckSearchUrl(claim, apiKey), {
         headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },

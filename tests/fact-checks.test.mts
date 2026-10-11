@@ -19,6 +19,7 @@ import {
   type FactCheckApiClaim,
 } from '../server/_shared/fact-checks.ts';
 import { searchFactChecks } from '../server/worldmonitor/news/v1/search-fact-checks.ts';
+import { factCheckCacheKey, factCheckQuery } from '../server/_shared/fact-check-search.ts';
 
 const CLAIM = 'Russia agreed to supply diesel fuel to the United States';
 
@@ -142,6 +143,23 @@ describe('selectFactChecks', () => {
     assert.ok(selected.at(-1)!.reviewedAt < selected[0]!.reviewedAt);
   });
 
+  it('quotes a rating whole, and drops one too long to quote whole rather than cutting it', () => {
+    const sentence = 'Misleading: the deal covers diesel only for military use and was never signed by either government';
+    const [kept] = selectFactChecks(CLAIM, [apiClaim(CLAIM, [review({ textualRating: sentence })])]);
+    assert.equal(kept!.rating, sentence);
+    const essay = 'Mostly false. '.repeat(20);
+    assert.deepEqual(selectFactChecks(CLAIM, [apiClaim(CLAIM, [review({ textualRating: essay })])]), []);
+    assert.deepEqual(compactApiClaims({ claims: [apiClaim(CLAIM, [review({ textualRating: essay })])] })[0]!.claimReview![0]!.textualRating, '');
+  });
+
+  it('matches the whole rated claim: a long one is never matched on its opening alone', () => {
+    const longer = `${CLAIM} ${'and other unrelated statements about trade policy and shipping routes '.repeat(4)}`;
+    assert.ok(longer.length > 300 && longer.length < 1000);
+    assert.deepEqual(selectFactChecks(CLAIM, [apiClaim(longer, [review()])]), [], 'the full claim fails the reverse overlap');
+    const huge = `${CLAIM} ${'x'.repeat(1000)}`;
+    assert.deepEqual(selectFactChecks(CLAIM, [apiClaim(huge, [review()])]), [], 'too long to match whole: dropped, not cut');
+  });
+
   it('dedupes one fact-check listed under two claims', () => {
     const selected = selectFactChecks(CLAIM, [apiClaim(CLAIM, [review()]), apiClaim(CLAIM, [review()])]);
     assert.equal(selected.length, 1);
@@ -230,6 +248,17 @@ describe('SearchFactChecks handler', () => {
     delete process.env[FACT_CHECK_API_KEY_ENV];
     const response = await searchFactChecks(ctx(), { claim: CLAIM });
     assert.deepEqual({ state: response.state, n: response.factChecks.length, calls: calls.length }, { state: 'not-configured', n: 0, calls: 0 });
+  });
+
+  it('caches under the exact query sent: a dropped word like "not" is a different search', async () => {
+    const safe = factCheckQuery('Scientists say the vaccine is safe');
+    const notSafe = factCheckQuery('Scientists say the vaccine is not safe');
+    assert.notEqual(await factCheckCacheKey(safe), await factCheckCacheKey(notSafe));
+    assert.notEqual(await factCheckCacheKey(factCheckQuery('Strike kills 9')), await factCheckCacheKey(factCheckQuery('Strike kills 90')));
+    assert.equal(factCheckQuery('  Kyiv   struck\n overnight '), 'Kyiv struck overnight');
+    assert.equal(await factCheckCacheKey('a b'), await factCheckCacheKey(factCheckQuery(' a  b ')), 'whitespace alone does not split the cache');
+    await searchFactChecks(ctx(), { claim: `  ${CLAIM}  ` });
+    assert.equal(new URL(calls[0]!.url).searchParams.get('query'), factCheckQuery(CLAIM), 'the key is built from the query actually sent');
   });
 
   it('a claim too short to match strongly is ok with nothing, without spending quota', async () => {
