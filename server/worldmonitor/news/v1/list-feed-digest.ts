@@ -3431,7 +3431,9 @@ async function buildDigest(
       console.warn('[digest] story tracking write failed:', err),
     );
     // #9093: today's stories by label, for /trust. One command per full/en build.
-    if (labelCounts) {
+    // An empty build is rejected for the last-good digest, so it must not
+    // overwrite the counts that describe that digest.
+    if (labelCounts && labelCounts.stories > 0) {
       const timeoutMs = redisTimeoutForDeadline(storyTrackingDeadlineAt);
       if (timeoutMs !== undefined) {
         await runRedisPipeline([labelCountsCommand(labelCounts)], false, timeoutMs)

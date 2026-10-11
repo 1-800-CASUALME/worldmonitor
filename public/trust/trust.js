@@ -4,6 +4,8 @@
   'use strict';
   var LIST_URL = '/api/news/v1/list-label-changes';
   var SUBMIT_URL = '/api/news/v1/submit-error-report';
+  // The API serves at most 200 entries; the page says so when it is full.
+  var PAGE_LIMIT = 200;
   var STATE_TEXT = { 'single-publisher': 'Single publisher', corroborated: 'Corroborated' };
 
   function el(tag, className, text) {
@@ -120,17 +122,23 @@
         historyButton.disabled = true;
         getJson(LIST_URL + '?story_id=' + encodeURIComponent(change.storyId) + '&limit=20')
           .then(function (body) {
+            if (body.state !== 'ok') throw new Error('unavailable');
             history = el('ul', 'history');
             var entries = Array.isArray(body.changes) ? body.changes : [];
             if (entries.length === 0) history.appendChild(el('li', '', 'No other changes recorded.'));
             entries.forEach(function (entry) { history.appendChild(historyLine(entry)); });
+            var failed = item.querySelector('.history-error');
+            if (failed) failed.remove();
             item.appendChild(history);
             historyButton.setAttribute('aria-expanded', 'true');
           })
           .catch(function () {
-            history = el('ul', 'history');
-            history.appendChild(el('li', '', 'History could not be loaded.'));
-            item.appendChild(history);
+            // Not kept: the next click retries instead of reopening the error.
+            var failed = item.querySelector('.history-error');
+            if (!failed) {
+              failed = el('p', 'history history-error', 'History could not be loaded. Try again.');
+              item.appendChild(failed);
+            }
           })
           .then(function () { historyButton.disabled = false; });
       });
@@ -151,7 +159,7 @@
 
   function loadChanges() {
     var status = $('changes-status');
-    getJson(LIST_URL + '?limit=50')
+    getJson(LIST_URL + '?limit=' + PAGE_LIMIT)
       .then(function (body) {
         renderCounts(body.counts);
         if (body.retentionDays) $('retention').textContent = String(body.retentionDays);
@@ -166,7 +174,9 @@
         changes.forEach(function (change) { list.appendChild(renderChange(change)); });
         status.textContent = changes.length === 0
           ? 'No label changes in this period.'
-          : changes.length + (changes.length === 1 ? ' change.' : ' changes.');
+          : changes.length >= PAGE_LIMIT
+            ? 'Showing the latest ' + changes.length + ' changes; older ones from this period are not listed here.'
+            : changes.length + (changes.length === 1 ? ' change.' : ' changes.');
       })
       .catch(function () {
         $('today-note').textContent = "Today's counts could not be loaded.";
@@ -177,12 +187,18 @@
 
   // ---- report form ----
   var reportStoryId = '';
+  var autoUrl = '';
   function startReport(change) {
     reportStoryId = change.storyId || '';
     var story = $('report-story');
     story.textContent = change.title ? 'About: ' + change.title : '';
     story.hidden = !change.title;
-    if (change.link && !$('report-url').value) $('report-url').value = safeLink(change.link);
+    // Replace a link this form filled for another story; keep one the reader typed.
+    var urlField = $('report-url');
+    if (!urlField.value || urlField.value === autoUrl) {
+      autoUrl = safeLink(change.link || '');
+      urlField.value = autoUrl;
+    }
     $('report-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
     $('report-message').focus();
   }
@@ -237,6 +253,7 @@
           status.className = '';
           event.target.reset();
           reportStoryId = '';
+          autoUrl = '';
           $('report-story').hidden = true;
         }
       })

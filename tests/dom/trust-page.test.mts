@@ -93,6 +93,48 @@ describe('/trust page', () => {
     expect(document.querySelectorAll('.history li')).toHaveLength(2);
   });
 
+  it('an unreadable story history is an error, and the next click retries', async () => {
+    const calls = mount({
+      '/api/news/v1/list-label-changes?limit': [{ body: { state: 'ok', changes: [change] } }],
+      '/api/news/v1/list-label-changes?story_id': [
+        { body: { state: 'unavailable', changes: [] } },
+        { body: { state: 'ok', changes: [change] } },
+      ],
+    });
+    await flush();
+    const button = document.querySelector('.actions button') as HTMLButtonElement;
+    button.click();
+    await flush();
+    expect(document.querySelector('.history-error')!.textContent).toContain('could not be loaded');
+    expect(document.body.textContent).not.toContain('No other changes recorded.');
+    button.click();
+    await flush();
+    expect(calls).toHaveLength(3);
+    expect(document.querySelector('.history-error')).toBeNull();
+    expect(document.querySelectorAll('.history li')).toHaveLength(1);
+  });
+
+  it('says when the list is cut at the page limit', async () => {
+    mount({ '/api/news/v1/list-label-changes': [{ body: { state: 'ok', changes: Array.from({ length: 200 }, () => change) } }] });
+    await flush();
+    expect(text('changes-status')).toContain('Showing the latest 200 changes');
+  });
+
+  it('reporting another story replaces the link the form filled, but not one the reader typed', async () => {
+    const other = { ...change, storyId: 'b'.repeat(64), title: 'Other story', link: 'https://www.bbc.com/news/y' };
+    mount({ '/api/news/v1/list-label-changes': [{ body: { state: 'ok', changes: [change, other] } }] });
+    await flush();
+    const reportButtons = [...document.querySelectorAll<HTMLButtonElement>('.actions button')].filter((b) => b.textContent === 'Report an error');
+    const url = document.getElementById('report-url') as HTMLInputElement;
+    reportButtons[0]!.click();
+    expect(url.value).toBe('https://www.reuters.com/world/x');
+    reportButtons[1]!.click();
+    expect(url.value).toBe('https://www.bbc.com/news/y');
+    url.value = 'https://example.org/my-source';
+    reportButtons[0]!.click();
+    expect(url.value).toBe('https://example.org/my-source');
+  });
+
   it('reports an error about a change, honeypot included, and never claims it was applied', async () => {
     const calls = mount({
       '/api/news/v1/list-label-changes': [{ body: { state: 'ok', changes: [change] } }],
