@@ -7,7 +7,8 @@ import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderClaimCardHtml } from '@/components/claim-card';
-import { checkClaim, claimDigestFromBody, VERIFY_DIGEST_PATH } from '@/services/verify-claim';
+import { checkClaim, claimDigestFromBody, VERIFY_DIGEST_URL } from '@/services/verify-claim';
+import { isPublicSharedRpcRequest } from '@/shared/public-rpc-cache';
 import { buildClaimCard } from '../../server/_shared/claim-match';
 
 const NOW = Date.parse('2026-10-09T21:00:00Z');
@@ -40,6 +41,10 @@ const PAGE_BODY = readFileSync(resolve(import.meta.dirname, '../../verify.html')
 
 describe('claim card on /verify', () => {
   const digest = claimDigestFromBody(BODY);
+
+  it('reads the digest on its public, caller-invariant cache key', () => {
+    expect(isPublicSharedRpcRequest(new URL(VERIFY_DIGEST_URL, 'https://www.worldmonitor.app'))).toBe(true);
+  });
 
   it('dedupes digest items across categories', () => {
     expect(digest.items).toHaveLength(5);
@@ -108,9 +113,7 @@ describe('/verify page bootstrap', () => {
     expect(document.querySelector('.vc-card')?.classList.contains('vc-corroborated')).toBe(true);
     expect(document.getElementById('digestStatus')?.textContent).toMatch(/^Searching 5 live headlines from 4 feeds/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const url = new URL(String(fetchMock.mock.calls[0]![0]), location.href);
-    expect(`${url.pathname}?variant=${url.searchParams.get('variant')}&lang=${url.searchParams.get('lang')}`).toBe(VERIFY_DIGEST_PATH);
-    expect(url.searchParams.get('public')).toBe('1');
+    expect(String(fetchMock.mock.calls[0]![0])).toBe(VERIFY_DIGEST_URL);
     expect(fetchMock.mock.calls[0]![1]).toMatchObject({ credentials: 'omit' });
   });
 

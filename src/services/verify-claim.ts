@@ -2,18 +2,22 @@
  * The /verify page's data path (#9092): one public digest read, then the same
  * evidence card the verify_claim MCP tool returns, built in the browser.
  * Nothing here grades a claim; see server/_shared/claim-match.ts.
+ *
+ * Deliberately standalone: this is a separate Vite entry, and every module it
+ * shares with the dashboard becomes a shared chunk in the dashboard's build.
+ * So the digest read and the item mapping are inlined here rather than reached
+ * through runtime.ts, public-rpc-fetch.ts and news-digest-items.ts.
  */
-import type { NewsItem as ProtoNewsItem } from '@/generated/client/worldmonitor/news/v1/service_client';
 import type { NewsItemCore } from '../../shared/news-clustering-core.js';
 import { CLAIM_MAX_CHARS, buildClaimCard, type ClaimCard, type ClaimCardHeadline } from '../../server/_shared/claim-match';
-import { publicRpcFetch } from './public-rpc-fetch';
-import { protoItemToNewsItem } from './news-digest-items';
-import { toApiUrl } from './runtime';
 
 export { CLAIM_MAX_CHARS, type ClaimCard, type ClaimCardHeadline };
 
-/** The widest digest: every category the dashboard's full variant carries, in English. */
-export const VERIFY_DIGEST_PATH = '/api/news/v1/list-feed-digest?variant=full&lang=en';
+/**
+ * The widest digest, in English, on its public CDN cache key (`public=1`; see
+ * isPublicSharedRpcRequest). The page is web-only, so the path is same-origin.
+ */
+export const VERIFY_DIGEST_URL = '/api/news/v1/list-feed-digest?variant=full&lang=en&public=1';
 
 const VERIFY_DIGEST_TIMEOUT_MS = 15_000;
 
@@ -24,11 +28,36 @@ export type ClaimDigest = {
   readonly stale: boolean;
 };
 
-type DigestBody = {
-  categories?: Record<string, { items?: ProtoNewsItem[] }>;
-  generatedAt?: string;
-  coverage?: { servedStale?: boolean };
+type DigestItem = {
+  source?: unknown;
+  title?: unknown;
+  link?: unknown;
+  publishedAt?: unknown;
+  isAlert?: unknown;
+  credibilityScore?: unknown;
+  corroborationCount?: unknown;
 };
+
+export type DigestBody = {
+  categories?: Record<string, { items?: DigestItem[] } | undefined>;
+  generatedAt?: unknown;
+  coverage?: { servedStale?: unknown };
+};
+
+function toItem(raw: DigestItem): NewsItemCore | null {
+  if (typeof raw.title !== 'string' || !raw.title || typeof raw.source !== 'string' || !raw.source) return null;
+  const credibility = Number(raw.credibilityScore);
+  const corroboration = Number(raw.corroborationCount);
+  return {
+    source: raw.source,
+    title: raw.title,
+    link: typeof raw.link === 'string' ? raw.link : '',
+    pubDate: new Date(Number(raw.publishedAt) || 0),
+    isAlert: raw.isAlert === true,
+    ...(raw.credibilityScore != null && Number.isFinite(credibility) ? { credibilityScore: credibility } : {}),
+    ...(Number.isFinite(corroboration) && corroboration >= 1 ? { corroborationCount: Math.floor(corroboration) } : {}),
+  };
+}
 
 /** Digest items, deduplicated by link (one story often sits in several categories). */
 export function claimDigestFromBody(body: DigestBody): ClaimDigest {
@@ -36,11 +65,12 @@ export function claimDigestFromBody(body: DigestBody): ClaimDigest {
   const items: NewsItemCore[] = [];
   for (const group of Object.values(body.categories ?? {})) {
     for (const raw of group?.items ?? []) {
-      if (!raw?.title || !raw.source) continue;
-      const key = raw.link || `${raw.source}|${raw.title}`;
+      const item = raw ? toItem(raw) : null;
+      if (!item) continue;
+      const key = item.link || `${item.source}|${item.title}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      items.push(protoItemToNewsItem(raw));
+      items.push(item);
     }
   }
   return {
@@ -52,7 +82,8 @@ export function claimDigestFromBody(body: DigestBody): ClaimDigest {
 }
 
 export async function fetchClaimDigest(signal?: AbortSignal): Promise<ClaimDigest> {
-  const res = await publicRpcFetch(toApiUrl(VERIFY_DIGEST_PATH), {
+  const res = await globalThis.fetch(VERIFY_DIGEST_URL, {
+    credentials: 'omit',
     signal: signal ?? AbortSignal.timeout(VERIFY_DIGEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
