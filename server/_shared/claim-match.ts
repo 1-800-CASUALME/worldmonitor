@@ -1,0 +1,177 @@
+/**
+ * Claim matching for verify_claim (#9092).
+ *
+ * Finds the digest clusters that report the same event as a free-text claim,
+ * and checks the claim's figures against what those clusters say. It finds
+ * coverage; it never grades it. The verdict comes from assessCorroboration
+ * over the matched clusters, so this module adds no verdict vocabulary and
+ * never says a claim is true or false.
+ */
+import { extractNumericFacts } from '../../shared/brief-llm-core.js';
+import type { ClusteredEventCore } from '../../shared/news-clustering-core.js';
+import type { ClaimEvidence } from './corroboration';
+
+/** Longest claim accepted, in characters. */
+export const CLAIM_MAX_CHARS = 300;
+
+/** Share of the claim's content words a headline must carry to match. */
+export const CLAIM_MATCH_MIN_SCORE = 0.5;
+
+/** A match also needs this many content words in common, so a two-word claim cannot match on one word. */
+export const CLAIM_MATCH_MIN_SHARED = 2;
+
+/** Clusters of one event kept per claim. */
+export const CLAIM_MATCH_MAX_CLUSTERS = 8;
+
+const STOPWORDS = new Set(`a an and are as at be been but by can could did do does for from had has have he her his how
+i if in into is it its just more most new news no not now of on or our out over says said say she so than that the their
+them then there these they this those to up us was we were what when where which while who why will with would you your
+after amid ahead against about all also any back before being between both during each few first get gets got here last
+like many may might much must next off once only other own same should since some still such through under until very
+week weeks year years day days today yesterday report reports reported reportedly breaking live update updates latest
+claim claims claimed`.split(/\s+/));
+
+/** Content words of a text: lowercased, accents folded, stopwords and one-letter tokens dropped. */
+export function claimTokens(text: string): string[] {
+  return String(text || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/['’]s\b/g, '')
+    .split(/[^a-z0-9.%$-]+/)
+    .map((token) => token.replace(/^[.$-]+|[.-]+$/g, ''))
+    .filter((token) => token.length > 1 && !STOPWORDS.has(token));
+}
+
+/** Crude stem so "strikes" meets "strike" and "sanctioned" meets "sanction". */
+function stem(token: string): string {
+  return token.replace(/(ing|ed|es|s)$/, '').replace(/e$/, '');
+}
+
+/**
+ * How much of the claim a headline carries: the share of the claim's distinct
+ * content words found in the headline (0..1), and how many it shares. A word
+ * matched only by stem counts three quarters.
+ */
+export function claimOverlap(claim: string, headline: string): { score: number; shared: number } {
+  const wanted = [...new Set(claimTokens(claim))];
+  if (wanted.length === 0) return { score: 0, shared: 0 };
+  const have = new Set(claimTokens(headline));
+  const haveStems = new Set([...have].map(stem).filter((s) => s.length >= 4));
+  let hit = 0;
+  let shared = 0;
+  for (const token of wanted) {
+    if (have.has(token)) {
+      hit += 1;
+      shared += 1;
+      continue;
+    }
+    const s = stem(token);
+    if (s.length >= 4 && haveStems.has(s)) {
+      hit += 0.75;
+      shared += 1;
+    }
+  }
+  return { score: hit / wanted.length, shared };
+}
+
+export type ClaimClusterMatch<C extends ClusteredEventCore = ClusteredEventCore> = {
+  readonly cluster: C;
+  /** Best overlap among the cluster's primary and member headlines. */
+  readonly score: number;
+};
+
+/**
+ * The clusters about the claim's event, best match first. A cluster matches
+ * when one of its headlines carries at least CLAIM_MATCH_MIN_SCORE of the
+ * claim and CLAIM_MATCH_MIN_SHARED of its words. One event often sits in
+ * several clusters, so every match is kept (up to CLAIM_MATCH_MAX_CLUSTERS).
+ */
+export function matchClaimToClusters<C extends ClusteredEventCore>(
+  claim: string,
+  clusters: readonly C[],
+): ClaimClusterMatch<C>[] {
+  const matches: ClaimClusterMatch<C>[] = [];
+  for (const cluster of clusters) {
+    let best = { score: 0, shared: 0 };
+    for (const title of [cluster.primaryTitle, ...cluster.allItems.map((item) => item.title)]) {
+      const overlap = claimOverlap(claim, title);
+      if (overlap.score > best.score) best = overlap;
+    }
+    if (best.score >= CLAIM_MATCH_MIN_SCORE && best.shared >= CLAIM_MATCH_MIN_SHARED) {
+      matches.push({ cluster, score: best.score });
+    }
+  }
+  return matches
+    .sort((a, b) => b.score - a.score || b.cluster.uniquePublisherCount - a.cluster.uniquePublisherCount)
+    .slice(0, CLAIM_MATCH_MAX_CLUSTERS);
+}
+
+/**
+ * One ClaimEvidence over every matched cluster: all their feed labels, and the
+ * highest digest publisher count any member carries (the digest's
+ * origin-aware count is a floor on publishers, as in evidenceFromCluster).
+ */
+export function evidenceFromMatches(matches: readonly ClaimClusterMatch[]): Extract<ClaimEvidence, { kind: 'grouped' }> {
+  const labels: string[] = [];
+  let reported: number | null = null;
+  for (const { cluster } of matches) {
+    for (const item of cluster.allItems) {
+      labels.push(item.source);
+      const count = item.corroborationCount;
+      if (typeof count === 'number' && Number.isFinite(count) && count >= 1) {
+        reported = Math.max(reported ?? 0, Math.floor(count));
+      }
+    }
+  }
+  return { kind: 'grouped', labels, reportedPublishers: reported };
+}
+
+export type FigureCheck = {
+  /** Numbers and dates in the claim, normalized as the brief grounding gate normalizes them. */
+  readonly claimed: string[];
+  /** Claimed figures that appear in at least one matched headline. */
+  readonly grounded: string[];
+  /** Claimed figures that no matched headline carries. */
+  readonly ungrounded: string[];
+};
+
+/** `number:200` -> `200`, `date:2026-10-09` -> `2026-10-09`: the figure as a reader would write it. */
+function factLabel(fact: string): string {
+  return fact.replace(/^(number|date):/, '');
+}
+
+/**
+ * The brief grounding rule (extractNumericFacts, as validateNoHallucinatedFacts
+ * uses it) applied to the claim against matched coverage. "Ungrounded" means
+ * no matched headline states the figure, not that the figure is wrong.
+ *
+ * extractNumericFacts also records a date's month, day and year as numbers,
+ * and a dated claim as both `date:YYYY-MM-DD` and `date:MM-DD`; those parts are
+ * not figures the claim states, so they are not listed. A full date is
+ * grounded when a headline gives the same month and day, because headlines
+ * routinely omit the year.
+ */
+export function checkClaimFigures(claim: string, coverageTexts: readonly string[]): FigureCheck {
+  const facts = extractNumericFacts(claim);
+  const ground = extractNumericFacts(coverageTexts.join('\n'));
+  const dateParts = new Set<string>();
+  const fullDateMonthDays = new Set<string>();
+  for (const fact of facts) {
+    const full = fact.match(/^date:(\d{4})-(\d{2})-(\d{2})$/);
+    const short = fact.match(/^date:(\d{2})-(\d{2})$/);
+    if (full) fullDateMonthDays.add(`date:${full[2]}-${full[3]}`);
+    for (const part of (full ?? short ?? []).slice(1)) dateParts.add(`number:${Number(part)}`);
+  }
+  const listed = [...facts].filter((fact) => !dateParts.has(fact) && !fullDateMonthDays.has(fact)).sort();
+  const isGrounded = (fact: string) => {
+    if (ground.has(fact)) return true;
+    const full = fact.match(/^date:\d{4}-(\d{2}-\d{2})$/);
+    return full !== null && ground.has(`date:${full[1]}`);
+  };
+  return {
+    claimed: listed.map(factLabel),
+    grounded: listed.filter(isGrounded).map(factLabel),
+    ungrounded: listed.filter((fact) => !isGrounded(fact)).map(factLabel),
+  };
+}

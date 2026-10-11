@@ -1,6 +1,7 @@
 /**
  * On-demand NLP intelligence utilities (issue #5697): classify_event,
- * extract_entities, get_news_clusters, get_keyword_spikes.
+ * extract_entities, get_news_clusters, get_keyword_spikes, and verify_claim
+ * (#9092), which matches a claim to the same digest clusters.
  *
  * Split out of rpc-tools.ts so the registry file stays a registry: these four
  * tools carry real domain logic — a digest anti-corruption layer, entity
@@ -36,6 +37,12 @@ import {
   toCorroborationJson,
   toPublisherRosterJson,
 } from '../../../server/_shared/corroboration';
+import {
+  CLAIM_MAX_CHARS,
+  checkClaimFigures,
+  evidenceFromMatches,
+  matchClaimToClusters,
+} from '../../../server/_shared/claim-match';
 import { buildAuthHeaders } from '../auth';
 import { fetchMcpDownstream } from '../downstream';
 import { assertToolFetchOk } from '../billing-denial';
@@ -72,6 +79,8 @@ const KEYWORD_SPIKE_MAX_STORIES = 800;
 const KEYWORD_SPIKE_MAX_STORED = 25;
 const KEYWORD_SPIKE_LINK_MAX_BYTES = 384;
 const DIGEST_ACCUMULATOR_KEY_MCP = 'digest:accumulator:v1:full:en';
+const VERIFY_CLAIM_MAX_HEADLINES = 10;
+const VERIFY_CLAIM_CAVEAT = 'Coverage, not accuracy: this shows who reported the claim and whether they are independent, not whether it is true. Not found means not in WorldMonitor\'s current sources.';
 
 // Agent-addressable digest variants and their category keys. Kept as local
 // enums so Edge MCP tools never import server/ — parity with _feeds.ts is
@@ -828,6 +837,147 @@ export const NLP_TOOLS: ToolDef[] = [
         category: digest.category,
         ...(digest.note ? { note: digest.note } : {}),
         ...(digest.digestCoverage ? { digestCoverage: digest.digestCoverage } : {}),
+      };
+    },
+    _apiPaths: [
+      'GET /api/news/v1/list-feed-digest',
+    ],
+  },
+  {
+    name: 'verify_claim',
+    _outputBudgetBytes: 65536,
+    description: 'Evidence card for a claim or headline (#9092): finds the live-digest clusters reporting the same event and returns WorldMonitor\'s coverage verdict over all of them (corroboration.state: corroborated, single-publisher, tier4-only, unknown), the publishers roster with declared tiers, the matched headlines with fail-closed source provenance, a figure check (numbers and dates in the claim that no matched headline states), and first/last sighting. found=false means the claim is not in WorldMonitor\'s current sources, never that it is false. Coverage, not accuracy: nothing here says a claim is true or false. Deterministic — no LLM.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        claim: { type: 'string', minLength: 1, maxLength: CLAIM_MAX_CHARS, description: `The claim or headline to check, up to ${CLAIM_MAX_CHARS} characters.` },
+        variant: {
+          type: 'string',
+          enum: [...NLP_DIGEST_VARIANTS],
+          description: 'Headline digest variant to search. Defaults to full.',
+        },
+      },
+      required: ['claim'],
+    },
+    outputSchema: {
+      type: 'object',
+      required: ['claim', 'found', 'corroboration', 'publishers', 'publishersUnlisted', 'matchedClusters', 'headlines', 'figures', 'caveat', 'generatedAt'],
+      properties: {
+        claim: { type: 'string', description: 'The claim as checked (trimmed, capped).' },
+        found: { type: 'boolean', description: 'True when at least one digest cluster reports the same event. False means not in WorldMonitor\'s current sources, not false.' },
+        corroboration: CORROBORATION_OUTPUT_SCHEMA,
+        ...PUBLISHER_ROSTER_OUTPUT_PROPERTIES,
+        matchedClusters: { type: 'number', description: 'Digest clusters about this event (one event often spans several).' },
+        credibilityScore: { type: ['number', 'null'], description: '0-100 source-reliability score of the best-matched cluster\'s primary outlet, distinct from importance; null when not found.' },
+        firstSeen: { type: ['string', 'null'], description: 'Earliest matched headline (ISO 8601); null when not found.' },
+        lastUpdated: { type: ['string', 'null'], description: 'Latest matched headline (ISO 8601); null when not found.' },
+        headlines: {
+          type: 'array',
+          description: 'Matched headlines, best match first (up to 10).',
+          items: {
+            type: 'object',
+            required: ['title', 'source', 'link', 'publishedAt', 'tier', ...SOURCE_PROVENANCE_REQUIRED],
+            properties: {
+              title: { type: 'string' },
+              source: { type: 'string' },
+              link: { type: 'string' },
+              publishedAt: { type: 'string' },
+              tier: DECLARED_TIER_SCHEMA,
+              ...SOURCE_PROVENANCE_PROPERTIES,
+            },
+          },
+        },
+        figures: {
+          type: 'object',
+          required: ['claimed', 'grounded', 'ungrounded'],
+          description: 'Numbers and dates in the claim checked against matched headlines with the brief grounding rule. Ungrounded means no matched headline states the figure, not that it is wrong.',
+          properties: {
+            claimed: { type: 'array', items: { type: 'string' } },
+            grounded: { type: 'array', items: { type: 'string' } },
+            ungrounded: { type: 'array', items: { type: 'string' } },
+          },
+        },
+        caveat: { type: 'string', description: 'Fixed reminder that the verdict describes coverage, not accuracy.' },
+        generatedAt: { type: 'string' },
+        variant: { type: 'string', enum: [...NLP_DIGEST_VARIANTS] },
+        digestCoverage: NLP_DIGEST_COVERAGE_OUTPUT_SCHEMA,
+        error: { type: 'string', description: 'Present when the claim or variant is invalid.' },
+      },
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    _execute: async (params, base, context, execution) => {
+      const claim = argStr(params.claim).trim().slice(0, CLAIM_MAX_CHARS);
+      const empty = {
+        claim,
+        found: false,
+        corroboration: toCorroborationJson({ state: 'unknown' }),
+        publishers: [],
+        publishersUnlisted: 0,
+        matchedClusters: 0,
+        credibilityScore: null,
+        firstSeen: null,
+        lastUpdated: null,
+        headlines: [],
+        figures: checkClaimFigures(claim, []),
+        caveat: VERIFY_CLAIM_CAVEAT,
+        generatedAt: '',
+      };
+      const variant = resolveNlpDigestVariant(params.variant);
+      if (!claim) return { ...empty, error: 'claim is required' };
+      if (!variant) return { ...empty, error: `variant must be one of: ${NLP_DIGEST_VARIANTS.join(', ')}` };
+
+      const digest = await fetchNlpDigestItems(base, context, variant, '', execution);
+      const digestMeta = {
+        generatedAt: digest.generatedAt,
+        variant: digest.variant,
+        ...(digest.digestCoverage ? { digestCoverage: digest.digestCoverage } : {}),
+      };
+      const matches = matchClaimToClusters(claim, clusterNewsCore(digest.items, getSourceTier));
+      if (matches.length === 0) return { ...empty, ...digestMeta };
+
+      const evidence = evidenceFromMatches(matches);
+      const verdict = assessCorroboration(evidence);
+      const items = matches.flatMap(({ cluster }) => cluster.allItems);
+      const times = items.map((item) => item.pubDate.getTime()).filter((t) => Number.isFinite(t) && t > 0);
+      const top = matches[0]!.cluster;
+      const seen = new Set<string>();
+      const headlines = [];
+      for (const { cluster } of matches) {
+        for (const item of [...cluster.allItems].sort((a, b) => getSourceTier(a.source) - getSourceTier(b.source))) {
+          const key = item.link || `${item.source}|${item.title}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          headlines.push({
+            title: item.title,
+            source: item.source,
+            link: item.link,
+            publishedAt: item.pubDate.toISOString(),
+            tier: declaredSourceTier(item.source),
+            ...getSourceProvenanceState(item.source),
+          });
+          if (headlines.length >= VERIFY_CLAIM_MAX_HEADLINES) break;
+        }
+        if (headlines.length >= VERIFY_CLAIM_MAX_HEADLINES) break;
+      }
+      return {
+        claim,
+        found: true,
+        corroboration: toCorroborationJson(verdict),
+        ...toPublisherRosterJson(publisherRoster(evidence), verdict),
+        matchedClusters: matches.length,
+        credibilityScore: Number.isFinite(top.credibilityScore)
+          ? top.credibilityScore!
+          : computeCredibilityScore({
+            sourceTier: getSourceTier(top.primarySource),
+            propagandaRisk: getSourceProvenanceState(top.primarySource).risk,
+            independentCorroborationCount: top.uniquePublisherCount,
+          }),
+        firstSeen: times.length ? new Date(Math.min(...times)).toISOString() : null,
+        lastUpdated: times.length ? new Date(Math.max(...times)).toISOString() : null,
+        headlines,
+        figures: checkClaimFigures(claim, items.map((item) => item.title)),
+        caveat: VERIFY_CLAIM_CAVEAT,
+        ...digestMeta,
       };
     },
     _apiPaths: [
