@@ -633,6 +633,12 @@ paths:
                                       "field": "example"
                                       "link": "https://example.com/worldmonitor"
                                       "next": "example"
+                                "counts":
+                                    "at": 1717200000000
+                                    "corroborated": 75
+                                    "singlePublisher": 1
+                                    "stories": 1
+                                    "tier4Only": 1
                                 "retentionDays": 7
                                 "state": "example"
                             schema:
@@ -1765,6 +1771,8 @@ components:
                     type: integer
                     format: int32
                     description: Retention window in days.
+                counts:
+                    $ref: '#/components/schemas/LabelCounts'
             description: ListLabelChangesResponse lists changes from the last seven days, newest first.
         LabelChange:
             type: object
@@ -1830,6 +1838,34 @@ components:
                     format: int32
                     description: Declared source tier 1-4; 0 when no feed label declares one.
             description: LabelChangePublisher is one publisher family behind the new label.
+        LabelCounts:
+            type: object
+            properties:
+                at:
+                    type: integer
+                    format: int64
+                    description: 'When the digest counted, Unix epoch milliseconds.. Warning: Values > 2^53 may lose precision in JavaScript'
+                stories:
+                    type: integer
+                    format: int32
+                    description: Stories counted.
+                corroborated:
+                    type: integer
+                    format: int32
+                    description: Two or more publisher families, not all tier 4.
+                singlePublisher:
+                    type: integer
+                    format: int32
+                    description: One publisher family.
+                tier4Only:
+                    type: integer
+                    format: int32
+                    description: Two or more families, every one a declared tier-4 outlet.
+                unknown:
+                    type: integer
+                    format: int32
+                    description: No evidence to judge.
+            description: LabelCounts is how many stories in the latest full English digest carry each label.
         SubmitErrorReportRequest:
             type: object
             properties:

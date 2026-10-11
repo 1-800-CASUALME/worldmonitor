@@ -9,9 +9,11 @@ import { readRevokedUrlSet } from '../../../_shared/digest-revocations';
 import { markNoCacheResponse } from '../../../_shared/response-headers';
 import {
   LABEL_CHANGES_KEY,
+  LABEL_COUNTS_KEY,
   LABEL_HISTORY_RETENTION_MS,
   STORY_LABEL_HISTORY_KEY,
   parseLabelChange,
+  parseLabelCounts,
 } from '../../../_shared/label-history';
 
 const DEFAULT_LIMIT = 50;
@@ -36,7 +38,7 @@ export async function listLabelChanges(
   const limit = req.limit > 0 ? Math.min(Math.floor(req.limit), MAX_LIMIT) : DEFAULT_LIMIT;
   const key = storyId ? STORY_LABEL_HISTORY_KEY(storyId) : LABEL_CHANGES_KEY;
   const [results, revoked] = await Promise.all([
-    runRedisPipeline([['LRANGE', key, 0, limit - 1]]),
+    runRedisPipeline([['LRANGE', key, 0, limit - 1], ['GET', LABEL_COUNTS_KEY]]),
     readRevokedUrlSet(),
   ]);
   const rows = results[0]?.result;
@@ -45,6 +47,8 @@ export async function listLabelChanges(
     return response;
   }
   const now = Date.now();
+  const counts = results[1]?.error ? null : parseLabelCounts(results[1]?.result, now);
+  if (counts) response.counts = counts;
   for (const raw of Array.isArray(rows) ? rows : []) {
     const entry = parseLabelChange(raw, now);
     if (!entry) continue;

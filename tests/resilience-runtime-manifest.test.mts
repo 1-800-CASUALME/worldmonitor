@@ -274,6 +274,7 @@ describe('resilience runtime manifest gateway auth', () => {
         '/api/leads/v1/register-interest',
         // #9093: anonymous error reports and the secret-gated review queue.
         '/api/news/v1/submit-error-report',
+        '/api/news/v1/list-label-changes',
         '/api/news/v1/list-error-reports',
         '/api/news/v1/review-error-report',
       ],

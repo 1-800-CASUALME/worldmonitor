@@ -6,6 +6,10 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import {
   LABEL_CHANGES_KEY,
+  LABEL_COUNTS_KEY,
+  LABEL_COUNTS_MAX_AGE_MS,
+  countLabels,
+  parseLabelCounts,
   LABEL_HISTORY_RETENTION_MS,
   STORY_LABEL_FIELD,
   STORY_LABEL_HISTORY_KEY,
@@ -360,5 +364,46 @@ describe('scanner bundle exclusion (#9093)', () => {
     const spec = { paths: { '/api/news/v1/list-label-changes': { get: {} }, '/api/news/v1/list-feed-digest': { get: {} } } };
     assert.deepEqual(excludeScannerBundleOperations(spec), { excluded: 1 });
     assert.deepEqual(Object.keys(spec.paths), ['/api/news/v1/list-feed-digest']);
+  });
+});
+
+describe("today's label counts (#9093 /trust)", () => {
+  it('counts every state, and serves only recent, consistent counts', () => {
+    const counts = countLabels(['corroborated', 'corroborated', 'single-publisher', 'tier4-only', 'unknown'], NOW);
+    assert.deepEqual(counts, { at: NOW, stories: 5, corroborated: 2, singlePublisher: 1, tier4Only: 1, unknown: 1 });
+    assert.deepEqual(parseLabelCounts(JSON.stringify(counts), NOW), counts);
+    assert.equal(parseLabelCounts(JSON.stringify({ ...counts, at: NOW - LABEL_COUNTS_MAX_AGE_MS - 1 }), NOW), null, 'stale');
+    assert.equal(parseLabelCounts(JSON.stringify({ ...counts, stories: 9 }), NOW), null, 'parts must add up');
+    assert.equal(parseLabelCounts('nope', NOW), null);
+    assert.equal(parseLabelCounts(null, NOW), null);
+  });
+
+  it('the digest counts the labels of every story it kept', () => {
+    const items = [
+      { source: 'Reuters World', title: 'A', link: 'https://www.reuters.com/a', importanceScore: 1, credibilityScore: 70, corroborationCount: 2, titleHash: HASH_A },
+      { source: 'BBC World', title: 'A', link: 'https://www.bbc.co.uk/a', importanceScore: 1, credibilityScore: 70, corroborationCount: 2, titleHash: HASH_A },
+      { source: 'Reuters World', title: 'B', link: 'https://www.reuters.com/b', importanceScore: 1, credibilityScore: 70, corroborationCount: 1, titleHash: HASH_B },
+    ];
+    const { labelCounts } = __testing__.storyLabelChanges(items as never, new Map(), NOW);
+    assert.deepEqual(labelCounts, { at: NOW, stories: 2, corroborated: 1, singlePublisher: 1, tier4Only: 0, unknown: 0 });
+  });
+
+  it('ListLabelChanges serves the counts beside the changes', async () => {
+    const counts = countLabels(['corroborated', 'single-publisher'], NOW);
+    const redis = installFakeRedis((command) => {
+      if (command[0] === 'GET' && command[1] === LABEL_COUNTS_KEY) return JSON.stringify(counts);
+      if (command[0] === 'SMEMBERS') return [];
+      return [];
+    });
+    try {
+      const response = await listLabelChanges(
+        { request: new Request('https://example.test/api/news/v1/list-label-changes'), pathParams: {}, headers: {} },
+        { storyId: '', limit: 0 },
+      );
+      assert.equal(response.state, 'ok');
+      assert.deepEqual(response.counts, counts);
+    } finally {
+      redis.restore();
+    }
   });
 });

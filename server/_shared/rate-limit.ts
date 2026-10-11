@@ -760,6 +760,8 @@ export const ENDPOINT_RATE_POLICIES: Record<string, EndpointRatePolicy> = {
   '/api/leads/v1/register-interest': { limit: 5, window: '1 h' },
   // #9093 reader error reports: anonymous writes to the review queue.
   '/api/news/v1/submit-error-report': { limit: 5, window: '1 h' },
+  // #9093 /trust page read: public and CDN-cached, bounded per IP.
+  '/api/news/v1/list-label-changes': { limit: 60, window: '60 s' },
   // Operator review: secret-gated, but still bounded against secret guessing.
   '/api/news/v1/list-error-reports': { limit: 60, window: '60 s' },
   '/api/news/v1/review-error-report': { limit: 60, window: '60 s' },
