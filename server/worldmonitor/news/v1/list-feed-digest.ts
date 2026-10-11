@@ -1686,10 +1686,16 @@ function derivePhase(track: StoryTrack, nowMs: number = Date.now()): ProtoStoryP
 /**
  * Batch-read existing story:track hashes from Redis for a list of title hashes.
  * Returns a Map<titleHash, StoryTrack>. Missing entries are absent from the map.
+ *
+ * `unread`, when given, receives every hash whose row could not be read (no
+ * time left, a failed pipeline, or a per-command error). Absent from the map
+ * then means "unknown", not "new story" (#9093 label history must not treat
+ * an unread row as a first sighting and overwrite its label).
  */
 async function readStoryTracks(
   titleHashes: string[],
   deadlineAt = Number.POSITIVE_INFINITY,
+  unread?: Set<string>,
 ): Promise<Map<string, StoryTrack>> {
   if (titleHashes.length === 0) return new Map();
   // currentScore and peakScore are deliberately NOT read here. derivePhase is
@@ -1705,10 +1711,17 @@ async function readStoryTracks(
     'HMGET', STORY_TRACK_KEY(h), ...fields,
   ]);
   const timeoutMs = redisTimeoutForDeadline(deadlineAt);
-  if (timeoutMs === undefined) return new Map();
+  if (timeoutMs === undefined) {
+    for (const hash of titleHashes) unread?.add(hash);
+    return new Map();
+  }
   const results = await runRedisPipeline(commands, false, timeoutMs);
   const map = new Map<string, StoryTrack>();
   for (let i = 0; i < titleHashes.length; i++) {
+    if (results.length !== titleHashes.length || results[i]?.error) {
+      unread?.add(titleHashes[i]!);
+      continue;
+    }
     const vals = results[i]?.result as string[] | null;
     if (!vals || !vals[0]) continue; // firstSeen missing → new story
     map.set(titleHashes[i]!, {
@@ -2565,6 +2578,7 @@ function storyLabelChanges(
   items: readonly ParsedItem[],
   tracks: ReadonlyMap<string, StoryTrack>,
   now: number,
+  unread: ReadonlySet<string> = new Set(),
 ): { labelByHash: Map<string, string>; labelChanges: LabelChange[] } {
   const itemsByHash = new Map<string, ParsedItem[]>();
   for (const item of items) {
@@ -2578,6 +2592,9 @@ function storyLabelChanges(
   const labelChanges: LabelChange[] = [];
   for (const [hash, members] of itemsByHash) {
     const label = storyLabel(members);
+    // An unread track row is unknown, not new: leave its label untouched so
+    // the next cycle compares against the real previous label.
+    if (unread.has(hash)) continue;
     labelByHash.set(hash, encodeStoryLabel(label));
     const lead = members.reduce((best, item) => (item.importanceScore > best.importanceScore ? item : best));
     const change = labelChangeFor(hash, tracks.get(hash)?.label, label, {
@@ -3358,14 +3375,18 @@ async function buildDigest(
     // mentionCount. We merge read state + this cycle's increment in memory to
     // produce accurate, current StoryMeta without a second Redis round-trip.
     const uniqueHashes = [...new Set(titleHashes)];
-    const storyTracks = await readStoryTracks(uniqueHashes, storyTrackingDeadlineAt)
-      .catch(() => new Map<string, StoryTrack>());
+    const unreadTracks = new Set<string>();
+    const storyTracks = await readStoryTracks(uniqueHashes, storyTrackingDeadlineAt, unreadTracks)
+      .catch(() => {
+        for (const hash of uniqueHashes) unreadTracks.add(hash);
+        return new Map<string, StoryTrack>();
+      });
 
     // #9093 label history. Only full/en records it: the story:track row is
     // shared by every variant, and a variant that keeps fewer of a story's
     // feeds would flip the label back and forth.
     const { labelByHash, labelChanges } = variant === 'full' && lang === 'en'
-      ? storyLabelChanges(allSliced, storyTracks, now)
+      ? storyLabelChanges(allSliced, storyTracks, now, unreadTracks)
       : { labelByHash: undefined, labelChanges: [] };
 
     // Record changes before persisting the new labels: a story whose entry

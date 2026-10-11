@@ -181,6 +181,24 @@ describe('digest wiring', () => {
     assert.equal(without.some((command) => command.includes(STORY_LABEL_FIELD)), false);
   });
 
+  it('an unread track row is unknown, not new: its label is left untouched', async () => {
+    const items = [item({ titleHash: HASH_A, corroborationCount: 2 }), item({ titleHash: HASH_A, source: 'BBC World', corroborationCount: 2 })];
+    const { labelByHash, labelChanges } = __testing__.storyLabelChanges(items as never, new Map(), NOW, new Set([HASH_A]));
+    assert.equal(labelByHash.has(HASH_A), false);
+    assert.deepEqual(labelChanges, []);
+
+    const failing = installFakeRedis();
+    globalThis.fetch = (async () => ({ ok: false, status: 500, json: async () => ({}) })) as unknown as typeof fetch;
+    try {
+      const unread = new Set<string>();
+      const tracks = await __testing__.readStoryTracks([HASH_A, HASH_B], Number.POSITIVE_INFINITY, unread);
+      assert.equal(tracks.size, 0);
+      assert.deepEqual([...unread].sort(), [HASH_A, HASH_B]);
+    } finally {
+      failing.restore();
+    }
+  });
+
   it('reads the recorded label back from the track row', async () => {
     const redis = installFakeRedis((command) => (command[0] === 'HMGET' ? ['1', '2', '3', '1', 'corroborated|2'] : 'OK'));
     try {
