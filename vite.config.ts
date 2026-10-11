@@ -1208,6 +1208,7 @@ export default defineConfig(({ mode }) => {
           settings: resolve(__dirname, 'settings.html'),
           liveChannels: resolve(__dirname, 'live-channels.html'),
           mcpGrant: resolve(__dirname, 'mcp-grant.html'),
+          verify: resolve(__dirname, 'verify.html'),
         },
         output: {
           // onlyExplicitManualChunks keeps the panel clusters from forming

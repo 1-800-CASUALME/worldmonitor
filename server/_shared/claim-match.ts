@@ -8,8 +8,20 @@
  * never says a claim is true or false.
  */
 import { extractNumericFacts } from '../../shared/brief-llm-core.js';
-import type { ClusteredEventCore } from '../../shared/news-clustering-core.js';
-import type { ClaimEvidence } from './corroboration';
+import { clusterNewsCore } from '../../shared/news-clustering-core.js';
+import type { ClusteredEventCore, NewsItemCore } from '../../shared/news-clustering-core.js';
+import { computeCredibilityScore } from '../../shared/news-credibility.js';
+import { getSourceProvenanceState, type SourceProvenanceState } from '../../shared/source-provenance';
+import {
+  assessCorroboration,
+  publisherRoster,
+  toCorroborationJson,
+  toPublisherRosterJson,
+  type ClaimEvidence,
+  type CorroborationJson,
+  type PublisherRosterJson,
+} from './corroboration';
+import { declaredSourceTier, getSourceTier, type DeclaredTier } from './source-tiers';
 
 /** Longest claim accepted, in characters. */
 export const CLAIM_MAX_CHARS = 300;
@@ -22,6 +34,12 @@ export const CLAIM_MATCH_MIN_SHARED = 2;
 
 /** Clusters of one event kept per claim. */
 export const CLAIM_MATCH_MAX_CLUSTERS = 8;
+
+/** Matched headlines listed on a claim card. */
+export const CLAIM_CARD_MAX_HEADLINES = 10;
+
+/** Shown with every claim card, found or not. */
+export const CLAIM_CARD_CAVEAT = 'Coverage, not accuracy: this shows who reported the claim and whether they are independent, not whether it is true. Not found means not in WorldMonitor\'s current sources.';
 
 const STOPWORDS = new Set(`a an and are as at be been but by can could did do does for from had has have he her his how
 i if in into is it its just more most new news no not now of on or our out over says said say she so than that the their
@@ -173,5 +191,95 @@ export function checkClaimFigures(claim: string, coverageTexts: readonly string[
     claimed: listed.map(factLabel),
     grounded: listed.filter(isGrounded).map(factLabel),
     ungrounded: listed.filter((fact) => !isGrounded(fact)).map(factLabel),
+  };
+}
+
+export type ClaimCardHeadline = {
+  readonly title: string;
+  readonly source: string;
+  readonly link: string;
+  readonly publishedAt: string;
+  readonly tier: DeclaredTier | null;
+} & SourceProvenanceState;
+
+export type ClaimCard = {
+  readonly claim: string;
+  readonly found: boolean;
+  readonly corroboration: CorroborationJson;
+  readonly matchedClusters: number;
+  readonly credibilityScore: number | null;
+  readonly firstSeen: string | null;
+  readonly lastUpdated: string | null;
+  readonly headlines: ClaimCardHeadline[];
+  readonly figures: FigureCheck;
+  readonly caveat: string;
+} & PublisherRosterJson;
+
+/**
+ * The evidence card for a claim over a set of digest items: the verify_claim
+ * MCP tool and the /verify page both build it here, so they cannot disagree.
+ * The claim is used as given (callers trim and cap it).
+ */
+export function buildClaimCard(claim: string, digestItems: readonly NewsItemCore[]): ClaimCard {
+  const matches = claim ? matchClaimToClusters(claim, clusterNewsCore([...digestItems], getSourceTier)) : [];
+  if (matches.length === 0) {
+    return {
+      claim,
+      found: false,
+      corroboration: toCorroborationJson({ state: 'unknown' }),
+      publishers: [],
+      publishersUnlisted: 0,
+      matchedClusters: 0,
+      credibilityScore: null,
+      firstSeen: null,
+      lastUpdated: null,
+      headlines: [],
+      figures: checkClaimFigures(claim, []),
+      caveat: CLAIM_CARD_CAVEAT,
+    };
+  }
+
+  const evidence = evidenceFromMatches(matches);
+  const verdict = assessCorroboration(evidence);
+  const items = matches.flatMap(({ cluster }) => cluster.allItems);
+  const times = items.map((item) => item.pubDate.getTime()).filter((t) => Number.isFinite(t) && t > 0);
+  const top = matches[0]!.cluster;
+  const seen = new Set<string>();
+  const headlines: ClaimCardHeadline[] = [];
+  for (const { cluster } of matches) {
+    for (const item of [...cluster.allItems].sort((a, b) => getSourceTier(a.source) - getSourceTier(b.source))) {
+      const key = item.link || `${item.source}|${item.title}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      headlines.push({
+        title: item.title,
+        source: item.source,
+        link: item.link,
+        publishedAt: item.pubDate.toISOString(),
+        tier: declaredSourceTier(item.source),
+        ...getSourceProvenanceState(item.source),
+      });
+      if (headlines.length >= CLAIM_CARD_MAX_HEADLINES) break;
+    }
+    if (headlines.length >= CLAIM_CARD_MAX_HEADLINES) break;
+  }
+  return {
+    claim,
+    found: true,
+    corroboration: toCorroborationJson(verdict),
+    ...toPublisherRosterJson(publisherRoster(evidence), verdict),
+    matchedClusters: matches.length,
+    credibilityScore: Number.isFinite(top.credibilityScore)
+      ? top.credibilityScore!
+      : computeCredibilityScore({
+        sourceTier: getSourceTier(top.primarySource),
+        propagandaRisk: getSourceProvenanceState(top.primarySource).risk,
+        independentCorroborationCount: top.uniquePublisherCount,
+      }),
+    firstSeen: times.length ? new Date(Math.min(...times)).toISOString() : null,
+    lastUpdated: times.length ? new Date(Math.max(...times)).toISOString() : null,
+    headlines,
+    figures: checkClaimFigures(claim, items.map((item) => item.title)),
+    caveat: CLAIM_CARD_CAVEAT,
   };
 }
