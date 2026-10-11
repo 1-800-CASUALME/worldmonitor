@@ -99,6 +99,14 @@ import {
 } from '../../../../shared/source-provenance';
 import { computeCredibilityScore } from '../../../../shared/news-credibility.js';
 import {
+  STORY_LABEL_FIELD,
+  encodeStoryLabel,
+  labelChangeFor,
+  recordLabelChanges,
+  storyLabel,
+  type LabelChange,
+} from '../../../_shared/label-history';
+import {
   STORY_TRACK_KEY,
   STORY_SOURCES_KEY,
   STORY_PEAK_KEY,
@@ -1621,6 +1629,8 @@ interface StoryTrack {
   lastSeen: number;
   mentionCount: number;
   sourceCount: number;
+  /** Last recorded corroboration label (#9093), `state|publishers`; absent on rows from before it. */
+  label?: string;
 }
 
 /**
@@ -1689,7 +1699,7 @@ async function readStoryTracks(
   // trims two fields from every per-story HMGET in the batch. The WRITE side is
   // unchanged — buildStoryTrackHsetFields still persists currentScore, which
   // scripts/seed-digest-notifications.mjs reads.
-  const fields = ['firstSeen', 'lastSeen', 'mentionCount', 'sourceCount'];
+  const fields = ['firstSeen', 'lastSeen', 'mentionCount', 'sourceCount', STORY_LABEL_FIELD];
   const commands = titleHashes.map(h => [
     'HMGET', STORY_TRACK_KEY(h), ...fields,
   ]);
@@ -1705,6 +1715,7 @@ async function readStoryTracks(
       lastSeen:     Number(vals[1] ?? 0),
       mentionCount: Number(vals[2] ?? 0),
       sourceCount:  Number(vals[3] ?? 0),
+      ...(typeof vals[4] === 'string' && vals[4] !== '' ? { label: vals[4] } : {}),
     });
   }
   return map;
@@ -2544,6 +2555,43 @@ function buildStoryTrackHsetFields(
   ];
 }
 
+/**
+ * #9093: this cycle's corroboration label for every story, and the changes from
+ * the label each story's track row recorded last cycle. A story's label reads
+ * the items the digest kept for it, with the cluster-wide corroboration count.
+ */
+function storyLabelChanges(
+  items: readonly ParsedItem[],
+  tracks: ReadonlyMap<string, StoryTrack>,
+  now: number,
+): { labelByHash: Map<string, string>; labelChanges: LabelChange[] } {
+  const itemsByHash = new Map<string, ParsedItem[]>();
+  for (const item of items) {
+    const hash = item.titleHash;
+    if (!hash) continue;
+    const members = itemsByHash.get(hash);
+    if (members) members.push(item);
+    else itemsByHash.set(hash, [item]);
+  }
+  const labelByHash = new Map<string, string>();
+  const labelChanges: LabelChange[] = [];
+  for (const [hash, members] of itemsByHash) {
+    const label = storyLabel(members);
+    const encoded = encodeStoryLabel(label);
+    if (!encoded) continue;
+    labelByHash.set(hash, encoded);
+    const lead = members.reduce((best, item) => (item.importanceScore > best.importanceScore ? item : best));
+    const change = labelChangeFor(hash, tracks.get(hash)?.label, label, {
+      at: now,
+      title: lead.title,
+      link: storyTrackLinkForPersist(lead),
+      credibilityScore: lead.credibilityScore,
+    });
+    if (change) labelChanges.push(change);
+  }
+  return { labelByHash, labelChanges };
+}
+
 async function writeStoryTracking(
   items: ParsedItem[],
   variant: string,
@@ -2552,6 +2600,9 @@ async function writeStoryTracking(
   memberHashesByFinal?: Map<string, Set<string>>,
   deadlineAt = Number.POSITIVE_INFINITY,
   clusterAnchorEligibleByHash?: ReadonlyMap<string, boolean>,
+  // #9093: this cycle's corroboration label per story, persisted on the track
+  // row so the next cycle can tell whether it changed. Absent → not written.
+  labelByHash?: ReadonlyMap<string, string>,
 ): Promise<void> {
   if (items.length === 0) return;
   if (redisTimeoutForDeadline(deadlineAt) === undefined) {
@@ -2652,12 +2703,17 @@ async function writeStoryTracking(
         const anchorFieldAt = hsetFieldsWithEligibility.indexOf('anchorEligible');
         const anchorEligible = anchorFieldAt >= 0
           && hsetFieldsWithEligibility[anchorFieldAt + 1] === '1';
-        const hsetFields = anchorFieldAt >= 0
-          ? [
-            ...hsetFieldsWithEligibility.slice(0, anchorFieldAt),
-            ...hsetFieldsWithEligibility.slice(anchorFieldAt + 2),
-          ]
-          : hsetFieldsWithEligibility;
+        const label = labelByHash?.get(hash);
+        const hsetFields = [
+          ...(anchorFieldAt >= 0
+            ? [
+              ...hsetFieldsWithEligibility.slice(0, anchorFieldAt),
+              ...hsetFieldsWithEligibility.slice(anchorFieldAt + 2),
+            ]
+            : hsetFieldsWithEligibility),
+          // Rides the existing HSET: no extra command against the budget.
+          ...(label ? [STORY_LABEL_FIELD, label] : []),
+        ];
         commands.push(
           ['HINCRBY', trackKey, 'mentionCount', '1'],
           ['HSET', trackKey, ...hsetFields],
@@ -3306,6 +3362,13 @@ async function buildDigest(
     const storyTracks = await readStoryTracks(uniqueHashes, storyTrackingDeadlineAt)
       .catch(() => new Map<string, StoryTrack>());
 
+    // #9093 label history. Only full/en records it: the story:track row is
+    // shared by every variant, and a variant that keeps fewer of a story's
+    // feeds would flip the label back and forth.
+    const { labelByHash, labelChanges } = variant === 'full' && lang === 'en'
+      ? storyLabelChanges(allSliced, storyTracks, now)
+      : { labelByHash: undefined, labelChanges: [] };
+
     // Write story tracking. Errors never fail the digest build.
     await writeStoryTracking(
       allSliced,
@@ -3315,9 +3378,17 @@ async function buildDigest(
       memberHashesByFinal,
       storyTrackingDeadlineAt,
       clusterAnchorEligibleByFinalHash,
+      labelByHash,
     ).catch((err: unknown) =>
       console.warn('[digest] story tracking write failed:', err),
     );
+    if (labelChanges.length > 0) {
+      const timeoutMs = redisTimeoutForDeadline(storyTrackingDeadlineAt);
+      if (timeoutMs !== undefined) {
+        await recordLabelChanges(labelChanges, timeoutMs)
+          .catch((err: unknown) => console.warn('[digest] label history write failed:', err));
+      }
+    }
 
     for (const [category, sliced] of slicedByCategory) {
       categories[category] = {
@@ -3462,6 +3533,7 @@ export const __testing__ = {
   redisPipelineConfirmed,
   shouldPruneAccumulator,
   writeStoryTracking,
+  storyLabelChanges,
   MAX_REDIS_PIPELINE_COMMANDS,
   MAX_DESCRIPTION_LEN,
   MIN_DESCRIPTION_LEN,

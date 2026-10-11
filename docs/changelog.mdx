@@ -10,6 +10,7 @@ All notable changes to World Monitor are documented here. Subscribe via [RSS](ht
 
 ### Added
 
+- **Story label history** (#9093). When a story's coverage label moves between single publisher and corroborated, the change is recorded with the publisher counts on both sides, the publishers and tiers behind the new label, the story's CRED score, and the time. Entries are kept for seven days and served by `GET /api/news/v1/list-label-changes`, for every story or one `story_id`. The label describes coverage, not accuracy. See [Revision and Corrections Log](/corrections#story-label-history).
 - **Tariff lookups for MCP agents** (MCP server 1.32.0, Pro). Three new live tools wrap the Pro trade routes:
   - `get_tariff_averages`: the average tariff any reporter applies, as the WTO MFN series or, with a partner and/or WITS product group, the applied simple and import-weighted averages. It calls `get-tariff-trends`.
   - `get_bilateral_tariff`: one HS6 product between two countries. It calls `get-bilateral-tariff`.
