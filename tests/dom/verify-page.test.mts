@@ -35,9 +35,12 @@ const BODY = {
   },
 };
 
-const PAGE_BODY = readFileSync(resolve(import.meta.dirname, '../../verify.html'), 'utf8')
-  .match(/<body>([\s\S]*)<\/body>/)![1]!
-  .replace(/<script[\s\S]*?<\/script>/g, '');
+// The real page markup, parsed (not regex-stripped), without its entry script.
+function pageBody(): string {
+  const page = new DOMParser().parseFromString(readFileSync(resolve(import.meta.dirname, '../../verify.html'), 'utf8'), 'text/html');
+  for (const script of page.querySelectorAll('script')) script.remove();
+  return page.body.innerHTML;
+}
 
 describe('claim card on /verify', () => {
   const digest = claimDigestFromBody(BODY);
@@ -94,7 +97,7 @@ describe('/verify page bootstrap', () => {
 
   beforeEach(() => {
     vi.resetModules();
-    document.body.innerHTML = PAGE_BODY;
+    document.body.innerHTML = pageBody();
     fetchMock = vi.fn(async () => new Response(JSON.stringify(BODY), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
   });
