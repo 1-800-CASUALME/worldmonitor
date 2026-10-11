@@ -28,6 +28,9 @@ const result = document.getElementById('result') as HTMLDivElement;
 input.maxLength = CLAIM_MAX_CHARS;
 
 let digest: Promise<ClaimDigest> | null = null;
+// Only the latest check may touch the page: a slow first digest load must not
+// let an earlier claim paint over a newer one, or over a URL with no claim.
+let latestRun = 0;
 
 function loadDigest(): Promise<ClaimDigest> {
   digest ??= fetchClaimDigest().catch((error: unknown) => {
@@ -44,10 +47,17 @@ function describeDigest(loaded: ClaimDigest): string {
   return `Searching ${loaded.items.length} live headlines from ${loaded.publishers} feeds${updated}.${stale}`;
 }
 
+function resetSubmit(): void {
+  submit.disabled = false;
+  submit.textContent = 'Check coverage';
+}
+
 async function run(claim: string, { push }: { push: boolean }): Promise<void> {
+  const runId = ++latestRun;
   const text = normalizeClaim(claim);
   if (!text) {
     result.replaceChildren();
+    resetSubmit();
     return;
   }
   if (push) {
@@ -59,9 +69,11 @@ async function run(claim: string, { push }: { push: boolean }): Promise<void> {
   submit.textContent = 'Checking…';
   try {
     const loaded = await loadDigest();
+    if (runId !== latestRun) return;
     status.textContent = describeDigest(loaded);
     setTrustedHtml(result, trustedHtml(renderClaimCardHtml(checkClaim(text, loaded)), 'claim card escapes every digest and claim string'));
   } catch {
+    if (runId !== latestRun) return;
     result.replaceChildren();
     const error = document.createElement('p');
     error.className = 'vc-error';
@@ -69,8 +81,7 @@ async function run(claim: string, { push }: { push: boolean }): Promise<void> {
     error.textContent = 'The live news digest could not be loaded. Try again in a moment.';
     result.append(error);
   } finally {
-    submit.disabled = false;
-    submit.textContent = 'Check coverage';
+    if (runId === latestRun) resetSubmit();
   }
 }
 
@@ -89,8 +100,7 @@ input.addEventListener('keydown', (event) => {
 function runFromLocation(): void {
   const claim = new URLSearchParams(location.search).get('claim') ?? '';
   input.value = claim.slice(0, CLAIM_MAX_CHARS);
-  if (claim) void run(claim, { push: false });
-  else result.replaceChildren();
+  void run(claim, { push: false });
 }
 
 window.addEventListener('popstate', runFromLocation);

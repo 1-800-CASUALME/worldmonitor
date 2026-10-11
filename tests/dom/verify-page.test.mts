@@ -132,6 +132,22 @@ describe('/verify page bootstrap', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('navigating away from a pending check drops its result', async () => {
+    let release!: () => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => {
+      release = () => resolve(new Response(JSON.stringify(BODY), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }));
+    history.replaceState(null, '', '/verify?claim=Trump%20strikes%20diesel%20deal%20with%20Putin');
+    await import('@/verify-main');
+    history.replaceState(null, '', '/verify');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    release();
+    await vi.waitFor(() => expect(document.getElementById('digestStatus')?.textContent).toMatch(/^Searching/));
+    expect(document.querySelector('.vc-card')).toBeNull();
+    expect((document.getElementById('claimInput') as HTMLTextAreaElement).value).toBe('');
+    expect((document.getElementById('verifySubmit') as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('a failed digest read shows an error, not a verdict, and retries on the next check', async () => {
     fetchMock.mockImplementationOnce(async () => new Response('{}', { status: 503 }));
     history.replaceState(null, '', '/verify?claim=Trump%20strikes%20diesel%20deal');
