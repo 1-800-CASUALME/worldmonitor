@@ -38,7 +38,8 @@ import {
   toPublisherRosterJson,
 } from '../../../server/_shared/corroboration';
 import { CLAIM_CARD_MAX_HEADLINES, CLAIM_CARD_STATES, CLAIM_MAX_CHARS, buildClaimCard } from '../../../server/_shared/claim-match';
-import { FACT_CHECK_CAVEAT, FACT_CHECK_LABEL, FACT_CHECK_MAX_RESULTS, type FactCheck } from '../../../server/_shared/fact-checks';
+import { FACT_CHECK_CAVEAT, FACT_CHECK_LABEL } from '../../../server/_shared/fact-checks';
+import { lookupFactChecks, type FactCheckLookup } from '../../../server/_shared/fact-check-search';
 import { buildAuthHeaders } from '../auth';
 import { fetchMcpDownstream } from '../downstream';
 import { assertToolFetchOk } from '../billing-denial';
@@ -64,56 +65,18 @@ const CLASSIFY_SEVERITIES = [
 const EXTRACT_TEXT_MAX_CHARS = 2048; // issue #5697's 2 KB arbitrary-text cap
 const NLP_DIGEST_TIMEOUT_MS = 6_000;
 const NLP_UA = 'worldmonitor-mcp-edge/1.0';
-const FACT_CHECK_TIMEOUT_MS = 6_000;
-const FACT_CHECK_STATES = ['ok', 'unavailable', 'not-configured'] as const;
-type FactCheckState = typeof FACT_CHECK_STATES[number];
-
 /** verify_claim's published fact-checks (#9094): cited ratings, never a WorldMonitor verdict. */
-type FactCheckBlock = {
-  state: FactCheckState;
-  label: string;
-  caveat: string;
-  items: FactCheck[];
-};
-
-function factCheckBlock(state: FactCheckState, items: FactCheck[] = []): FactCheckBlock {
-  return { state, label: FACT_CHECK_LABEL, caveat: FACT_CHECK_CAVEAT, items };
-}
-
-function isFactCheck(value: unknown): value is FactCheck {
-  const v = value as Record<string, unknown> | null;
-  return !!v && ['publisher', 'site', 'rating', 'reviewedAt', 'url', 'title', 'claimReviewed']
-    .every((field) => typeof v[field] === 'string');
-}
+type FactCheckBlock = { state: FactCheckLookup['state']; label: string; caveat: string; items: FactCheckLookup['factChecks'] };
 
 /**
- * Published fact-checks for the claim, from the same endpoint /verify reads.
- * Never fails the tool: any error is `unavailable`, which says the lookup did
- * not run, not that no fact-check exists.
+ * Published fact-checks for the claim: the same lookup SearchFactChecks
+ * serves /verify, run in-process so it is not a second billed downstream
+ * request. Never fails the tool: a lookup that did not run is `unavailable`
+ * or `not-configured`, which says nothing about whether a fact-check exists.
  */
-async function fetchFactCheckBlock(
-  base: string,
-  context: Parameters<typeof buildAuthHeaders>[0],
-  claim: string,
-  execution: McpToolExecutionContext | undefined,
-): Promise<FactCheckBlock> {
-  try {
-    const url = `${base}/api/news/v1/search-fact-checks?claim=${encodeURIComponent(claim)}`;
-    const auth = await buildAuthHeaders(context, 'GET', url, null);
-    const res = await fetchMcpDownstream(url, {
-      headers: { ...auth, 'User-Agent': NLP_UA },
-      signal: AbortSignal.timeout(FACT_CHECK_TIMEOUT_MS),
-    }, execution);
-    if (!res.ok) return factCheckBlock('unavailable');
-    const body = await res.json() as { state?: unknown; factChecks?: unknown };
-    const state = FACT_CHECK_STATES.find((s) => s === body.state) ?? 'unavailable';
-    const items = state === 'ok' && Array.isArray(body.factChecks)
-      ? body.factChecks.filter(isFactCheck).slice(0, FACT_CHECK_MAX_RESULTS)
-      : [];
-    return factCheckBlock(state, items);
-  } catch {
-    return factCheckBlock('unavailable');
-  }
+async function factCheckBlock(claim: string): Promise<FactCheckBlock> {
+  const { state, factChecks } = await lookupFactChecks(claim);
+  return { state, label: FACT_CHECK_LABEL, caveat: FACT_CHECK_CAVEAT, items: factChecks };
 }
 const NLP_DIGEST_SOURCE_MAX_BYTES = 160;
 const NLP_DIGEST_TITLE_MAX_BYTES = 512;
@@ -949,7 +912,7 @@ export const NLP_TOOLS: ToolDef[] = [
           required: ['state', 'label', 'caveat', 'items'],
           description: 'Published fact-checks of a similar claim (#9094), cited with attribution. Strong text matches only, from IFCN-verified fact-checkers, English, newest first; disagreeing ratings are all listed. The ratings are the fact-checkers\' own and never change state or corroboration.',
           properties: {
-            state: { type: 'string', enum: [...FACT_CHECK_STATES], description: 'ok when the lookup ran (an empty list then means no published fact-check of a similar claim was found); unavailable or not-configured when it did not run.' },
+            state: { type: 'string', enum: ['ok', 'unavailable', 'not-configured'], description: 'ok when the lookup ran (an empty list then means no published fact-check of a similar claim was found); unavailable or not-configured when it did not run.' },
             label: { type: 'string', description: 'How to introduce each item: a fact-check of a similar claim, never of this claim.' },
             caveat: { type: 'string' },
             items: {
@@ -987,7 +950,7 @@ export const NLP_TOOLS: ToolDef[] = [
 
       const [digest, factChecks] = await Promise.all([
         fetchNlpDigestItems(base, context, variant, '', execution),
-        fetchFactCheckBlock(base, context, claim, execution),
+        factCheckBlock(claim),
       ]);
       return {
         ...buildClaimCard(claim, digest.items),
@@ -997,6 +960,7 @@ export const NLP_TOOLS: ToolDef[] = [
         ...(digest.digestCoverage ? { digestCoverage: digest.digestCoverage } : {}),
       };
     },
+    // search-fact-checks: covered by the same in-process lookup it serves.
     _apiPaths: [
       'GET /api/news/v1/list-feed-digest',
       'GET /api/news/v1/search-fact-checks',
