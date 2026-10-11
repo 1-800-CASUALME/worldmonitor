@@ -200,9 +200,16 @@ export type ClaimCardHeadline = {
   readonly tier: DeclaredTier | null;
 } & SourceProvenanceState;
 
+/** The card's result: the coverage verdict, or not-found when nothing in the digest reports the claim. */
+export type ClaimCardState = CorroborationJson['state'] | 'not-found';
+
+export const CLAIM_CARD_STATES: readonly ClaimCardState[] = ['corroborated', 'single-publisher', 'tier4-only', 'unknown', 'not-found'];
+
 export type ClaimCard = {
   readonly claim: string;
   readonly found: boolean;
+  /** not-found when no digest cluster reports the claim (never "false"); otherwise corroboration.state. */
+  readonly state: ClaimCardState;
   readonly corroboration: CorroborationJson;
   readonly matchedClusters: number;
   readonly credibilityScore: number | null;
@@ -224,6 +231,7 @@ export function buildClaimCard(claim: string, digestItems: readonly NewsItemCore
     return {
       claim,
       found: false,
+      state: 'not-found',
       corroboration: toCorroborationJson({ state: 'unknown' }),
       publishers: [],
       publishersUnlisted: 0,
@@ -264,6 +272,7 @@ export function buildClaimCard(claim: string, digestItems: readonly NewsItemCore
   return {
     claim,
     found: true,
+    state: verdict.state,
     corroboration: toCorroborationJson(verdict),
     ...toPublisherRosterJson(publisherRoster(evidence), verdict),
     matchedClusters: matches.length,

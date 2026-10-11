@@ -99,7 +99,7 @@ input.addEventListener('keydown', (event) => {
 
 function runFromLocation(): void {
   const claim = new URLSearchParams(location.search).get('claim') ?? '';
-  input.value = claim.slice(0, CLAIM_MAX_CHARS);
+  input.value = normalizeClaim(claim);
   void run(claim, { push: false });
 }
 

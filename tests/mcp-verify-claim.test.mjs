@@ -74,6 +74,7 @@ describe('verify_claim MCP tool', () => {
   it('two independent publishers: corroborated, with roster, sightings and caveat', async () => {
     const result = await callTool({ claim: 'Trump strikes diesel deal with Putin' });
     assert.equal(result.found, true);
+    assert.equal(result.state, 'corroborated');
     assert.deepEqual(result.corroboration, { state: 'corroborated', publishers: 2 });
     assert.deepEqual(result.publishers.map((p) => p.name).sort(), ['BBC', 'Reuters'].sort());
     assert.ok(result.headlines.length >= 2);
@@ -88,6 +89,7 @@ describe('verify_claim MCP tool', () => {
   it('one publisher on two feeds is single-publisher, and an unstated figure is listed', async () => {
     const result = await callTool({ claim: 'Panama earthquake kills 200' });
     assert.equal(result.found, true);
+    assert.equal(result.state, 'single-publisher');
     assert.deepEqual(result.corroboration, { state: 'single-publisher', publishers: 1 });
     assert.deepEqual(result.figures, { claimed: ['200'], grounded: [], ungrounded: ['200'] });
   });
@@ -95,6 +97,7 @@ describe('verify_claim MCP tool', () => {
   it('a claim nobody carries is not found, never false', async () => {
     const result = await callTool({ claim: 'Mars colony declares independence from Earth' });
     assert.equal(result.found, false);
+    assert.equal(result.state, 'not-found');
     assert.deepEqual(result.corroboration, { state: 'unknown', publishers: null });
     assert.deepEqual(result.headlines, []);
     assert.equal(result.matchedClusters, 0);

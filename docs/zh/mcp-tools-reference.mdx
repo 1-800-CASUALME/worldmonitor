@@ -1231,7 +1231,7 @@ curl -s https://worldmonitor.app/mcp \
 
 针对一条说法或标题的证据卡。在实时摘要中找出报道同一事件的话题簇（一个事件常分布在多个簇中），并基于匹配簇给出 WorldMonitor 的覆盖判定。当簇中某条标题包含说法中至少一半的实义词且至少两个时即视为匹配；最多保留匹配度最高的 8 个簇。判定由 `assessCorroboration` 对所有匹配标题计算，因此同一发布方的转载源只计一次。
 
-返回 `found`、`corroboration`（`single-publisher`、`tier4-only`、`corroborated`、`unknown`）、带声明层级的 `publishers` 名单、最多 10 条带来源溯源信息的匹配 `headlines`、最佳匹配的 `credibilityScore`、`firstSeen` / `lastUpdated`，以及 `figures`：用简报溯源规则核对说法中的数字和日期是否出现在匹配标题中。`figures.ungrounded` 列出没有任何匹配标题提及的数字，并不表示该数字错误。`found: false` 表示该说法不在 WorldMonitor 当前的来源中，绝不表示其为假。每个响应都带有相同的 `caveat`：衡量的是覆盖情况，而非准确性。
+返回 `found`、`state`（覆盖判定；若摘要中没有任何报道则为 `not-found`）、`corroboration`（`single-publisher`、`tier4-only`、`corroborated`、`unknown`）、带声明层级的 `publishers` 名单、最多 10 条带来源溯源信息的匹配 `headlines`、最佳匹配的 `credibilityScore`、`firstSeen` / `lastUpdated`，以及 `figures`：用简报溯源规则核对说法中的数字和日期是否出现在匹配标题中。`figures.ungrounded` 列出没有任何匹配标题提及的数字，并不表示该数字错误。`found: false` 表示该说法不在 WorldMonitor 当前的来源中，绝不表示其为假。每个响应都带有相同的 `caveat`：衡量的是覆盖情况，而非准确性。
 
 **参数（工具专属）：**
 

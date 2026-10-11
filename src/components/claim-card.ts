@@ -14,7 +14,7 @@ export type VerdictView = {
 };
 
 export function claimVerdictView(card: ClaimCard): VerdictView {
-  if (!card.found) {
+  if (card.state === 'not-found') {
     return {
       tone: 'not-found',
       title: 'Not in WorldMonitor\'s current sources',

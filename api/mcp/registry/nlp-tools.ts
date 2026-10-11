@@ -37,7 +37,7 @@ import {
   toCorroborationJson,
   toPublisherRosterJson,
 } from '../../../server/_shared/corroboration';
-import { CLAIM_CARD_MAX_HEADLINES, CLAIM_MAX_CHARS, buildClaimCard } from '../../../server/_shared/claim-match';
+import { CLAIM_CARD_MAX_HEADLINES, CLAIM_CARD_STATES, CLAIM_MAX_CHARS, buildClaimCard } from '../../../server/_shared/claim-match';
 import { buildAuthHeaders } from '../auth';
 import { fetchMcpDownstream } from '../downstream';
 import { assertToolFetchOk } from '../billing-denial';
@@ -839,7 +839,7 @@ export const NLP_TOOLS: ToolDef[] = [
   {
     name: 'verify_claim',
     _outputBudgetBytes: 65536,
-    description: 'Evidence card for a claim or headline (#9092): finds the live-digest clusters reporting the same event and returns WorldMonitor\'s coverage verdict over all of them (corroboration.state: corroborated, single-publisher, tier4-only, unknown), the publishers roster with declared tiers, the matched headlines with fail-closed source provenance, a figure check (numbers and dates in the claim that no matched headline states), and first/last sighting. found=false means the claim is not in WorldMonitor\'s current sources, never that it is false. Coverage, not accuracy: nothing here says a claim is true or false. Deterministic — no LLM.',
+    description: 'Evidence card for a claim or headline (#9092): finds the live-digest clusters reporting the same event and returns a result state (corroborated, single-publisher, tier4-only, unknown, or not-found when nothing in the digest reports it) with WorldMonitor\'s coverage verdict over the matched clusters, the publishers roster with declared tiers, the matched headlines with fail-closed source provenance, a figure check (numbers and dates in the claim that no matched headline states), and first/last sighting. found=false means the claim is not in WorldMonitor\'s current sources, never that it is false. Coverage, not accuracy: nothing here says a claim is true or false. Deterministic — no LLM.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -854,10 +854,11 @@ export const NLP_TOOLS: ToolDef[] = [
     },
     outputSchema: {
       type: 'object',
-      required: ['claim', 'found', 'corroboration', 'publishers', 'publishersUnlisted', 'matchedClusters', 'headlines', 'figures', 'caveat', 'generatedAt'],
+      required: ['claim', 'found', 'state', 'corroboration', 'publishers', 'publishersUnlisted', 'matchedClusters', 'headlines', 'figures', 'caveat', 'generatedAt'],
       properties: {
         claim: { type: 'string', description: 'The claim as checked (trimmed, capped).' },
         found: { type: 'boolean', description: 'True when at least one digest cluster reports the same event. False means not in WorldMonitor\'s current sources, not false.' },
+        state: { type: 'string', enum: [...CLAIM_CARD_STATES], description: 'not-found when no digest cluster reports the claim (not in WorldMonitor\'s sources, never false); otherwise corroboration.state.' },
         corroboration: CORROBORATION_OUTPUT_SCHEMA,
         ...PUBLISHER_ROSTER_OUTPUT_PROPERTIES,
         matchedClusters: { type: 'number', description: 'Digest clusters about this event (one event often spans several).' },

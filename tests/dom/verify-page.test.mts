@@ -148,6 +148,15 @@ describe('/verify page bootstrap', () => {
     expect((document.getElementById('verifySubmit') as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it('shows the claim as it is checked: trimmed, then capped', async () => {
+    const long = `   ${'diesel '.repeat(60)}`;
+    history.replaceState(null, '', `/verify?claim=${encodeURIComponent(long)}`);
+    await import('@/verify-main');
+    const value = (document.getElementById('claimInput') as HTMLTextAreaElement).value;
+    expect(value).toBe(long.trim().slice(0, 300));
+    await vi.waitFor(() => expect(document.querySelector('.vc-claim')?.textContent).toBe(`“${value}”`));
+  });
+
   it('a failed digest read shows an error, not a verdict, and retries on the next check', async () => {
     fetchMock.mockImplementationOnce(async () => new Response('{}', { status: 503 }));
     history.replaceState(null, '', '/verify?claim=Trump%20strikes%20diesel%20deal');
