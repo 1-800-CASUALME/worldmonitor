@@ -54,21 +54,57 @@ description: "World Monitor 通知系统 API 完整参考：涵盖通知渠道�
 - **Method**: `POST`
 - **Headers**:
   - `Content-Type: application/json`
-  - `X-WM-Signature: sha256=<HMAC-SHA256(body, channelSecret)>`
-  - `X-WM-Delivery-Id: <ulid>`
-  - `X-WM-Event: <event-name>`
-- **Body**(信封 v1):
+  - `X-WM-Delivery-Id: <uuid>`,每次投递尝试唯一
+  - `X-WM-Event: <eventType>`,与请求体中的 `eventType` 相同
+  - `X-WM-Timestamp: <unix 秒>`
+  - `X-WM-Signature: sha256=<hex HMAC-SHA256(signingSecret, timestamp + "." + rawBody)>`
+- **Body**(信封 v1)。通知中继发出的实时告警:
   ```json
   {
-    "envelope": 1,
-    "event": "brief_ready",
-    "deliveryId": "01HX...",
-    "occurredAt": "2026-04-19T06:00:00Z",
-    "data": { "issueDate": "2026-04-19", "magazineUrl": "..." }
+    "version": "1",
+    "eventType": "rss_alert",
+    "severity": "high",
+    "timestamp": 1776578400000,
+    "payload": { "title": "...", "source": "...", "link": "https://..." },
+    "variant": "full"
+  }
+  ```
+  摘要生产者发出的摘要:
+  ```json
+  {
+    "version": "1",
+    "eventType": "digest",
+    "stories": [{ "title": "...", "severity": "high", "phase": "...", "sources": ["..."] }],
+    "summary": "...",
+    "storyCount": 12
   }
   ```
 
-签名校验:`hmac_sha256(rawBody, channelSecret) == X-WM-Signature[7:]`。
+### 签名密钥
+
+每次通过 `set-channel` 保存 webhook URL 时,响应都会包含一个新的 `signingSecret`(`whsec_...`)。它只返回一次,服务端仅保存加密副本。再次保存该 URL 会签发新密钥并使旧密钥失效,这也是轮换密钥的方式。
+
+### 校验投递
+
+1. 在解析之前读取原始请求体。
+2. 计算 `hex(HMAC-SHA256(signingSecret, X-WM-Timestamp + "." + rawBody))`。
+3. 使用常量时间比较,将其与 `X-WM-Signature` 中 `sha256=` 之后的部分比较。
+4. 拒绝 `X-WM-Timestamp` 与本地时钟相差超过 5 分钟的投递,并按 `X-WM-Delivery-Id` 去重。
+
+```js
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+function verify(rawBody, headers, signingSecret) {
+  const ts = headers['x-wm-timestamp'];
+  const sig = headers['x-wm-signature'] ?? '';
+  if (!ts || Math.abs(Date.now() / 1000 - Number(ts)) > 300) return false;
+  const expected = createHmac('sha256', signingSecret).update(`${ts}.${rawBody}`).digest('hex');
+  const got = sig.startsWith('sha256=') ? sig.slice(7) : '';
+  return got.length === expected.length && timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+}
+```
+
+在引入签名之前注册的 webhook 没有密钥,投递时不带 `X-WM-Signature`。设置页会将其标记为 **Unsigned**;移除后重新添加该 URL 即可获得密钥。
 
 <Warning>
 信封版本在**两个生产者之间共享**(`notification-relay`、`seed-digest-notifications`)。升级版本需协同更新。

@@ -33,6 +33,10 @@ const {
   assertNotificationWebhookDeliveryUrlSafe,
   postJsonWithPinnedAddress,
 } = require('./lib/notification-webhook-ssrf.cjs');
+const {
+  buildWebhookDeliveryHeaders,
+  resolveWebhookSigningSecret,
+} = require('./lib/notification-webhook-signing.cjs');
 const { callLLM } = require('./lib/llm-chain.cjs');
 const { flushPendingLlmEvents } = require('./lib/llm-telemetry.cjs');
 const { fetchUserPreferences, extractUserContext, formatUserProfile } = require('./lib/user-context.cjs');
@@ -1415,9 +1419,13 @@ async function sendEmail(email, subject, text, html) {
   }
 }
 
-async function sendWebhook(userId, webhookEnvelope, stories, aiSummary) {
+async function sendWebhook(userId, webhookEnvelope, stories, aiSummary, webhookSecretEnvelope) {
   let url;
-  try { url = decrypt(webhookEnvelope); } catch (err) {
+  let signingSecret;
+  try {
+    url = decrypt(webhookEnvelope);
+    signingSecret = resolveWebhookSigningSecret(decrypt, webhookSecretEnvelope);
+  } catch (err) {
     console.warn(`[digest] Webhook decrypt failed for ${userId}:`, err.message);
     return false;
   }
@@ -1440,7 +1448,11 @@ async function sendWebhook(userId, webhookEnvelope, stories, aiSummary) {
     const resp = await postJsonWithPinnedAddress(
       safeUrl,
       payload,
-      { 'Content-Type': 'application/json', 'User-Agent': 'worldmonitor-digest/1.0' },
+      {
+        'Content-Type': 'application/json',
+        'User-Agent': 'worldmonitor-digest/1.0',
+        ...buildWebhookDeliveryHeaders({ body: payload, eventType: 'digest', secret: signingSecret }),
+      },
       resolvedAddresses,
     );
     if (resp.status === 404 || resp.status === 410 || resp.status === 403) {
@@ -2647,7 +2659,7 @@ async function main() {
         // closes the channel-coverage gap so the webhook payload
         // exactly matches what U4 stamped + U5 evaluated for that
         // (user, rule, tick).
-        ok = await sendWebhook(rule.userId, ch.webhookEnvelope, formatterStories, briefLead);
+        ok = await sendWebhook(rule.userId, ch.webhookEnvelope, formatterStories, briefLead, ch.webhookSecret);
       }
       if (ok) {
         anyDelivered = true;

@@ -176,6 +176,7 @@
 *Could not find public function for 'notificationChannels:setDiscordOAuthChannelForUser'*
 *Could not find public function for 'notificationChannels:setSlackOAuthChannelForUser'*
 *Could not find public function for 'notificationChannels:setWebPushChannelForUser'*
+*Could not find public function for 'notificationChannels:stagePairingToken'*
 *Could not find public function for 'payments/backfillCustomerNormalizedEmail:backfill'*
 *Could not find public function for 'payments/backfillCustomerNormalizedEmail:countPending'*
 *Could not find public function for 'payments/billing:applyDodoSubscriptionReconciliation'*

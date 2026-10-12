@@ -56,21 +56,57 @@ When an alert fires, registered webhook URLs receive:
 - **Method**: `POST`
 - **Headers**:
   - `Content-Type: application/json`
-  - `X-WM-Signature: sha256=<HMAC-SHA256(body, channelSecret)>`
-  - `X-WM-Delivery-Id: <ulid>`
-  - `X-WM-Event: <event-name>`
-- **Body** (envelope v1):
+  - `X-WM-Delivery-Id: <uuid>`, unique per delivery attempt
+  - `X-WM-Event: <eventType>`, the same value as the body's `eventType`
+  - `X-WM-Timestamp: <unix seconds>`
+  - `X-WM-Signature: sha256=<hex HMAC-SHA256(signingSecret, timestamp + "." + rawBody)>`
+- **Body** (envelope v1). Realtime alerts from the notification relay:
   ```json
   {
-    "envelope": 1,
-    "event": "brief_ready",
-    "deliveryId": "01HX...",
-    "occurredAt": "2026-04-19T06:00:00Z",
-    "data": { "issueDate": "2026-04-19", "magazineUrl": "..." }
+    "version": "1",
+    "eventType": "rss_alert",
+    "severity": "high",
+    "timestamp": 1776578400000,
+    "payload": { "title": "...", "source": "...", "link": "https://..." },
+    "variant": "full"
+  }
+  ```
+  Digests from the digest producer:
+  ```json
+  {
+    "version": "1",
+    "eventType": "digest",
+    "stories": [{ "title": "...", "severity": "high", "phase": "...", "sources": ["..."] }],
+    "summary": "...",
+    "storyCount": 12
   }
   ```
 
-Signature verification: `hmac_sha256(rawBody, channelSecret) == X-WM-Signature[7:]`.
+### Signing secret
+
+Each time a webhook URL is saved through `set-channel`, the response includes a new `signingSecret` (`whsec_...`). It is returned only once and stored encrypted. Saving the URL again issues a new secret and invalidates the old one, which is also how to rotate it.
+
+### Verifying a delivery
+
+1. Read the raw request body before parsing it.
+2. Compute `hex(HMAC-SHA256(signingSecret, X-WM-Timestamp + "." + rawBody))`.
+3. Compare it with the part of `X-WM-Signature` after `sha256=`, using a constant-time comparison.
+4. Reject deliveries whose `X-WM-Timestamp` is more than 5 minutes from your clock, and deduplicate on `X-WM-Delivery-Id`.
+
+```js
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+function verify(rawBody, headers, signingSecret) {
+  const ts = headers['x-wm-timestamp'];
+  const sig = headers['x-wm-signature'] ?? '';
+  if (!ts || Math.abs(Date.now() / 1000 - Number(ts)) > 300) return false;
+  const expected = createHmac('sha256', signingSecret).update(`${ts}.${rawBody}`).digest('hex');
+  const got = sig.startsWith('sha256=') ? sig.slice(7) : '';
+  return got.length === expected.length && timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+}
+```
+
+Webhooks registered before signing was introduced have no secret and arrive without `X-WM-Signature`. The settings page marks them **Unsigned**; remove and re-add the URL to get a secret.
 
 <Warning>
 The envelope version is **shared across two producers** (`notification-relay`, `seed-digest-notifications`). Bumping it requires coordinated updates.
