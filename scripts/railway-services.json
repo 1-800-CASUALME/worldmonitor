@@ -255,6 +255,7 @@
       "scripts/lib/llm-chain.cjs",
       "scripts/lib/llm-telemetry.cjs",
       "scripts/lib/notification-webhook-ssrf.cjs",
+      "scripts/lib/notification-webhook-signing.cjs",
       "scripts/lib/publisher-link-relay-gate.cjs",
       "scripts/lib/resend-from.cjs",
       "scripts/lib/story-track-batch-reader.mjs",

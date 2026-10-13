@@ -7,6 +7,10 @@ const {
   assertNotificationWebhookDeliveryUrlSafe,
   postJsonWithPinnedAddress,
 } = require('./lib/notification-webhook-ssrf.cjs');
+const {
+  buildWebhookDeliveryHeaders,
+  resolveWebhookSigningSecret,
+} = require('./lib/notification-webhook-signing.cjs');
 const { callLLM } = require('./lib/llm-chain.cjs');
 const { fetchUserPreferences, extractUserContext, formatUserProfile } = require('./lib/user-context.cjs');
 const { countryNameToIso2 } = require('./shared/country-name-to-iso2.cjs');
@@ -469,7 +473,7 @@ async function drainHeldForUser(userId, variant, allowedChannelTypes) {
             link: formatEventLinkForPush(ev),
           })),
         },
-      });
+      }, ch.webhookSecret);
       else if (ch.channelType === 'web_push' && ch.endpoint && ch.p256dh && ch.auth) {
         ok = await sendWebPush(userId, ch, {
           title: `WorldMonitor · ${events.length} held alert${events.length === 1 ? '' : 's'}`,
@@ -743,10 +747,12 @@ async function sendEmail(email, subject, text) {
   }
 }
 
-async function sendWebhook(userId, webhookEnvelope, event) {
+async function sendWebhook(userId, webhookEnvelope, event, webhookSecretEnvelope) {
   let url;
+  let signingSecret;
   try {
     url = decrypt(webhookEnvelope);
+    signingSecret = resolveWebhookSigningSecret(decrypt, webhookSecretEnvelope);
   } catch (err) {
     console.warn(`[relay] Webhook decrypt failed for ${userId}:`, err.message);
     return false;
@@ -780,7 +786,11 @@ async function sendWebhook(userId, webhookEnvelope, event) {
     const resp = await postJsonWithPinnedAddress(
       safeUrl,
       payload,
-      { 'Content-Type': 'application/json', 'User-Agent': 'worldmonitor-relay/1.0' },
+      {
+        'Content-Type': 'application/json',
+        'User-Agent': 'worldmonitor-relay/1.0',
+        ...buildWebhookDeliveryHeaders({ body: payload, eventType: event.eventType, secret: signingSecret }),
+      },
       resolvedAddresses,
     );
     if (resp.status === 404 || resp.status === 410 || resp.status === 403) {
@@ -1724,7 +1734,7 @@ async function processEvent(event) {
         } else if (ch.channelType === 'email' && ch.email) {
           await sendEmail(ch.email, subject, deliveryText);
         } else if (ch.channelType === 'webhook' && ch.webhookEnvelope) {
-          await sendWebhook(rule.userId, ch.webhookEnvelope, shapeEventForWebhook(event));
+          await sendWebhook(rule.userId, ch.webhookEnvelope, shapeEventForWebhook(event), ch.webhookSecret);
         } else if (ch.channelType === 'web_push' && ch.endpoint && ch.p256dh && ch.auth) {
           // Web push carries short payloads (Chrome caps at ~4KB and
           // auto-truncates longer ones anyway). Use title + first line
@@ -1825,6 +1835,8 @@ module.exports = {
   processEvent,
   safePushClickUrl,
   sendTelegram,
+  // Exported so the signing suite drives the real delivery path.
+  sendWebhook,
   checkDedup,
   upstashDedupSetNx,
   eventMatchesCountryScope,

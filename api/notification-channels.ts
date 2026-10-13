@@ -17,6 +17,7 @@ import { getCorsHeaders } from './_cors.js';
 import { captureSilentError } from './_sentry-edge.js';
 import {
   beginStandaloneIdempotency,
+  abandonStandaloneIdempotency,
   completeStandaloneIdempotency,
   getIdempotencyKey,
 } from './_idempotency.js';
@@ -86,6 +87,14 @@ export function __setNotificationChannelsDepsForTests(
   notificationChannelsDeps = overrides
     ? { ...createDefaultNotificationChannelsDeps(), ...overrides }
     : createDefaultNotificationChannelsDeps();
+}
+
+// 32 random bytes, base64url, with a recognisable prefix so a leaked value is
+// easy to identify in logs and secret scanners.
+function generateWebhookSigningSecret(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const b64 = btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(''));
+  return `whsec_${b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
 }
 
 // AES-256-GCM encryption using Web Crypto (matches Node crypto.cjs decrypt format).
@@ -523,6 +532,7 @@ export default async function handler(req: Request, ctx: { waitUntil: (p: Promis
       relay: WelcomeRelayResult,
       relayAction: string,
       welcomeChannelType: string,
+      extra: Record<string, unknown> = {},
     ): Promise<Response> => {
       const resp = relay.response;
       if (!resp.ok) {
@@ -549,7 +559,12 @@ export default async function handler(req: Request, ctx: { waitUntil: (p: Promis
       ) {
         ctx.waitUntil(publishWelcome(welcomeUserId, welcomeChannelType));
       }
-      return finish(json({ ok: true }, 200, corsHeaders));
+      const okResponse = json({ ok: true, ...extra }, 200, corsHeaders);
+      // A response carrying a signing secret is never cached for idempotent
+      // replay: the cache would hold the plaintext secret in Redis, and a
+      // later save rotates it, so a replay would hand back a dead secret.
+      if ('signingSecret' in extra) return abandonStandaloneIdempotency(idempotency, okResponse);
+      return finish(okResponse);
     };
 
     try {
@@ -593,8 +608,20 @@ export default async function handler(req: Request, ctx: { waitUntil: (p: Promis
             return finish(json({ error: 'Encryption unavailable' }, 503, corsHeaders));
           }
         }
+        // Every webhook registration gets a fresh signing secret, so saving
+        // the URL again is also how a customer rotates it. Only the encrypted
+        // envelope is stored; the plaintext is returned once, in this response.
+        let signingSecret: string | undefined;
+        if (channelType === 'webhook') {
+          signingSecret = generateWebhookSigningSecret();
+          try {
+            relayBody.webhookSecret = await encryptSlackWebhook(signingSecret);
+          } catch {
+            return finish(json({ error: 'Encryption unavailable' }, 503, corsHeaders));
+          }
+        }
         const relay = await convexRelayWithDurableWelcome(relayBody);
-        return finishDurableWelcomeRelay(relay, 'set-channel', channelType);
+        return finishDurableWelcomeRelay(relay, 'set-channel', channelType, signingSecret ? { signingSecret } : {});
       }
 
       if (action === 'set-web-push') {

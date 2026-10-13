@@ -119,6 +119,7 @@ describe("notificationChannels — Convex entitlement gate", () => {
       api.notificationChannels.createPairingToken,
       { variant: "full" },
     );
+    await t.mutation(internal.notificationChannels.stagePairingToken, { token: pairing.token, chatId: "12345" });
     await seedEntitlement(t, 1, Date.now() - 1_000);
 
     await expect(
@@ -155,6 +156,7 @@ describe("notificationChannels — Convex entitlement gate", () => {
       api.notificationChannels.createPairingToken,
       { variant: "full" },
     );
+    await t.mutation(internal.notificationChannels.stagePairingToken, { token: pairing.token, chatId: "12345" });
     const claimed = await t.mutation(
       internal.notificationChannels.claimPairingToken,
       { token: pairing.token, chatId: "12345" },
@@ -215,6 +217,60 @@ describe("notificationChannels — live delete/deactivate (ungated)", () => {
       const theirs = rules.find((r) => r.userId === otherUser)!;
       expect(mine.channels).toEqual(["telegram"]);
       expect(theirs.channels).toEqual(["email", "telegram"]);
+    });
+  });
+
+  test("webhook signing secret is stored, hidden from the settings read and served to delivery", async () => {
+    process.env.CONVEX_TENANT_RELAY_SECRET = "relay-secret";
+    process.env.CONVEX_NOTIFICATION_RELAY_SECRET = "delivery-secret";
+    const t = convexTest(schema, modules);
+    await seedEntitlement(t);
+    const post = (path: string, secret: string, body: Record<string, unknown>) => t.fetch(path, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const set = await post("/relay/notification-channels", "relay-secret", {
+      action: "set-channel",
+      userId: USER.subject,
+      channelType: "webhook",
+      webhookEnvelope: "v1:url-envelope",
+      webhookSecret: "v1:secret-envelope",
+    });
+    expect(set.status).toBe(200);
+
+    const settings = await (await post("/relay/notification-channels", "relay-secret", {
+      action: "get",
+      userId: USER.subject,
+    })).json() as { channels: Array<Record<string, unknown>> };
+    const webhook = settings.channels.find((c) => c.channelType === "webhook")!;
+    expect(webhook.webhookSigned).toBe(true);
+    expect(webhook).not.toHaveProperty("webhookSecret");
+
+    const delivery = await (await post("/relay/channels", "delivery-secret", { userId: USER.subject })).json() as Array<Record<string, unknown>>;
+    expect(delivery.find((c) => c.channelType === "webhook")?.webhookSecret).toBe("v1:secret-envelope");
+  });
+
+  test("a non-webhook set-channel cannot smuggle a signing secret", async () => {
+    process.env.CONVEX_TENANT_RELAY_SECRET = "relay-secret";
+    const t = convexTest(schema, modules);
+    await seedEntitlement(t);
+    const res = await t.fetch("/relay/notification-channels", {
+      method: "POST",
+      headers: { Authorization: "Bearer relay-secret", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "set-channel",
+        userId: USER.subject,
+        channelType: "slack",
+        webhookEnvelope: "v1:slack-envelope",
+        webhookSecret: "v1:secret-envelope",
+      }),
+    });
+    expect(res.status).toBe(200);
+    await t.run(async (ctx) => {
+      const [slack] = await ctx.db.query("notificationChannels").collect();
+      expect(slack).not.toHaveProperty("webhookSecret");
     });
   });
 

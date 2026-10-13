@@ -20,6 +20,8 @@ export interface NotificationChannel {
   slackTeamName?: string;
   slackConfigurationUrl?: string;
   webhookLabel?: string;
+  /** True when deliveries carry an X-WM-Signature (channel has a signing secret). */
+  webhookSigned?: boolean;
   // web_push identity fields
   endpoint?: string;
   p256dh?: string;
@@ -285,13 +287,15 @@ export async function setWebhookChannel(
   webhookUrl: string,
   label?: string,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<{ signingSecret: string | null }> {
   const res = await authFetch('/api/notification-channels', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'set-channel', channelType: 'webhook', webhookEnvelope: webhookUrl, webhookLabel: label }),
   }, undefined, signal);
   if (!res.ok) throw new Error(`set webhook channel: ${res.status}`);
+  const data = await res.json().catch(() => null) as { signingSecret?: unknown } | null;
+  return { signingSecret: typeof data?.signingSecret === 'string' ? data.signingSecret : null };
 }
 
 export async function startSlackOAuth(signal?: AbortSignal): Promise<string> {
