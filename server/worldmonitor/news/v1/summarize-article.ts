@@ -366,6 +366,7 @@ export async function summarizeArticle(
     };
 
   } catch (err: unknown) {
+    // sentry-coverage-ok Provider failures return SUMMARIZE_STATUS_ERROR for the client fallback chain.
     const error = err instanceof Error ? err : new Error(String(err));
     console.error(`[SummarizeArticle:${provider}] Error:`, error.name, error.message);
     return {
@@ -374,10 +375,12 @@ export async function summarizeArticle(
       provider: provider,
       tokens: 0,
       fallback: true,
-      error: error.message,
+      // Provider error text can carry upstream URLs and request details; it
+      // stays in the log above. Callers get the error class only.
+      error: 'Summarization failed',
       errorType: error.name,
       status: 'SUMMARIZE_STATUS_ERROR',
-      statusDetail: `${error.name}: ${error.message}`,
+      statusDetail: error.name,
     };
   }
 }
