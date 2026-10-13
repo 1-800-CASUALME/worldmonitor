@@ -16,17 +16,19 @@ const TEST_SECRET = 'test-signing-secret-not-a-real-key';
 // The receiver recipe from docs/api-notifications.mdx, verbatim in spirit.
 function verify(rawBody, headers, signingSecret, nowMs = Date.now()) {
   const ts = headers['X-WM-Timestamp'];
+  const id = headers['X-WM-Delivery-Id'];
   const sig = headers['X-WM-Signature'] ?? '';
-  if (!ts || Math.abs(nowMs / 1000 - Number(ts)) > 300) return false;
-  const expected = createHmac('sha256', signingSecret).update(`${ts}.${rawBody}`).digest('hex');
-  const got = sig.startsWith('sha256=') ? sig.slice(7) : '';
-  return got.length === expected.length && timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+  if (!ts || !id || Math.abs(nowMs / 1000 - Number(ts)) > 300) return false;
+  const match = /^sha256=([0-9a-f]{64})$/.exec(sig);
+  if (!match) return false;
+  const expected = createHmac('sha256', signingSecret).update(`${ts}.${id}.${rawBody}`).digest();
+  return timingSafeEqual(Buffer.from(match[1], 'hex'), expected);
 }
 
 describe('buildWebhookDeliveryHeaders', () => {
   const { buildWebhookDeliveryHeaders, resolveWebhookSigningSecret } = require('../scripts/lib/notification-webhook-signing.cjs');
 
-  it('signs timestamp.body so the documented recipe verifies it', () => {
+  it('signs timestamp.deliveryId.body so the documented recipe verifies it', () => {
     const body = JSON.stringify({ version: '1', eventType: 'rss_alert', payload: { title: 'x' } });
     const headers = buildWebhookDeliveryHeaders({ body, eventType: 'rss_alert', secret: TEST_SECRET, deliveryId: 'd-1' });
     assert.equal(headers['X-WM-Event'], 'rss_alert');
@@ -41,6 +43,21 @@ describe('buildWebhookDeliveryHeaders', () => {
     assert.equal(verify('{"a":2}', headers, TEST_SECRET), false);
     assert.equal(verify(body, { ...headers, 'X-WM-Timestamp': String(Number(headers['X-WM-Timestamp']) - 1) }, TEST_SECRET), false);
     assert.equal(verify(body, headers, 'other-secret'), false);
+  });
+
+  it('a replay with a changed delivery id fails verification', () => {
+    const body = '{"a":1}';
+    const headers = buildWebhookDeliveryHeaders({ body, eventType: 'e', secret: TEST_SECRET, deliveryId: 'd-1' });
+    assert.ok(verify(body, headers, TEST_SECRET));
+    assert.equal(verify(body, { ...headers, 'X-WM-Delivery-Id': 'd-2' }, TEST_SECRET), false);
+  });
+
+  it('the recipe rejects a malformed signature instead of throwing', () => {
+    const body = '{}';
+    const headers = buildWebhookDeliveryHeaders({ body, eventType: 'e', secret: TEST_SECRET });
+    for (const bad of [`sha256=${'é'.repeat(64)}`, `sha256=${'z'.repeat(64)}`, 'sha256=abc', '']) {
+      assert.equal(verify(body, { ...headers, 'X-WM-Signature': bad }, TEST_SECRET), false);
+    }
   });
 
   it('a replayed delivery outside the tolerance window is rejected by the recipe', () => {

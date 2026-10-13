@@ -57,7 +57,7 @@ description: "World Monitor 通知系统 API 完整参考：涵盖通知渠道�
   - `X-WM-Delivery-Id: <uuid>`,每次投递尝试唯一
   - `X-WM-Event: <eventType>`,与请求体中的 `eventType` 相同
   - `X-WM-Timestamp: <unix 秒>`
-  - `X-WM-Signature: sha256=<hex HMAC-SHA256(signingSecret, timestamp + "." + rawBody)>`
+  - `X-WM-Signature: sha256=<hex HMAC-SHA256(signingSecret, timestamp + "." + deliveryId + "." + rawBody)>`
 - **Body**(信封 v1)。通知中继发出的实时告警:
   ```json
   {
@@ -87,8 +87,8 @@ description: "World Monitor 通知系统 API 完整参考：涵盖通知渠道�
 ### 校验投递
 
 1. 在解析之前读取原始请求体。
-2. 计算 `hex(HMAC-SHA256(signingSecret, X-WM-Timestamp + "." + rawBody))`。
-3. 使用常量时间比较,将其与 `X-WM-Signature` 中 `sha256=` 之后的部分比较。
+2. 计算 `hex(HMAC-SHA256(signingSecret, X-WM-Timestamp + "." + X-WM-Delivery-Id + "." + rawBody))`。
+3. 除非 `X-WM-Signature` 为 `sha256=` 加上恰好 64 个十六进制字符,否则拒绝该投递;然后使用常量时间比较,将这些字节与你计算的结果比较。
 4. 拒绝 `X-WM-Timestamp` 与本地时钟相差超过 5 分钟的投递,并按 `X-WM-Delivery-Id` 去重。
 
 ```js
@@ -96,11 +96,13 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 function verify(rawBody, headers, signingSecret) {
   const ts = headers['x-wm-timestamp'];
+  const id = headers['x-wm-delivery-id'];
   const sig = headers['x-wm-signature'] ?? '';
-  if (!ts || Math.abs(Date.now() / 1000 - Number(ts)) > 300) return false;
-  const expected = createHmac('sha256', signingSecret).update(`${ts}.${rawBody}`).digest('hex');
-  const got = sig.startsWith('sha256=') ? sig.slice(7) : '';
-  return got.length === expected.length && timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+  if (!ts || !id || Math.abs(Date.now() / 1000 - Number(ts)) > 300) return false;
+  const match = /^sha256=([0-9a-f]{64})$/.exec(sig);
+  if (!match) return false;
+  const expected = createHmac('sha256', signingSecret).update(`${ts}.${id}.${rawBody}`).digest();
+  return timingSafeEqual(Buffer.from(match[1], 'hex'), expected);
 }
 ```
 

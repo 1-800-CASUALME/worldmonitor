@@ -1206,12 +1206,21 @@ export function renderNotificationsSettings(host: NotificationsSettingsHost): No
             return;
           }
           const saveBtn = target.closest<HTMLButtonElement>('#usWebhookSave');
-          if (saveBtn) saveBtn.textContent = 'Saving...';
+          // Each save rotates the secret, so a second in-flight save could
+          // land its response last and show a secret that no longer verifies.
+          if (saveBtn?.disabled) return;
+          if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+          }
           setWebhookChannel(url, labelInput?.value?.trim() || undefined, signal).then(({ signingSecret }) => {
             if (signal.aborted) return;
             saveRuleWithNewChannel('webhook');
             const rowEl = container.querySelector<HTMLElement>('[data-channel-type="webhook"]');
             if (!signingSecret || !rowEl) { reloadNotifSection(); return; }
+            // Mark the row connected so a rule save made while the secret is
+            // on screen (getCurrentAlertRuleFormState) keeps the webhook.
+            rowEl.classList.add('us-notif-ch-on');
             // The secret is shown once; the server keeps only an encrypted copy.
             setTrustedHtml(rowEl, trustedHtml(`
               <div class="us-notif-ch-icon">${channelIcon('webhook')}</div>
@@ -1228,7 +1237,10 @@ export function renderNotificationsSettings(host: NotificationsSettingsHost): No
               </div>
             `, "webhook signing secret, escaped"));
           }).catch(() => {
-            if (saveBtn && !signal.aborted) saveBtn.textContent = 'Save';
+            if (saveBtn && !signal.aborted) {
+              saveBtn.disabled = false;
+              saveBtn.textContent = 'Save';
+            }
           });
           return;
         }

@@ -59,7 +59,7 @@ When an alert fires, registered webhook URLs receive:
   - `X-WM-Delivery-Id: <uuid>`, unique per delivery attempt
   - `X-WM-Event: <eventType>`, the same value as the body's `eventType`
   - `X-WM-Timestamp: <unix seconds>`
-  - `X-WM-Signature: sha256=<hex HMAC-SHA256(signingSecret, timestamp + "." + rawBody)>`
+  - `X-WM-Signature: sha256=<hex HMAC-SHA256(signingSecret, timestamp + "." + deliveryId + "." + rawBody)>`
 - **Body** (envelope v1). Realtime alerts from the notification relay:
   ```json
   {
@@ -89,8 +89,8 @@ Each time a webhook URL is saved through `set-channel`, the response includes a 
 ### Verifying a delivery
 
 1. Read the raw request body before parsing it.
-2. Compute `hex(HMAC-SHA256(signingSecret, X-WM-Timestamp + "." + rawBody))`.
-3. Compare it with the part of `X-WM-Signature` after `sha256=`, using a constant-time comparison.
+2. Compute `hex(HMAC-SHA256(signingSecret, X-WM-Timestamp + "." + X-WM-Delivery-Id + "." + rawBody))`.
+3. Reject the delivery unless `X-WM-Signature` is `sha256=` followed by exactly 64 hex characters, then compare those bytes with yours using a constant-time comparison.
 4. Reject deliveries whose `X-WM-Timestamp` is more than 5 minutes from your clock, and deduplicate on `X-WM-Delivery-Id`.
 
 ```js
@@ -98,11 +98,13 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 function verify(rawBody, headers, signingSecret) {
   const ts = headers['x-wm-timestamp'];
+  const id = headers['x-wm-delivery-id'];
   const sig = headers['x-wm-signature'] ?? '';
-  if (!ts || Math.abs(Date.now() / 1000 - Number(ts)) > 300) return false;
-  const expected = createHmac('sha256', signingSecret).update(`${ts}.${rawBody}`).digest('hex');
-  const got = sig.startsWith('sha256=') ? sig.slice(7) : '';
-  return got.length === expected.length && timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+  if (!ts || !id || Math.abs(Date.now() / 1000 - Number(ts)) > 300) return false;
+  const match = /^sha256=([0-9a-f]{64})$/.exec(sig);
+  if (!match) return false;
+  const expected = createHmac('sha256', signingSecret).update(`${ts}.${id}.${rawBody}`).digest();
+  return timingSafeEqual(Buffer.from(match[1], 'hex'), expected);
 }
 ```
 

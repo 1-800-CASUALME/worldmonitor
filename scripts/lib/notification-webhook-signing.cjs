@@ -6,18 +6,19 @@
 //
 // Contract (docs/api-notifications.mdx, "Webhook delivery contract"):
 //   X-WM-Timestamp: <unix seconds>
-//   X-WM-Signature: sha256=<hex HMAC-SHA256(secret, `${timestamp}.${rawBody}`)>
+//   X-WM-Signature: sha256=<hex HMAC-SHA256(secret, `${timestamp}.${deliveryId}.${rawBody}`)>
 //   X-WM-Delivery-Id: <uuid>
 //   X-WM-Event: <eventType>
 // Signing the timestamp with the body lets receivers reject replays older
-// than their tolerance window. Channels registered before signing existed
+// than their tolerance window; signing the delivery id too means a replay
+// inside that window can't dodge an id-based duplicate check by changing it. Channels registered before signing existed
 // have no secret; they still get the delivery-id and event headers so
 // receivers can tell an unsigned legacy delivery apart from a forgery.
 
 const { createHmac, randomUUID } = require('node:crypto');
 
-function signWebhookBody(secret, timestamp, body) {
-  return createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+function signWebhookBody(secret, timestamp, deliveryId, body) {
+  return createHmac('sha256', secret).update(`${timestamp}.${deliveryId}.${body}`).digest('hex');
 }
 
 /**
@@ -37,7 +38,7 @@ function buildWebhookDeliveryHeaders({ body, eventType, secret, nowMs = Date.now
     'X-WM-Timestamp': timestamp,
   };
   if (typeof secret === 'string' && secret.length > 0) {
-    headers['X-WM-Signature'] = `sha256=${signWebhookBody(secret, timestamp, body)}`;
+    headers['X-WM-Signature'] = `sha256=${signWebhookBody(secret, timestamp, deliveryId, body)}`;
   }
   return headers;
 }

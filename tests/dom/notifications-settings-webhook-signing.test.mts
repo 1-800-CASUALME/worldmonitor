@@ -145,6 +145,58 @@ describe('notification settings webhook signing', () => {
     });
   });
 
+  it('keeps the webhook in the alert rule when settings change while the secret is shown', async () => {
+    const container = await mount({ channels: [], alertRules: [] });
+    container.querySelector<HTMLButtonElement>('#usConnectWebhook')!.click();
+    container.querySelector<HTMLInputElement>('#usWebhookUrl')!.value = 'https://hooks.example.com/in';
+    container.querySelector<HTMLButtonElement>('#usWebhookSave')!.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector('#usWebhookSecret')).not.toBeNull();
+    });
+    expect(webhookRow(container).classList.contains('us-notif-ch-on')).toBe(true);
+
+    channelMocks.saveAlertRules.mockClear();
+    const sensitivity = container.querySelector<HTMLSelectElement>('#usNotifSensitivity')!;
+    sensitivity.value = 'critical';
+    sensitivity.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(() => {
+      expect(channelMocks.saveAlertRules).toHaveBeenCalled();
+    }, { timeout: 3000 });
+    expect(channelMocks.saveAlertRules.mock.calls.at(-1)?.[0].channels).toContain('webhook');
+  });
+
+  it('ignores a second Save click while the first is in flight', async () => {
+    let resolveSave!: (v: { signingSecret: string }) => void;
+    channelMocks.setWebhookChannel.mockImplementation(() => new Promise((r) => { resolveSave = r; }));
+    const container = await mount({ channels: [], alertRules: [] });
+    container.querySelector<HTMLButtonElement>('#usConnectWebhook')!.click();
+    container.querySelector<HTMLInputElement>('#usWebhookUrl')!.value = 'https://hooks.example.com/in';
+    const save = container.querySelector<HTMLButtonElement>('#usWebhookSave')!;
+    save.click();
+    expect(save.disabled).toBe(true);
+    // dispatchEvent reaches listeners even on a disabled button, so this
+    // exercises the handler's own in-flight guard.
+    save.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(channelMocks.setWebhookChannel).toHaveBeenCalledTimes(1);
+    resolveSave({ signingSecret: SECRET });
+    await vi.waitFor(() => {
+      expect(container.querySelector('#usWebhookSecret')?.textContent).toBe(SECRET);
+    });
+  });
+
+  it('re-enables Save when the request fails', async () => {
+    channelMocks.setWebhookChannel.mockRejectedValue(new Error('boom'));
+    const container = await mount({ channels: [], alertRules: [] });
+    container.querySelector<HTMLButtonElement>('#usConnectWebhook')!.click();
+    container.querySelector<HTMLInputElement>('#usWebhookUrl')!.value = 'https://hooks.example.com/in';
+    const save = container.querySelector<HTMLButtonElement>('#usWebhookSave')!;
+    save.click();
+    await vi.waitFor(() => {
+      expect(save.disabled).toBe(false);
+      expect(save.textContent).toBe('Save');
+    });
+  });
+
   it('escapes the secret before rendering it', async () => {
     channelMocks.setWebhookChannel.mockResolvedValue({ signingSecret: '<img src=x onerror=alert(1)>' });
     const container = await mount({ channels: [], alertRules: [] });
