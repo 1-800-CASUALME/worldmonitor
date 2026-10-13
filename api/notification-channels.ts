@@ -17,6 +17,7 @@ import { getCorsHeaders } from './_cors.js';
 import { captureSilentError } from './_sentry-edge.js';
 import {
   beginStandaloneIdempotency,
+  abandonStandaloneIdempotency,
   completeStandaloneIdempotency,
   getIdempotencyKey,
 } from './_idempotency.js';
@@ -558,7 +559,12 @@ export default async function handler(req: Request, ctx: { waitUntil: (p: Promis
       ) {
         ctx.waitUntil(publishWelcome(welcomeUserId, welcomeChannelType));
       }
-      return finish(json({ ok: true, ...extra }, 200, corsHeaders));
+      const okResponse = json({ ok: true, ...extra }, 200, corsHeaders);
+      // A response carrying a signing secret is never cached for idempotent
+      // replay: the cache would hold the plaintext secret in Redis, and a
+      // later save rotates it, so a replay would hand back a dead secret.
+      if ('signingSecret' in extra) return abandonStandaloneIdempotency(idempotency, okResponse);
+      return finish(okResponse);
     };
 
     try {

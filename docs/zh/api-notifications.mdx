@@ -45,7 +45,7 @@ description: "World Monitor 通知系统 API 完整参考：涵盖通知渠道�
 
 客户端在向用户暴露失败之前,应至少按 `Retry-After` 重试一次该 `503` —— 仪表盘自身的服务层(`src/services/notification-channels.ts`)会执行且仅执行一次有界重试。对 `entitlement_verification_unavailable` 而言,早于 `Retry-After` 的重试是无意义的:该结果在服务端会被短时负缓存,提前重试只会拿到同一个结果。另外两个 `renewal_verification_*` 代码不会被负缓存,但其延迟对应真实的计费提供方复核或冷却期,因此提前重试同样只会得到相同状态。
 
-- **幂等性**: `POST /api/notification-channels` 支持可选的 `Idempotency-Key`。使用相同 key 和相同请求体重试时,会重放原始响应,而不是再次应用渠道动作。
+- **幂等性**: `POST /api/notification-channels` 支持可选的 `Idempotency-Key`。使用相同 key 和相同请求体重试时,会重放原始响应,而不是再次应用渠道动作。 例外是成功的 webhook `set-channel`:其响应包含一次性签名密钥,因此不会被缓存,重试会重新注册该 URL 并签发新密钥。
 
 ## Webhook 投递契约
 

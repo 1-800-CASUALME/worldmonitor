@@ -47,7 +47,7 @@ A caller without a billed row gets `403 pro_required` only when the entitlement 
 
 Clients should honor that `503` with at least one retry at the advertised `Retry-After` before surfacing a failure — the dashboard's own service layer (`src/services/notification-channels.ts`) makes exactly one bounded retry. For `entitlement_verification_unavailable` specifically, retrying earlier than `Retry-After` is wasted: that answer is briefly negative-cached server-side, so an early retry is served the same result. The two `renewal_verification_*` codes are not negative-cached, but their delay reflects a real provider re-check or cooldown, so retrying early is still answered from the same state.
 
-- **Idempotency**: optional `Idempotency-Key` supported on `POST /api/notification-channels`. Retrying the same key with an identical body replays the original response instead of applying the channel action again.
+- **Idempotency**: optional `Idempotency-Key` supported on `POST /api/notification-channels`. Retrying the same key with an identical body replays the original response instead of applying the channel action again. The exception is a successful webhook `set-channel`: its response carries a one-time signing secret, so it is never cached, and a retry registers the URL again with a new secret.
 
 ## Webhook delivery contract
 

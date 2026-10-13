@@ -188,6 +188,40 @@ describe('set-channel webhook signing secret', () => {
     assert.notEqual(first.signingSecret, second.signingSecret);
   });
 
+  it('never caches the secret-bearing response for idempotent replay', async () => {
+    const mod = await importFreshNotificationChannels();
+    installDeps(mod);
+    // Stand in for Upstash: the idempotency claim succeeds, then record every
+    // command so we can see whether the response was written back.
+    const redisCommands: unknown[][] = [];
+    const dnsFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url === 'https://upstash.test/pipeline') {
+        const commands = JSON.parse(String(init?.body)) as unknown[][];
+        redisCommands.push(...commands);
+        return Response.json(commands.map((cmd) => (
+          cmd[0] === 'SET' && cmd.includes('NX') ? { result: 'OK' } : { result: JSON.stringify({ state: 'processing' }) }
+        )));
+      }
+      return dnsFetch(input, init);
+    }) as typeof fetch;
+
+    const req = makeSetChannelRequest('https://hooks.example.com/in', 'webhook');
+    req.headers.set('Idempotency-Key', 'webhook-save-1');
+    const res = await mod.default(req, ctx);
+
+    assert.equal(res.status, 200);
+    const { signingSecret } = (await res.json()) as { signingSecret: string };
+    assert.match(signingSecret, /^whsec_/);
+    assert.ok(redisCommands.some((cmd) => cmd[0] === 'SET' && cmd.includes('NX')), 'the key was claimed');
+    assert.ok(
+      !redisCommands.some((cmd) => JSON.stringify(cmd).includes(signingSecret)),
+      'the plaintext secret must not be written to Redis',
+    );
+    assert.ok(redisCommands.some((cmd) => cmd[0] === 'DEL'), 'the processing marker is released');
+  });
+
   it('non-webhook channels get no secret', async () => {
     const mod = await importFreshNotificationChannels();
     const relayCalls = installDeps(mod);
