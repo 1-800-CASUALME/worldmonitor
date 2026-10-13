@@ -162,7 +162,7 @@ describe('notification settings webhook signing', () => {
     await vi.waitFor(() => {
       expect(channelMocks.saveAlertRules).toHaveBeenCalled();
     }, { timeout: 3000 });
-    expect(channelMocks.saveAlertRules.mock.calls.at(-1)?.[0].channels).toContain('webhook');
+    expect(channelMocks.saveAlertRules.mock.lastCall?.[0].channels).toContain('webhook');
   });
 
   it('ignores a second Save click while the first is in flight', async () => {
