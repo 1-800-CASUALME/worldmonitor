@@ -517,7 +517,7 @@ const HOST_ORIGINS = Object.freeze({
   'www.reddit.com': 'US',
   'www.replicatestatus.com': 'US',
   'www.rigzone.com': 'US',
-  'www.rt.com': 'RU',
+  'rt-english.com': 'RU',
   'www.saastr.com': 'US',
   'www.schneier.com': 'US',
   'www.sciencedaily.com': 'US',
