@@ -72,33 +72,37 @@ function clusterLinkTags(): string {
     .join('\n');
 }
 
+function linkRelations(tag: string): string[] {
+  const rel = tag.match(/\brel="([^"]*)"/i)?.[1]?.toLowerCase() ?? '';
+  return rel.split(/\s+/).filter(Boolean);
+}
+
+function isCanonicalOrHreflangLink(tag: string): boolean {
+  const relations = linkRelations(tag);
+  return relations.includes('canonical')
+    || (relations.includes('alternate') && /\bhreflang="/i.test(tag));
+}
+
 function rewriteCanonicalAndHreflang(html: string, canonical: string): string {
   const canonicalTag = `    <link rel="canonical" href="${canonical}" />`;
-  const alternates = clusterLinkTags();
-  let inHead = false;
-  let replacedCanonical = false;
-  let inserted = false;
-  const rewritten = html.replace(
-    /<!--[\s\S]*?-->|<(script|style)\b[^>]*>[\s\S]*?<\/\1(?:[\t\n\f\r ][^>]*|\/[^>]*)?>|<(?:head|\/head|link)\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi,
-    (tag) => {
-      if (/^<head[\t\n\f\r >]/i.test(tag)) inHead = true;
-      if (/^<\/head[\t\n\f\r >]/i.test(tag) && inHead) {
-        inHead = false;
-        if (replacedCanonical) return tag;
-        inserted = true;
-        return `${canonicalTag}\n${alternates}\n${tag}`;
-      }
-      if (!inHead || !/^<link\b/i.test(tag)) return tag;
-      const rel = tag.match(/\brel="([^"]*)"/i)?.[1]?.toLowerCase() ?? '';
-      const relations = rel.split(/\s+/);
-      if (relations.includes('alternate') && /\bhreflang="/i.test(tag)) return '';
-      if (!relations.includes('canonical')) return tag;
-      if (replacedCanonical) return '';
-      replacedCanonical = true;
-      return `${canonicalTag}\n${alternates}`;
-    },
-  );
-  return inserted || replacedCanonical ? rewritten : `${rewritten}${canonicalTag}\n${alternates}\n`;
+  const block = `${canonicalTag}\n${clusterLinkTags()}\n`;
+  const open = html.match(/<head\b[^>]*>/i);
+  if (!open || open.index === undefined) return `${html}${block}`;
+  const innerStart = open.index + open[0].length;
+  const closeOffset = html.slice(innerStart).search(/<\/head\b/i);
+  if (closeOffset < 0) return `${html}${block}`;
+  const inner = html.slice(innerStart, innerStart + closeOffset);
+  const kept: string[] = [];
+  const linkRe = /<link\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi;
+  let cursor = 0;
+  for (const match of inner.matchAll(linkRe)) {
+    const index = match.index ?? 0;
+    kept.push(inner.slice(cursor, index));
+    if (!isCanonicalOrHreflangLink(match[0])) kept.push(match[0]);
+    cursor = index + match[0].length;
+  }
+  kept.push(inner.slice(cursor));
+  return `${html.slice(0, innerStart)}${kept.join('')}${block}${html.slice(innerStart + closeOffset)}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

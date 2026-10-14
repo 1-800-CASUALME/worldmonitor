@@ -225,16 +225,29 @@ export const NEGOTIATED_MEDIA_TYPES = Object.freeze(['text/markdown', 'text/plai
 export const SINGLE_REPRESENTATION_EXTENSIONS = Object.freeze(['md', 'txt', 'xml']);
 
 /**
- * The two app-shell documents the dashboard-managed "WWW entry HTML" rule used
- * to cache with no representation guard (#7804). Both carry the shared 600s
- * header in vercel.json, both answer a markdown rendering for
- * `Accept: text/markdown` under that same header (measured 2026-09-06 through
- * the query-bearing form, which every rule keeps on the bypass), and both are
- * claimed here so the guard block gates them like every other HTML document.
- * `/dashboard.html`, the rewrite destination behind `/dashboard`, is not a URL
- * anyone is sent to and stays out.
+ * Slashless and trailing-slash URLs for the prerendered locale homepages.
+ * Keep in lockstep with `nonDefaultLandingLocales()` in
+ * shared/indexable-landing-locales.ts — the cache-rule test compares both.
  */
-export const ENTRY_DOCUMENTS = Object.freeze(['/', '/dashboard']);
+export const INDEXABLE_LANDING_ENTRY_PATHS = Object.freeze([
+  '/es', '/es/',
+  '/pt', '/pt/',
+  '/ru', '/ru/',
+  '/fr', '/fr/',
+  '/de', '/de/',
+  '/ar', '/ar/',
+]);
+
+/**
+ * Exact HTML documents claimed behind the representation guard (#7804, GS-L10N).
+ * `/` and `/dashboard` are the retired "WWW entry HTML" pair. Locale landings
+ * advertise the same 600s CDN header in vercel.json, so they need a matching
+ * exact-path claim or Cloudflare's WWW-documents bypass keeps them DYNAMIC.
+ * `/dashboard.html`, the rewrite destination behind `/dashboard`, is not a URL
+ * anyone is sent to and stays out. Locale paths are exact (`eq "/es/"`), never
+ * `starts_with`, so `/es/not-a-landing` stays on the bypass.
+ */
+export const ENTRY_DOCUMENTS = Object.freeze(['/', '/dashboard', ...INDEXABLE_LANDING_ENTRY_PATHS]);
 
 /**
  * Entry documents whose body also varies by User-Agent: middleware.ts rewrites
