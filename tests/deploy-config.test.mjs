@@ -43,7 +43,14 @@ function parseRobotsGroups(source) {
   return groups;
 }
 import { fileURLToPath } from 'node:url';
-import { guardProBuiltOutput, shouldSkipProBuiltOutput, withoutUnbuiltProPaths } from './_lib/pro-built-output.mjs';
+import { INDEXABLE_LANDING_LOCALES } from '../shared/indexable-landing-locales.ts';
+import {
+  guardProBuiltOutput,
+  isProBuiltOutputPath,
+  landingBuiltOutputPath,
+  shouldSkipProBuiltOutput,
+  withoutUnbuiltProPaths,
+} from './_lib/pro-built-output.mjs';
 import { CACHE_POLICY_HEADER_NAME, isSharedCacheable } from './helpers/shared-cache-policy.mjs';
 import {
   CONTENT_CORPUS_PREFIXES,
@@ -99,6 +106,9 @@ const WEBMCP_TOKEN_SHA256_BY_HOST = {
   'happy.worldmonitor.app': '72c2026ac2266553d9007ef0615ab46c0ca080002b86b11fc1e71cadb37f23f8',
   'energy.worldmonitor.app': '0f2fec8b51e7f29db5f12bcaaeb859d1f1d1c71156648d57d28e1bc86954d0d4',
 };
+const LOCALIZED_LANDING_HTML_FILES = INDEXABLE_LANDING_LOCALES
+  .filter((locale) => !locale.isDefault)
+  .map(landingBuiltOutputPath);
 const GLOBAL_CSP_INLINE_SCRIPT_HTML_FILES = [
   'index.html',
   'settings.html',
@@ -107,6 +117,7 @@ const GLOBAL_CSP_INLINE_SCRIPT_HTML_FILES = [
   'public/offline.html',
   'public/pro/index.html',
   'public/pro/welcome.html',
+  ...LOCALIZED_LANDING_HTML_FILES,
 ];
 const GLOBAL_CSP_EXTERNAL_SCRIPT_HTML_FILES = [
   'index.html',
@@ -115,6 +126,7 @@ const GLOBAL_CSP_EXTERNAL_SCRIPT_HTML_FILES = [
   'mcp-grant.html',
   'public/pro/index.html',
   'public/pro/welcome.html',
+  ...LOCALIZED_LANDING_HTML_FILES,
 ];
 const STATIC_SCRIPT_NONCE = 'wm-static-bootstrap';
 const WEBMCP_PLAYWRIGHT_ENV_KEYS = [
@@ -555,7 +567,7 @@ describe('crawlable content corpus deployment contracts', () => {
     );
     assert.equal(
       packageJson.scripts['build:sitemap'],
-      'node scripts/build-sitemap.mjs'
+      'node --import tsx scripts/build-sitemap.mjs'
     );
 
     for (const scriptName of ['build', 'build:full']) {
@@ -2764,7 +2776,7 @@ describe('security header guardrails', () => {
     const scriptHashTokens = getCspDirectiveTokens(csp, 'script-src')
       .filter((token) => token.startsWith("'sha256-"));
     const committedFiles = GLOBAL_CSP_INLINE_SCRIPT_HTML_FILES
-      .filter((file) => !file.startsWith('public/pro/'));
+      .filter((file) => !isProBuiltOutputPath(file));
     assert.ok(
       committedFiles.length > 0,
       'committed-HTML population is empty — this guard would pass vacuously',
