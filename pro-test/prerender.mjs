@@ -3,7 +3,7 @@
  * Postbuild prerender script — injects critical CSS and the user-visible
  * server-rendered welcome app into the built HTML.
  */
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
@@ -178,7 +178,7 @@ function inlineCriticalCss(html, file) {
   return html.replace(stylesheetTag, () => criticalTags);
 }
 
-async function renderWelcomeRoot() {
+async function renderWelcomeDocuments() {
   const server = await createServer({
     configFile: resolve(__dirname, 'vite.config.ts'),
     appType: 'custom',
@@ -186,10 +186,23 @@ async function renderWelcomeRoot() {
     server: { hmr: false, middlewareMode: true },
   });
   try {
-    const { renderWelcomeApp } = await server.ssrLoadModule('/src/welcome-prerender.tsx');
+    const {
+      renderWelcomeApp,
+      localizeWelcomeDocument,
+      INDEXABLE_LANDING_LOCALES,
+    } = await server.ssrLoadModule('/src/welcome-prerender.tsx');
     const { htmlToMarkdown } = await server.ssrLoadModule('../api/_md-url-twin.ts');
-    const html = rewriteBuiltAssetUrls(await renderWelcomeApp());
-    return { html, markdown: htmlToMarkdown(html, 'World Monitor') };
+    const rendered = [];
+    for (const locale of INDEXABLE_LANDING_LOCALES) {
+      const { html, copy } = await renderWelcomeApp(locale.id);
+      rendered.push({
+        locale,
+        copy,
+        html: rewriteBuiltAssetUrls(html),
+        markdown: locale.isDefault ? htmlToMarkdown(html, 'World Monitor') : null,
+      });
+    }
+    return { rendered, localizeWelcomeDocument };
   } finally {
     await server.close();
   }
@@ -237,7 +250,13 @@ function rewriteBuiltAssetUrls(markup) {
   return rewritten;
 }
 
-const { html: welcomeContent, markdown: welcomeMarkdown } = await renderWelcomeRoot();
+const { rendered: welcomeDocuments, localizeWelcomeDocument } = await renderWelcomeDocuments();
+const englishWelcome = welcomeDocuments.find((page) => page.locale.isDefault);
+if (!englishWelcome) {
+  console.error('[prerender] ERROR: indexable landing locales must include a default English row.');
+  process.exit(1);
+}
+const welcomeMarkdown = englishWelcome.markdown;
 
 // GitHub star InteractionCounter: populated from the committed freeze
 // snapshot, never hardcoded and never fetched at build time (offline builds
@@ -284,42 +303,54 @@ function fillProofFacts(html, file) {
   return filled;
 }
 
-const PAGES = [
-  { file: 'index.html', content: '', rootAttributes: '' },
-  {
-    file: 'welcome.html',
-    content: welcomeContent,
-    rootAttributes: ' data-wm-prerendered="welcome" data-wm-prerender-lang="en"',
-  },
-];
-
-for (const { file, content, rootAttributes } of PAGES) {
-  const htmlPath = resolve(__dirname, '../public/pro', file);
-  let html = readFileSync(htmlPath, 'utf-8');
-  html = inlineCriticalCss(html, file);
-  html = injectGithubStars(html, file);
-  html = fillProofFacts(html, file);
+function injectWelcomeRoot(html, file, content, localeId) {
   const emptyRoot = '<div id="root"></div>';
-  if (content || rootAttributes) {
-    if (!html.includes(emptyRoot)) {
-      console.error(`[prerender] ERROR: ${file} has no empty <div id="root"></div> to inject into.`);
-      process.exit(1);
-    }
-    // Replacer FUNCTION, not a replacement string: `String.prototype.replace`
-    // expands `$$`, `$&`, `` $` `` and `$'` in a string replacement. Since #7608
-    // the SSR markup carries headline text from ~461 third-party RSS feeds, so
-    // those sequences are no longer ours to rule out. React escapes `'` to
-    // `&#x27;`, which turns a title containing `$'` into a literal `$&` — that
-    // splices a SECOND `<div id="root">` into the page and hydration mounts on
-    // the wrong one; a backtick (which React does not escape) splices the whole
-    // preceding document. A function replacement is taken literally.
-    html = html.replace(emptyRoot, () => `<div id="root"${rootAttributes}>${content}</div>`);
-  } else if (!html.includes('<div id="root">')) {
-    console.error(`[prerender] ERROR: ${file} has no #root mount point.`);
+  if (!html.includes(emptyRoot)) {
+    console.error(`[prerender] ERROR: ${file} has no empty <div id="root"></div> to inject into.`);
     process.exit(1);
   }
-  writeFileSync(htmlPath, html, 'utf-8');
-  console.log(`[prerender] Injected critical CSS and visible content into public/pro/${file}`);
+  // Replacer FUNCTION, not a replacement string: `String.prototype.replace`
+  // expands `$$`, `$&`, `` $` `` and `$'` in a string replacement. Since #7608
+  // the SSR markup carries headline text from ~461 third-party RSS feeds, so
+  // those sequences are no longer ours to rule out. React escapes `'` to
+  // `&#x27;`, which turns a title containing `$'` into a literal `$&` — that
+  // splices a SECOND `<div id="root">` into the page and hydration mounts on
+  // the wrong one; a backtick (which React does not escape) splices the whole
+  // preceding document. A function replacement is taken literally.
+  const rootAttributes = ` data-wm-prerendered="welcome" data-wm-prerender-lang="${localeId}"`;
+  return html.replace(emptyRoot, () => `<div id="root"${rootAttributes}>${content}</div>`);
+}
+
+const indexPath = resolve(__dirname, '../public/pro', 'index.html');
+let indexHtml = readFileSync(indexPath, 'utf-8');
+indexHtml = inlineCriticalCss(indexHtml, 'index.html');
+indexHtml = injectGithubStars(indexHtml, 'index.html');
+indexHtml = fillProofFacts(indexHtml, 'index.html');
+if (!indexHtml.includes('<div id="root">')) {
+  console.error('[prerender] ERROR: index.html has no #root mount point.');
+  process.exit(1);
+}
+writeFileSync(indexPath, indexHtml, 'utf-8');
+console.log('[prerender] Injected critical CSS and visible content into public/pro/index.html');
+
+const welcomePath = resolve(__dirname, '../public/pro', 'welcome.html');
+let welcomeBase = readFileSync(welcomePath, 'utf-8');
+welcomeBase = inlineCriticalCss(welcomeBase, 'welcome.html');
+welcomeBase = injectGithubStars(welcomeBase, 'welcome.html');
+welcomeBase = fillProofFacts(welcomeBase, 'welcome.html');
+
+for (const page of welcomeDocuments) {
+  const injected = injectWelcomeRoot(welcomeBase, 'welcome.html', page.html, page.locale.id);
+  const html = localizeWelcomeDocument(injected, page.locale, page.copy);
+  if (page.locale.isDefault) {
+    writeFileSync(welcomePath, html, 'utf-8');
+    console.log('[prerender] Injected critical CSS and visible content into public/pro/welcome.html');
+    continue;
+  }
+  const outDir = resolve(__dirname, '../public', page.locale.pathSegment);
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(resolve(outDir, 'index.html'), html, 'utf-8');
+  console.log(`[prerender] Wrote localized welcome landing public/${page.locale.pathSegment}/index.html`);
 }
 
 // Both homepage markdown selectors use the rendered HTML's content. Keep the
