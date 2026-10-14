@@ -156,7 +156,7 @@ describe('pro critical CSS source contract', () => {
     const prerender = src('pro-test/prerender.mjs');
     assert.doesNotMatch(prerender, /seo-prerender/);
     assert.match(prerender, /const PAGES = \[/);
-    assert.match(prerender, /html = inlineCriticalCss\(html, file\);/);
+    assert.match(prerender, /html = inlineCriticalCss\(html, file, headTags\);/);
     assert.doesNotMatch(prerender, /file === 'welcome\.html'/);
   });
 });

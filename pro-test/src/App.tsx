@@ -828,7 +828,7 @@ const ProShowcase = () => (
             ].map((ch, i) => (
               <div key={i} className="flex flex-col items-center gap-1.5 text-wm-muted hover:text-wm-text transition-colors cursor-pointer">
                 {ch.icon}
-                <span className="text-[10px] font-mono">{ch.label}</span>
+                <span className="text-xs font-mono">{ch.label}</span>
               </div>
             ))}
           </div>
@@ -1383,7 +1383,7 @@ const EnterprisePage = () => (
           <a href="https://github.com/koala73/worldmonitor" target="_blank" rel="noreferrer" className="hover:text-wm-text transition-colors">GitHub</a>
           <a href="https://x.com/worldmonitorai" target="_blank" rel="noreferrer" className="hover:text-wm-text transition-colors">X</a>
         </div>
-        <span className="text-[10px] opacity-40 mt-4 md:mt-0">&copy; {new Date().getFullYear()} WorldMonitor</span>
+        <span className="text-xs opacity-40 mt-4 md:mt-0">&copy; {new Date().getFullYear()} WorldMonitor</span>
       </div>
       <PressFooterNav />
       {/* This is the pricing page — the footer a buyer sees on the way to

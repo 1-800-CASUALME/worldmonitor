@@ -277,6 +277,40 @@ test('built welcome page ships the real hero in #root before JavaScript', { skip
   assert.match(rootContent, /<img[^>]+src="\/pro\/assets\/worldmonitor-7-mar-2026-[^"]+\.jpg"[^>]+fetchPriority="high"/);
 });
 
+// React skips the image preload for an <img> inside <picture>, so without the
+// prerender's head tag the LCP hero waits for the body parser to reach it.
+test('built welcome head preloads the hero AVIF srcset the <picture> serves', { skip }, () => {
+  const html = welcomeHtml();
+  const head = html.slice(0, html.indexOf('</head>'));
+  const preload = head.match(/<link rel="preload" as="image" type="image\/avif" imagesrcset="([^"]+)" imagesizes="([^"]+)" fetchpriority="high">/);
+  assert.ok(preload, 'welcome <head> should preload the hero AVIF');
+  const source = welcomeRoot().content.match(/<picture><source type="image\/avif" srcSet="([^"]+)" sizes="([^"]+)"\/>/);
+  assert.ok(source, 'hero <picture> should carry an AVIF <source>');
+  assert.equal(preload[1], source[1], 'preload imagesrcset must match the rendered <source>');
+  assert.equal(preload[2], source[2], 'preload imagesizes must match the rendered <source>');
+});
+
+// Mobile audits fail any rendered text under 12px; the inline critical CSS is
+// what they read first, and it mirrors every size the hero uses.
+test('built welcome page sets no font size below 12px', { skip }, () => {
+  const tooSmall = [...welcomeHtml().matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)]
+    .map((match) => Number(match[1]))
+    .filter((px) => px < 12);
+  assert.deepEqual(tooSmall, []);
+  assert.doesNotMatch(welcomeRoot().content, /\btext-\[(?:\d|1[01])(?:\.\d+)?px\]/);
+});
+
+// The JSON-LD `author` (#7459a) must name someone the page visibly credits, or
+// structured-data audits flag it as schema/content drift.
+test('welcome JSON-LD author is visibly credited in the rendered page', { skip }, () => {
+  const application = welcomeJsonLdBlocks().find((block) => block['@type'] === 'SoftwareApplication');
+  assert.equal(application.author?.['@id'], `${CANONICAL_ORIGIN}blog/authors/elie-habib/#person`);
+  assert.match(
+    welcomeRoot().content,
+    new RegExp(`<a href="${CANONICAL_ORIGIN}blog/authors/elie-habib/"[^>]*>${application.author.name}</a>`),
+  );
+});
+
 test('built welcome root hides no SSR content and links every primary reference page', { skip }, () => {
   const { content: rootContent } = welcomeRoot();
   // Content styled invisible or off-position before hydration reads to crawlers as cloaking.

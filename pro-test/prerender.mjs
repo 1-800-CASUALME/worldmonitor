@@ -110,7 +110,7 @@ const CRITICAL_CSS = [
   'main [class~="w-1.5"]{width:.375rem}main [class~="h-1.5"]{height:.375rem}main [class~=w-2]{width:.5rem}main [class~=h-2]{height:.5rem}main [class~="w-2.5"]{width:.625rem}main [class~="h-2.5"]{height:.625rem}main [class~=w-3]{width:.75rem}main [class~=h-3]{height:.75rem}main [class~="w-3.5"]{width:.875rem}main [class~="h-3.5"]{height:.875rem}main [class~=w-4]{width:1rem}main [class~=h-4]{height:1rem}main [class~=h-9]{height:2.25rem}',
   'main [class~=rounded-full]{border-radius:9999px}main [class~=rounded-sm]{border-radius:.25rem}main [class~=rounded-md]{border-radius:.375rem}main .border{border-style:solid;border-width:1px;border-color:#222}main .border-l{border-left-style:solid;border-left-width:1px}main .border-t{border-top-style:solid;border-top-width:1px}main .border-b{border-bottom-style:solid;border-bottom-width:1px}main [class~=bg-wm-card]{background:#111}main [class~=bg-wm-bg]{background:#050505}main [class~=bg-wm-green]{background:#4ade80;color:#050505}main [class~="bg-[#ff5f57]"]{background:#ff5f57}main [class~="bg-[#febc2e]"]{background:#febc2e}main [class~="bg-[#28c840]"]{background:#28c840}',
   'main [class~=px-3]{padding-inline:.75rem}main [class~=px-4]{padding-inline:1rem}main [class~=px-5]{padding-inline:1.25rem}main [class~=py-1]{padding-block:.25rem}main [class~=py-2]{padding-block:.5rem}main [class~=py-3]{padding-block:.75rem}main [class~="py-1.5"]{padding-block:.375rem}main [class~="py-3.5"]{padding-block:.875rem}main [class~=font-mono]{font-family:var(--font-mono)}main [class~=font-display]{font-family:var(--font-display)}main [class~=font-bold]{font-weight:700}main [class~=uppercase]{text-transform:uppercase}main [class~=text-center]{text-align:center}main [class~=text-left]{text-align:left}',
-  'main [class~=text-2xl]{font-size:1.5rem;line-height:1.33}main [class~=text-4xl]{font-size:2.25rem;line-height:1.11}main [class~=text-base]{font-size:1rem;line-height:1.5}main [class~=text-sm]{font-size:.875rem;line-height:1.25rem}main [class~=text-xs]{font-size:.75rem;line-height:1rem}main [class~="text-[9px]"]{font-size:9px}main [class~="text-[10px]"]{font-size:10px}main [class~="text-[11px]"]{font-size:11px}main [class~=leading-none]{line-height:1}main [class~=leading-relaxed]{line-height:1.625}main [class~=tracking-tight]{letter-spacing:-.025em}main [class~=tracking-wide]{letter-spacing:.025em}main [class~=tracking-wider]{letter-spacing:.05em}main [class~=tracking-widest]{letter-spacing:.1em}main [class~="tracking-[1px]"]{letter-spacing:1px}main [class~="tracking-[4px]"]{letter-spacing:4px}main [class~=break-words]{overflow-wrap:break-word}',
+  'main [class~=text-2xl]{font-size:1.5rem;line-height:1.33}main [class~=text-4xl]{font-size:2.25rem;line-height:1.11}main [class~=text-base]{font-size:1rem;line-height:1.5}main [class~=text-sm]{font-size:.875rem;line-height:1.25rem}main [class~=text-xs]{font-size:.75rem;line-height:1rem}main [class~=leading-none]{line-height:1}main [class~=leading-relaxed]{line-height:1.625}main [class~=tracking-tight]{letter-spacing:-.025em}main [class~=tracking-wide]{letter-spacing:.025em}main [class~=tracking-wider]{letter-spacing:.05em}main [class~=tracking-widest]{letter-spacing:.1em}main [class~="tracking-[1px]"]{letter-spacing:1px}main [class~="tracking-[4px]"]{letter-spacing:4px}main [class~=break-words]{overflow-wrap:break-word}',
   'main [class~=text-wm-bg]{color:#050505}main [class~=text-wm-border]{color:#222}main [class~=text-wm-muted]{color:#9ca3af}main [class~=text-wm-text]{color:#f3f4f6}main [class~=text-wm-blue]{color:#60a5fa}main [class~=opacity-50]{opacity:.5}main [class~=opacity-60]{opacity:.6}main [class~=backdrop-blur-sm]{backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}main picture{display:block}main picture img{display:block;width:100%}',
   // Keyed off the analytics marker, not the href: the hero CTA's query string
   // is attribution surface and moved once already (#6493 took it from
@@ -152,7 +152,22 @@ function tagAttribute(tag, name) {
   return valueEnd === -1 ? '' : tag.slice(valueStart, valueEnd);
 }
 
-function inlineCriticalCss(html, file) {
+// The hero screenshot is the welcome page's LCP element, but React only emits
+// an image preload for a bare <img> -- it skips one inside <picture> because it
+// cannot know which <source> the browser will pick. Mirror the AVIF <source>
+// (every browser that preloads also decodes AVIF or ignores the hint by type)
+// into a head preload so the fetch starts before the body is parsed. Read from
+// the rendered markup so the srcset and sizes can never drift from Hero.tsx.
+function heroImagePreloadTag(markup) {
+  const source = markup.match(/<picture><source type="image\/avif" srcSet="([^"]+)" sizes="([^"]+)"\/>/);
+  if (!source) {
+    console.error('[prerender] ERROR: Could not find the hero AVIF <source> in welcome markup to preload.');
+    process.exit(1);
+  }
+  return '    <link rel="preload" as="image" type="image/avif" imagesrcset="' + source[1] + '" imagesizes="' + source[2] + '" fetchpriority="high">';
+}
+
+function inlineCriticalCss(html, file, headTags = []) {
   const stylesheetTags = findStylesheetTags(html);
   if (stylesheetTags.length !== 1) {
     console.error("[prerender] ERROR: Expected exactly one stylesheet tag for " + file + ", found " + stylesheetTags.length + ".");
@@ -169,6 +184,7 @@ function inlineCriticalCss(html, file) {
 
   const crossorigin = stylesheetTag.includes(' crossorigin') ? ' crossorigin' : '';
   const criticalTags = [
+    ...headTags,
     '    <style nonce="' + STATIC_SCRIPT_NONCE + '">' + CRITICAL_CSS + '</style>',
     '    <link rel="preload" as="style" href="' + href + '"' + crossorigin + ' data-wm-deferred-style nonce="' + STATIC_SCRIPT_NONCE + '">',
     '    <script nonce="' + STATIC_SCRIPT_NONCE + '">' + DEFERRED_STYLES_SCRIPT + '</script>',
@@ -285,18 +301,19 @@ function fillProofFacts(html, file) {
 }
 
 const PAGES = [
-  { file: 'index.html', content: '', rootAttributes: '' },
+  { file: 'index.html', content: '', rootAttributes: '', headTags: [] },
   {
     file: 'welcome.html',
     content: welcomeContent,
     rootAttributes: ' data-wm-prerendered="welcome" data-wm-prerender-lang="en"',
+    headTags: [heroImagePreloadTag(welcomeContent)],
   },
 ];
 
-for (const { file, content, rootAttributes } of PAGES) {
+for (const { file, content, rootAttributes, headTags } of PAGES) {
   const htmlPath = resolve(__dirname, '../public/pro', file);
   let html = readFileSync(htmlPath, 'utf-8');
-  html = inlineCriticalCss(html, file);
+  html = inlineCriticalCss(html, file, headTags);
   html = injectGithubStars(html, file);
   html = fillProofFacts(html, file);
   const emptyRoot = '<div id="root"></div>';
