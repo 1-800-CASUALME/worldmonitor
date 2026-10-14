@@ -28,11 +28,22 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;');
 }
 
+// Every rewrite below uses a replacer FUNCTION. A replacement string expands
+// `$1`, `$&`, `` $` `` and `$'`, and translated copy is not ours to rule out
+// (see the #root injection note in prerender.mjs).
 function replaceHtmlLang(html: string, lang: string): string {
   if (/<html\b[^>]*\blang="/i.test(html)) {
-    return html.replace(/(<html\b[^>]*\blang=")[^"]*(")/i, `$1${lang}$2`);
+    return html.replace(/(<html\b[^>]*\blang=")[^"]*(")/i, (_m, open: string, close: string) => `${open}${lang}${close}`);
   }
-  return html.replace(/<html\b/i, `<html lang="${lang}"`);
+  return html.replace(/<html\b/i, () => `<html lang="${lang}"`);
+}
+
+// Body-only: the <head> keeps its <noscript><link rel="stylesheet"> fallback
+// that the critical-CSS inliner emits.
+function stripBodyNoscript(html: string): string {
+  const body = html.search(/<body\b/i);
+  if (body < 0) return html;
+  return html.slice(0, body) + html.slice(body).replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '');
 }
 
 function setDocumentDir(html: string, dir: 'ltr' | 'rtl'): string {
@@ -56,12 +67,13 @@ function setMeta(
     `(<meta\\b[^>]*\\b${attr}="${key}"[^>]*\\bcontent=")[^"]*(")`,
     'i',
   );
-  if (named.test(html)) return html.replace(named, `$1${escaped}$2`);
+  const splice = (_m: string, open: string, close: string) => `${open}${escaped}${close}`;
+  if (named.test(html)) return html.replace(named, splice);
   const reversed = new RegExp(
     `(<meta\\b[^>]*\\bcontent=")[^"]*("[^>]*\\b${attr}="${key}")`,
     'i',
   );
-  if (reversed.test(html)) return html.replace(reversed, `$1${escaped}$2`);
+  if (reversed.test(html)) return html.replace(reversed, splice);
   return html;
 }
 
@@ -188,12 +200,12 @@ function setPrerenderLang(html: string, localeId: string): string {
   if (/\bdata-wm-prerender-lang="/i.test(html)) {
     return html.replace(
       /(\bdata-wm-prerender-lang=")[^"]*(")/i,
-      `$1${localeId}$2`,
+      (_m, open: string, close: string) => `${open}${localeId}${close}`,
     );
   }
   return html.replace(
     /<div id="root"/i,
-    `<div id="root" data-wm-prerendered="welcome" data-wm-prerender-lang="${localeId}"`,
+    () => `<div id="root" data-wm-prerendered="welcome" data-wm-prerender-lang="${localeId}"`,
   );
 }
 
@@ -201,6 +213,10 @@ function setPrerenderLang(html: string, localeId: string): string {
  * Rewrite a cloned English welcome document into one indexable locale.
  * Leaves `#website` / `#organization` / `#software` node values untouched so
  * the product graph stays one body per `@id`.
+ *
+ * The English default only gains the canonical + hreflang cluster. Its title,
+ * meta, JSON-LD (and the CSP hashes over it) and noscript fallback stay as the
+ * template authored them.
  */
 export function localizeWelcomeDocument(
   html: string,
@@ -209,20 +225,22 @@ export function localizeWelcomeDocument(
 ): string {
   let next = replaceHtmlLang(html, locale.htmlLang);
   next = setDocumentDir(next, locale.dir);
-  next = next.replace(/<title>[^<]*<\/title>/i, `<title>${escapeHtml(copy.title)}</title>`);
-  next = setMeta(next, 'name', 'description', copy.description);
-  next = setMeta(next, 'property', 'og:title', copy.ogTitle);
-  next = setMeta(next, 'property', 'og:description', copy.ogDescription);
-  next = setMeta(next, 'property', 'og:url', locale.canonicalUrl);
-  next = setMeta(next, 'property', 'og:locale', locale.ogLocale);
-  next = setMeta(next, 'name', 'twitter:title', copy.ogTitle);
-  next = setMeta(next, 'name', 'twitter:description', copy.ogDescription);
+  if (!locale.isDefault) {
+    next = next.replace(/<title>[^<]*<\/title>/i, () => `<title>${escapeHtml(copy.title)}</title>`);
+    next = setMeta(next, 'name', 'description', copy.description);
+    next = setMeta(next, 'property', 'og:title', copy.ogTitle);
+    next = setMeta(next, 'property', 'og:description', copy.ogDescription);
+    next = setMeta(next, 'property', 'og:url', locale.canonicalUrl);
+    next = setMeta(next, 'property', 'og:locale', locale.ogLocale);
+    next = setMeta(next, 'name', 'twitter:title', copy.ogTitle);
+    next = setMeta(next, 'name', 'twitter:description', copy.ogDescription);
+  }
   next = rewriteCanonicalAndHreflang(next, locale.canonicalUrl);
-  // English already carries the template JSON-LD (and its CSP hashes).
-  // Re-serializing it with JSON.stringify would minify those blocks and
-  // desync vercel.json script-src. Locale clones need the rewrite.
   if (!locale.isDefault) {
     next = rewriteJsonLd(next, locale, copy);
+    // The template's <noscript> body is English marketing copy; the prerendered
+    // #root already gives no-JS clients the translated document.
+    next = stripBodyNoscript(next);
   }
   next = setPrerenderLang(next, locale.id);
   return next;

@@ -120,4 +120,66 @@ describe('indexable landing locale registry', () => {
     assert.match(html, /"inLanguage":"en"/);
     assert.match(html, /"name":"Pregunta"/);
   });
+
+  it('drops the English noscript fallback from locale clones and keeps $-sequences literal', () => {
+    const spanish = INDEXABLE_LANDING_LOCALES.find((locale) => locale.id === 'es');
+    assert.ok(spanish);
+    const html = localizeWelcomeDocument(
+      `<!doctype html><html lang="en"><head>
+        <title>English title</title>
+        <meta name="description" content="English description" />
+        <meta property="og:title" content="English og" />
+        <noscript><link rel="stylesheet" href="/pro/assets/index.css"></noscript>
+        </head><body>
+        <noscript><div><h2>World Monitor — English fallback</h2><p>English copy</p></div></noscript>
+        <div id="root"></div></body></html>`,
+      spanish,
+      {
+        title: "Precio $' y $& final",
+        description: 'Cuesta $1 y $2',
+        ogTitle: 'OG $$ ES',
+        ogDescription: 'OG desc ES',
+        faqs: [],
+      },
+    );
+    assert.doesNotMatch(html, /English fallback/, 'locale clones must not ship the English noscript body');
+    assert.match(html, /<noscript><link rel="stylesheet"/, 'the head stylesheet fallback stays');
+    assert.match(html, /<title>Precio \$' y \$&amp; final<\/title>/);
+    assert.match(html, /<meta name="description" content="Cuesta \$1 y \$2" \/>/);
+    assert.match(html, /<meta property="og:title" content="OG \$\$ ES" \/>/);
+  });
+
+  it('installs only the canonical and hreflang cluster on the English default document', () => {
+    const english = defaultLandingLocale();
+    const html = localizeWelcomeDocument(
+      `<!doctype html><html lang="en"><head>
+        <title>Template title</title>
+        <meta name="description" content="Template description" />
+        <link rel="canonical" href="https://www.worldmonitor.app/" />
+        <link rel="alternate" hreflang="x-default" href="https://www.worldmonitor.app/" />
+        <link rel="alternate" hreflang="en" href="https://www.worldmonitor.app/" />
+        <meta property="og:description" content="Template og description" />
+        <meta name="twitter:description" content="Template twitter description" />
+        </head><body>
+        <noscript><div><h2>English fallback</h2></div></noscript>
+        <div id="root"></div></body></html>`,
+      english,
+      {
+        title: 'i18n title',
+        description: 'i18n description',
+        ogTitle: 'i18n og title',
+        ogDescription: 'i18n og description',
+        faqs: [],
+      },
+    );
+    assert.match(html, /<title>Template title<\/title>/);
+    assert.match(html, /<meta name="description" content="Template description" \/>/);
+    assert.match(html, /<meta property="og:description" content="Template og description" \/>/);
+    assert.match(html, /<meta name="twitter:description" content="Template twitter description" \/>/);
+    assert.match(html, /<noscript>/, 'English keeps its noscript fallback');
+    assert.match(html, /rel="canonical" href="https:\/\/www.worldmonitor.app\/"/);
+    assert.match(html, /hreflang="es" href="https:\/\/www.worldmonitor.app\/es\/"/);
+    assert.equal((html.match(/rel="canonical"/g) ?? []).length, 1);
+    assert.match(html, /data-wm-prerender-lang="en"/);
+  });
 });

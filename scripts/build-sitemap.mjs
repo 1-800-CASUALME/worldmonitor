@@ -75,6 +75,9 @@ const LANDING_MATERIAL_SOURCES = [
   'pro-test/src/index.css',
   'pro-test/src/generated',
   'pro-test/src/locales',
+  'pro-test/src/welcome-document.ts',
+  'pro-test/src/welcome-prerender.tsx',
+  'pro-test/prerender.mjs',
   'src/config/products.ts',
   'shared/indexable-landing-locales.ts',
 ];

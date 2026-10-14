@@ -223,8 +223,31 @@ describe('international SEO application-locale mode (#5666)', { skip: shouldSkip
           discoverySignature(english),
           `${path}: visible content and metadata must differ from English`,
         );
+        const body = read(path).slice(read(path).search(/<body\b/i));
+        assert.doesNotMatch(
+          body,
+          /<noscript\b/i,
+          `${path}: the English noscript body must not ship on a localized landing`,
+        );
       }
     }
+  });
+
+  it('keeps the English homepage head metadata identical to its template apart from the cluster', () => {
+    const template = read('pro-test/welcome.html');
+    const built = read('public/pro/welcome.html');
+    const metaContent = (html: string, selector: string) =>
+      html.match(new RegExp(`<meta ${selector} content="([^"]*)"`, 'i'))?.[1] ?? '';
+    for (const selector of [
+      'name="description"',
+      'property="og:title"',
+      'property="og:description"',
+      'name="twitter:title"',
+      'name="twitter:description"',
+    ]) {
+      assert.equal(metaContent(built, selector), metaContent(template, selector), `welcome.html ${selector}`);
+    }
+    assert.equal(tagText(built, 'title'), tagText(template, 'title'), 'welcome.html <title>');
   });
 
   it('serves LTR, RTL, and every supported ?lang request as 200 application state on the base canonical', async () => {
