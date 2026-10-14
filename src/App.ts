@@ -2587,13 +2587,20 @@ export class App {
       // periodic-refresh handlers). ensureWmSession() genuinely rejects on the
       // old WebView / Smart-TV engines this module targets — `new
       // AbortController()` and the timeout setTimeout sit outside mintSession's
-      // try — and init() has no try/catch, so a bare await would abort boot
-      // here: no bootstrap hydration, no auth, no UI. main.ts catches that with
+      // try — and init() has no try/catch, so an unguarded await would abort
+      // boot: no bootstrap hydration, no auth, no UI. main.ts catches that with
       // `.catch(console.error)`, so it would not even reach Sentry. Session
       // establishment is best-effort at this point; the refresh-on-401 layer is
       // the safety net.
-      await ensureWmSession().catch(() => false);
-      markLcpDebug('wm:boot:session-ready');
+      //
+      // Boot does not await the mint. The fast tier is a credential-less public
+      // read the interceptor passes straight through, and every session-bound
+      // call goes through the interceptor, which awaits the in-flight mint.
+      // Awaiting here put a full /api/wm-session round trip in front of the
+      // first dashboard data.
+      void ensureWmSession()
+        .catch(() => false)
+        .then(() => markLcpDebug('wm:boot:session-ready'));
     }
 
     // Hydrate in-memory cache from bootstrap endpoint. Awaits only the fast tier; the slow
