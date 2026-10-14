@@ -14,6 +14,7 @@ import { localizeWelcomeDocument } from '../pro-test/src/welcome-document.ts';
 
 const vercelConfig = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8')) as {
   redirects: Array<{ source: string; destination: string; has?: unknown[] }>;
+  headers: Array<{ source: string }>;
 };
 
 describe('indexable landing locale registry', () => {
@@ -72,6 +73,11 @@ describe('indexable landing locale registry', () => {
         `/${locale.pathSegment} must not 404 the prerendered landing`,
       );
     }
+    const landingIds = nonDefaultLandingLocales().map((locale) => locale.pathSegment).join('|');
+    assert.ok(
+      vercelConfig.headers.some((rule) => rule.source === `/(${landingIds})/`),
+      'canonical locale landings must have an exact-path header source derived from the registry',
+    );
   });
 
   it('rewrites a cloned English document into a self-canonical localized landing', () => {
