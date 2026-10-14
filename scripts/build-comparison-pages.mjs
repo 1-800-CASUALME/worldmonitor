@@ -438,7 +438,7 @@ const COMPARISON_PAGE_SEEDS = [
     summary: 'Which geopolitical risk dashboards are free without signup: World Monitor against OrreryX, the-world-now.com, Sentinel, ConflictZone.io, BlackRock, Deep State Map and ICG CrisisWatch on gating, latency and domains.',
     heading: 'Free geopolitical risk dashboards',
     matrixRows: [
-      ['World Monitor', '$0 dashboard; API from $99.99/mo (1,000 req/day); MCP from $39.99/mo (Pro)', WORLD_MONITOR_UPDATE_CADENCE, 'Conflict, maritime, aviation, markets, cyber, climate', 'No', 'From $99.99/mo (API Starter)', 'From $39.99/mo (Pro)', 'AGPL-3.0', WORLD_MONITOR_SOURCE_COUNT_CELL, 'Live + rolling published snapshots', 'Free multi-domain watch without signup'],
+      ['World Monitor', '$0 dashboard; API from $99.99/mo (1,000 req/day); MCP from $39.99/mo (Pro)', WORLD_MONITOR_UPDATE_CADENCE, 'Conflict, maritime, aviation, markets, tariffs, cyber, climate', 'No', 'From $99.99/mo (API Starter)', 'From $39.99/mo (Pro)', 'AGPL-3.0', WORLD_MONITOR_SOURCE_COUNT_CELL, 'Live + rolling published snapshots', 'Free multi-domain watch without signup'],
       ['OrreryX', 'From $1.99/mo (published tiers to $34.99/mo)', 'Periodic updates', 'Geopolitical risk', 'Yes', 'Unknown', MCP_UNVERIFIED, 'Proprietary', 'Analyst research', 'Unknown', 'Consultative risk analysis with a published price ladder'],
       ['the-world-now.com', 'Free', 'Near-real-time events', 'Global events', 'No', 'No', MCP_UNVERIFIED, 'Proprietary', 'Curated feeds', 'Rolling archive', 'Free global event browsing'],
       ['Sentinel (Axonia)', 'From $3.99/mo', 'Periodic updates', 'Risk monitoring', 'Yes', 'Unknown', MCP_UNVERIFIED, 'Proprietary', 'Analyst research', 'Unknown', 'Budget-priced risk monitoring'],
