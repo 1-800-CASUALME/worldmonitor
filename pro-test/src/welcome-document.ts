@@ -214,7 +214,12 @@ export function localizeWelcomeDocument(
   next = setMeta(next, 'name', 'twitter:title', copy.ogTitle);
   next = setMeta(next, 'name', 'twitter:description', copy.ogDescription);
   next = rewriteCanonicalAndHreflang(next, locale.canonicalUrl);
-  next = rewriteJsonLd(next, locale, copy);
+  // English already carries the template JSON-LD (and its CSP hashes).
+  // Re-serializing it with JSON.stringify would minify those blocks and
+  // desync vercel.json script-src. Locale clones need the rewrite.
+  if (!locale.isDefault) {
+    next = rewriteJsonLd(next, locale, copy);
+  }
   next = setPrerenderLang(next, locale.id);
   return next;
 }

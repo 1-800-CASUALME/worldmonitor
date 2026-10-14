@@ -43,11 +43,9 @@ function parseRobotsGroups(source) {
   return groups;
 }
 import { fileURLToPath } from 'node:url';
-import { INDEXABLE_LANDING_LOCALES } from '../shared/indexable-landing-locales.ts';
 import {
   guardProBuiltOutput,
   isProBuiltOutputPath,
-  landingBuiltOutputPath,
   shouldSkipProBuiltOutput,
   withoutUnbuiltProPaths,
 } from './_lib/pro-built-output.mjs';
@@ -106,9 +104,6 @@ const WEBMCP_TOKEN_SHA256_BY_HOST = {
   'happy.worldmonitor.app': '72c2026ac2266553d9007ef0615ab46c0ca080002b86b11fc1e71cadb37f23f8',
   'energy.worldmonitor.app': '0f2fec8b51e7f29db5f12bcaaeb859d1f1d1c71156648d57d28e1bc86954d0d4',
 };
-const LOCALIZED_LANDING_HTML_FILES = INDEXABLE_LANDING_LOCALES
-  .filter((locale) => !locale.isDefault)
-  .map(landingBuiltOutputPath);
 const GLOBAL_CSP_INLINE_SCRIPT_HTML_FILES = [
   'index.html',
   'settings.html',
@@ -117,7 +112,6 @@ const GLOBAL_CSP_INLINE_SCRIPT_HTML_FILES = [
   'public/offline.html',
   'public/pro/index.html',
   'public/pro/welcome.html',
-  ...LOCALIZED_LANDING_HTML_FILES,
 ];
 const GLOBAL_CSP_EXTERNAL_SCRIPT_HTML_FILES = [
   'index.html',
@@ -126,7 +120,6 @@ const GLOBAL_CSP_EXTERNAL_SCRIPT_HTML_FILES = [
   'mcp-grant.html',
   'public/pro/index.html',
   'public/pro/welcome.html',
-  ...LOCALIZED_LANDING_HTML_FILES,
 ];
 const STATIC_SCRIPT_NONCE = 'wm-static-bootstrap';
 const WEBMCP_PLAYWRIGHT_ENV_KEYS = [
