@@ -14725,6 +14725,9 @@
           "path": "scripts/build-crawlable-corpus.mjs"
         },
         {
+          "path": "scripts/build-open-data-chokepoints.mjs"
+        },
+        {
           "path": "scripts/build-openapi-json.mjs"
         },
         {
