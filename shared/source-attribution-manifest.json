@@ -8146,6 +8146,20 @@
       ]
     },
     {
+      "host": "rt-english.com",
+      "provider": "rt-english.com",
+      "kind": "feed",
+      "observed": true,
+      "license": "Provider terms for this feed publisher; verify before redistribution",
+      "attribution": "Credit rt-english.com and link to the original feed publisher.",
+      "status": "terms-review",
+      "references": [
+        {
+          "path": "src/config/feeds.ts"
+        }
+      ]
+    },
+    {
       "host": "rt-esp.rttv.com",
       "provider": "rt-esp.rttv.com",
       "kind": "feed",
@@ -13599,15 +13613,10 @@
       "host": "www.rt.com",
       "provider": "www.rt.com",
       "kind": "feed",
-      "observed": true,
+      "observed": false,
       "license": "Provider terms for this feed publisher; verify before redistribution",
       "attribution": "Credit www.rt.com and link to the original feed publisher.",
-      "status": "terms-review",
-      "references": [
-        {
-          "path": "src/config/feeds.ts"
-        }
-      ]
+      "status": "excluded"
     },
     {
       "host": "www.saastr.com",
