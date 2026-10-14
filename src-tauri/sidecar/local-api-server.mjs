@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import http, { createServer } from 'node:http';
 import https from 'node:https';
-import { createHmac } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import dns from 'node:dns/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
@@ -67,6 +67,15 @@ function buildSafeResponse(statusCode, statusText, headers, bodyBuffer) {
   const status = Number.isInteger(statusCode) ? statusCode : 500;
   const body = (status === 204 || status === 205 || status === 304) ? null : bodyBuffer;
   return new Response(body, { status, statusText, headers });
+}
+
+// Constant-time token check. Only the length can differ in timing, and the
+// token length is not secret; the content is compared with timingSafeEqual.
+function tokenMatches(candidate, expected) {
+  if (typeof candidate !== 'string' || !candidate) return false;
+  const a = Buffer.from(candidate, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 function canonicalizeDesktopAuthPayload(payload) {
@@ -1541,8 +1550,8 @@ async function dispatch(requestUrl, req, routes, context) {
   }
   const authHeader = req.headers.authorization || '';
   const transportToken = req.headers[LOCAL_API_TRANSPORT_HEADER] || '';
-  const hasTransportAuth = transportToken === expectedToken;
-  const hasLegacyAuth = authHeader === `Bearer ${expectedToken}`;
+  const hasTransportAuth = tokenMatches(transportToken, expectedToken);
+  const hasLegacyAuth = tokenMatches(authHeader, `Bearer ${expectedToken}`);
   if (!hasTransportAuth && !hasLegacyAuth) {
     context.logger.warn(`[local-api] unauthorized request to ${requestUrl.pathname}`);
     return json({ error: 'Unauthorized' }, 401);

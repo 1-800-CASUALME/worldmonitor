@@ -3235,6 +3235,9 @@
       "status": "excluded",
       "references": [
         {
+          "path": "api/channel-oauth-bind.ts"
+        },
+        {
           "path": "api/discord/oauth/callback.ts"
         },
         {
@@ -8729,6 +8732,9 @@
       "status": "excluded",
       "references": [
         {
+          "path": "api/channel-oauth-bind.ts"
+        },
+        {
           "path": "api/slack/oauth/callback.ts"
         },
         {
@@ -10579,6 +10585,9 @@
         },
         {
           "path": "server/_shared/brief-url.ts"
+        },
+        {
+          "path": "server/_shared/channel-oauth-state.ts"
         },
         {
           "path": "server/_shared/intel-history-embed.ts"
