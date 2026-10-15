@@ -108,7 +108,7 @@ test('aviation command completes a failed refresh when last-good retention is co
   const result = runAviation();
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stderr, /intl unpublishable: systemic fetch failure/);
-  assert.match(result.stdout, /Refresh failed; last-good retained/);
+  assert.match(result.stderr, /Refresh failed; last-good retained/);
   assert.doesNotMatch(result.stdout, /"event":"seed_complete"/);
   assert.equal(result.state.providerCalls, 56, 'a failed sweep must not repeat paid calls');
   assert.equal(result.state.intl._seed.fetchedAt, 1700000000000);

@@ -1325,8 +1325,8 @@ async function runNewsSideCar() {
 // contract-mode envelope, retry-on-throw, graceful TTL-extend on failure,
 // seed-meta freshness. When intl is unhealthy we throw to force runSeed into
 // its catch path — which extends the INTL_KEY + seed-meta:aviation:intl TTLs
-// and exits 0 without touching afterPublish. Consumers keep serving the
-// last-good snapshot. FAA/NOTAM/news already ran via their side-cars and are
+// and exits 0 only when Redis confirms last-good retention, without touching
+// afterPublish. FAA/NOTAM/news already ran via their side-cars and are
 // independent — an intl outage does NOT freeze their freshness.
 
 // Quota guard: returns true when the last successful intl publish is younger
@@ -1583,6 +1583,7 @@ async function main() {
     afterPublish: afterPublishIntl,
     maxStaleMin: 90,
     zeroIsValid: true,
+    allowPreservedFetchFailure: true,
   });
 }
 

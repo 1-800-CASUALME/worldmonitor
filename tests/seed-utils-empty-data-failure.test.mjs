@@ -223,6 +223,20 @@ for (const scenario of [
   });
 }
 
+test('allowPreservedFetchFailure does not suppress publish errors', async () => {
+  expireResult = 1;
+  await assert.rejects(
+    () => runSeed('test', 'publish-policy', 'test:publish-policy:v1', async () => ['new data'], {
+      ttlSeconds: 3600,
+      allowPreservedFetchFailure: true,
+      publishTransform: () => { throw new Error('fixture publish failed'); },
+    }),
+    /fixture publish failed/,
+  );
+  assert.equal(countSetsFor('test:publish-policy:v1'), 0);
+  assert.equal(countMetaSets('publish-policy'), 0);
+});
+
 test('contract RETRY hard-fails when expired keys make last-good preservation impossible', async () => {
   expireResult = 0;
   const exitCode = await runEmptyContractRetry('retry-missing', {

@@ -2454,6 +2454,7 @@ export async function runSeed(domain, resource, canonicalKey, fetchFn, opts = {}
     // Each declaration is preserved at its own TTL; preserveKeys keeps its
     // existing canonical-TTL behavior for backward compatibility.
     preserveKeyTtls = [],
+    allowPreservedFetchFailure = false,
     beforePublish,
     publishAtomically,
     afterPublish,
@@ -2729,9 +2730,13 @@ export async function runSeed(domain, resource, canonicalKey, fetchFn, opts = {}
     const cause = err.cause ? ` (cause: ${err.cause.message || err.cause.code || err.cause})` : '';
     console.error(`  FETCH FAILED: ${err.message || err}${cause}`);
 
-    await preserveExistingKeys();
+    const preserved = await preserveExistingKeys();
 
     console.log(`\n=== Failed gracefully (${Math.round(durationMs)}ms) ===`);
+    if (allowPreservedFetchFailure === true && preserved) {
+      console.warn(`  [${domain}:${resource}] Refresh failed; last-good retained, exiting 0 without refreshing seed-meta`);
+      await exitAfterTelemetryFlush(0);
+    }
     await exitAfterTelemetryFlush(GRACEFUL_FETCH_FAILURE_EXIT_CODE);
   }
   // Transition to publish phase — handler stays installed but switches
