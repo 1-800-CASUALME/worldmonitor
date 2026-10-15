@@ -194,6 +194,35 @@ test('fetch failure extends existing TTL and exits with graceful-failure code', 
   );
 });
 
+for (const scenario of [
+  { label: 'confirmed retention', retained: 1, status: 200, optIn: true, expected: 0 },
+  { label: 'missing last-good', retained: 0, status: 200, optIn: true, expected: 75 },
+  { label: 'unconfirmed retention', retained: null, status: 200, optIn: true, expected: 75 },
+  { label: 'Redis retention failure', retained: 1, status: 403, optIn: true, expected: 75 },
+  { label: 'default policy', retained: 1, status: 200, optIn: false, expected: 75 },
+]) {
+  test(`fetch failure with ${scenario.label} preserves the failure and selects the correct exit`, async () => {
+    expireResult = scenario.retained;
+    expirePipelineStatus = scenario.status;
+    let afterPublishCalls = 0;
+    const exitCode = await runWithExitTrap(() => runSeed(
+      'test', 'fetch-policy', 'test:fetch-policy:v1',
+      async () => { throw Object.assign(new Error('upstream unavailable'), { nonRetryable: true }); },
+      {
+        ttlSeconds: 3600,
+        allowPreservedFetchFailure: scenario.optIn,
+        afterPublish: () => { afterPublishCalls++; },
+      },
+    ));
+
+    assert.equal(exitCode, scenario.expected);
+    assert.deepEqual(expireKeys(), ['test:fetch-policy:v1', 'seed-meta:test:fetch-policy']);
+    assert.equal(countSetsFor('test:fetch-policy:v1'), 0);
+    assert.equal(countMetaSets('fetch-policy'), 0);
+    assert.equal(afterPublishCalls, 0);
+  });
+}
+
 test('contract RETRY hard-fails when expired keys make last-good preservation impossible', async () => {
   expireResult = 0;
   const exitCode = await runEmptyContractRetry('retry-missing', {
