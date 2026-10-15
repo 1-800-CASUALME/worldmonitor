@@ -45,11 +45,6 @@ const hintFor = (locales) =>
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
 const enFlat = flatten(readJson(join(LOCALES_DIR, 'en.json')));
 
-// A value equal to en.json is untranslated, except keys whose English source is
-// the string every locale should keep: brand names, plan names, acronyms, and
-// bare numbers. A per-locale count cannot say that. uk's old ceiling of 574 sat
-// above 440 identical values, so a homepage sentence could ship in English and
-// CI stayed green (#9165).
 const ENGLISH_ALLOWED_KEYS = new Set([
   'nav.api',
   'nav.pro',
@@ -81,10 +76,6 @@ const ENGLISH_ALLOWED_KEYS = new Set([
   'enterpriseShowcase.soc',
 ]);
 
-// Temporary review list for Elie. These labels are still English in some
-// locales (meta titles, "Blog", "Live", loanwords) and this change leaves them.
-// Translate a key, or move it into ENGLISH_ALLOWED_KEYS, when that decision lands.
-// A new untranslated sentence does not belong in this set.
 const PENDING_ENGLISH_REVIEW_KEYS = new Set([
   'meta.title',
   'meta.ogTitle',
@@ -110,6 +101,7 @@ const PENDING_ENGLISH_REVIEW_KEYS = new Set([
   'pricingTable.fLiveEdge',
   'pricingTable.fWhiteLabel',
   'pricingTable.fQuotes30s',
+  'pricingTable.f50panels',
   'proShowcase.supplyChainLab',
   'deliveryDesk.eyebrow',
   'slackMock.elevated',
@@ -122,10 +114,8 @@ const PENDING_ENGLISH_REVIEW_KEYS = new Set([
   'livePreview.iframeTitle',
 ]);
 
-// Persian is #5644. The number is how many non-allowlisted, non-pending values
-// are still the English source. Lower it as Persian is translated. Never raise it.
 const TEMPORARY_LOCALE_EXEMPTIONS = {
-  fa: 390,
+  fa: 388,
 };
 
 describe('pro locale freshness', () => {
@@ -203,13 +193,24 @@ describe('pro locale freshness', () => {
   it('names only real catalog keys in the English allowlist and the review exemption', () => {
     const overlap = [...ENGLISH_ALLOWED_KEYS].filter((key) => PENDING_ENGLISH_REVIEW_KEYS.has(key));
     const missing = [...ENGLISH_ALLOWED_KEYS, ...PENDING_ENGLISH_REVIEW_KEYS].filter((key) => !(key in enFlat));
-    assert.deepEqual({ overlap, missing }, { overlap: [], missing: [] });
+    const idlePending = [];
+    for (const key of PENDING_ENGLISH_REVIEW_KEYS) {
+      const stillEnglish = LOCALES.some((locale) => {
+        if (locale in TEMPORARY_LOCALE_EXEMPTIONS) return false;
+        const file = join(LOCALES_DIR, locale + '.json');
+        if (!existsSync(file)) return false;
+        const flat = flatten(readJson(file));
+        return flat[key] === enFlat[key];
+      });
+      if (!stillEnglish) idlePending.push(key);
+    }
+    assert.deepEqual(
+      { overlap, missing, idlePending },
+      { overlap: [], missing: [], idlePending: [] },
+    );
   });
 
   it('rejects untranslated English outside the allowlist', () => {
-    // validateTranslation accepts a reply identical to its English source, so a
-    // truncated model echo is written, counted as refreshed, and then hidden by
-    // the next baseline advance. Equality with en.json is the failure, per key.
     const violations = [];
     for (const locale of LOCALES) {
       const file = join(LOCALES_DIR, locale + '.json');
@@ -221,10 +222,9 @@ describe('pro locale freshness', () => {
         .sort();
       const exemption = TEMPORARY_LOCALE_EXEMPTIONS[locale];
       if (exemption !== undefined) {
-        if (unexplained.length > exemption) {
+        if (unexplained.length !== exemption) {
           violations.push(
-            locale + ' has ' + unexplained.length + ' unlisted English values, above its temporary exemption of ' +
-              exemption + ' (do not raise it): ' + unexplained.slice(0, 8).join(', '),
+            locale + ' has ' + unexplained.length + ' unlisted English values, the frozen exemption is ' + exemption,
           );
         }
         continue;
