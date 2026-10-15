@@ -485,7 +485,8 @@
       "positioningLink": "WorldMonitor no es un Palantir de código abierto",
       "asOf": "A partir del {{date}}",
       "whatIsTitle": "¿Qué es World Monitor?",
-      "whatIsBody": "World Monitor es un panel de control gratuito ($0) y de código abierto (AGPL-3.0) utilizado por más de 2M de personas. Transmite {{feeds}} fuentes de noticias y OSINT de {{providers}} proveedores atribuidos en un único mapa mundial en directo con {{mapLayers}} tipos de capas de mapa, que abarcan geopolítica, mercados, transporte marítimo, aviación y ciberseguridad. Las correlaciona para que los eventos convergentes salgan a la luz antes de los titulares. Cada dato está documentado en su fuente y cada método está documentado."
+      "whatIsBody": "World Monitor es un panel de control gratuito ($0) y de código abierto (AGPL-3.0) utilizado por más de 2M de personas. Transmite {{feeds}} fuentes de noticias y OSINT de {{providers}} proveedores atribuidos en un único mapa mundial en directo con {{mapLayers}} tipos de capas de mapa, que abarcan geopolítica, mercados, transporte marítimo, aviación y ciberseguridad. Las correlaciona para que los eventos convergentes salgan a la luz antes de los titulares. Cada dato está documentado en su fuente y cada método está documentado.",
+      "whatIsBestFor": "Ideal para analistas, periodistas, traders y desarrolladores que necesitan señales geopolíticas en directo."
     },
     "live": {
       "eyebrow": "En vivo ahora mismo",

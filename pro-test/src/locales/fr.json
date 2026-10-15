@@ -485,7 +485,8 @@
       "positioningLink": "WorldMonitor n'est pas un Palantir open-source",
       "asOf": "Au {{date}}",
       "whatIsTitle": "Qu'est-ce que World Monitor ?",
-      "whatIsBody": "World Monitor est un tableau de bord gratuit ($0), open-source (AGPL-3.0) utilisé par 2M+ personnes. Il diffuse {{feeds}} fils d'actualités et fils OSINT de {{providers}} fournisseurs attribués sur une carte mondiale en direct unique avec {{mapLayers}} types de couches cartographiques, couvrant la géopolitique, les marchés, le transport maritime, l'aviation et la cybersécurité. Il les corrèle pour que les événements convergents s'affichent avant les gros titres. Chaque chiffre est sourcé et chaque méthode documentée."
+      "whatIsBody": "World Monitor est un tableau de bord gratuit ($0), open-source (AGPL-3.0) utilisé par 2M+ personnes. Il diffuse {{feeds}} fils d'actualités et fils OSINT de {{providers}} fournisseurs attribués sur une carte mondiale en direct unique avec {{mapLayers}} types de couches cartographiques, couvrant la géopolitique, les marchés, le transport maritime, l'aviation et la cybersécurité. Il les corrèle pour que les événements convergents s'affichent avant les gros titres. Chaque chiffre est sourcé et chaque méthode documentée.",
+      "whatIsBestFor": "Idéal pour les analystes, journalistes, traders et développeurs qui ont besoin de signaux géopolitiques en direct."
     },
     "live": {
       "eyebrow": "En direct maintenant",

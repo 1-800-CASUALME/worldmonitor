@@ -485,7 +485,8 @@
       "positioningLink": "WorldMonitor si Palantir ya chanzo wazi",
       "asOf": "Kufikia {{date}}",
       "whatIsTitle": "World Monitor ni nini?",
-      "whatIsBody": "World Monitor ni dashibodi ya bure ($0), yenye chanzo wazi (AGPL-3.0) inayotumiwa na watu 2M+. Inatiririsha {{feeds}} milisho ya habari na OSINT kutoka kwa watoa huduma {{providers}} waliotajwa kwenye ramani moja hai ya dunia yenye aina {{mapLayers}} za tabaka za ramani, ikishughulikia jiopolitiki, masoko, usafirishaji wa baharini, usafiri wa anga na mtandao. Inazilinganisha ili matukio yanayokutana yajitokeze kabla ya vichwa vya habari. Kila takwimu ina chanzo na kila mbinu imeandikwa."
+      "whatIsBody": "World Monitor ni dashibodi ya bure ($0), yenye chanzo wazi (AGPL-3.0) inayotumiwa na watu 2M+. Inatiririsha {{feeds}} milisho ya habari na OSINT kutoka kwa watoa huduma {{providers}} waliotajwa kwenye ramani moja hai ya dunia yenye aina {{mapLayers}} za tabaka za ramani, ikishughulikia jiopolitiki, masoko, usafirishaji wa baharini, usafiri wa anga na mtandao. Inazilinganisha ili matukio yanayokutana yajitokeze kabla ya vichwa vya habari. Kila takwimu ina chanzo na kila mbinu imeandikwa.",
+      "whatIsBestFor": "Bora kwa wachambuzi, wanahabari, wafanyabiashara wa masoko na wasanidi programu wanaohitaji ishara za kijiografia na kisiasa za moja kwa moja."
     },
     "live": {
       "eyebrow": "Moja kwa moja sasa sasa",

@@ -375,6 +375,20 @@ describe('GEO residue #7616 (U1 agent surfaces)', () => {
     }
   });
 
+  // Elie approved this audience line verbatim for the homepage "What is World
+  // Monitor?" block and the markdown served to AI agents.
+  it('states the approved audience line on the homepage and in home.md', () => {
+    const line = 'Best for analysts, journalists, traders and builders who need live geopolitical signals.';
+    const en = JSON.parse(read('pro-test/src/locales/en.json'));
+    assert.equal(en.welcome.hero.whatIsBestFor, line);
+    assert.match(
+      read('pro-test/src/welcome/Hero.tsx'),
+      /\{t\('welcome\.hero\.whatIsBody', depthProofStats\)\}<\/p>\s*<p[^>]*>\{t\('welcome\.hero\.whatIsBestFor'\)\}<\/p>/,
+      'the Hero must render the audience line right after the definition',
+    );
+    assert.match(read('public/home.md'), new RegExp(`^${line.replace(/[.]/g, '\\.')}$`, 'm'));
+  });
+
   // The /countries/ hub (meta, og, twitter and JSON-LD descriptions plus its
   // FAQ) and the CII page are generated, so check the built corpus rather than
   // a committed file: every "N of M countries" there must be the snapshot pair.

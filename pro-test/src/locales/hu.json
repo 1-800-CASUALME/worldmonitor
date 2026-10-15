@@ -485,7 +485,8 @@
       "positioningLink": "A WorldMonitor nem nyílt forráskódú Palantir",
       "asOf": "Állapot: {{date}}",
       "whatIsTitle": "Mi az a World Monitor?",
-      "whatIsBody": "A World Monitor egy ingyenes ($0), nyílt forráskódú (AGPL-3.0) műszerfal, amelyet 2M+ ember használ. {{feeds}} hír- és OSINT-forrást közvetít {{providers}} attribútummal ellátott szolgáltatótól egyetlen élő világtérképre {{mapLayers}} térképréteg-típussal, amely geopolitikát, piacokat, hajózást, repülést és kiberterületet fed le. Korrelálja őket, így az összefutó események a hírcímek előtt kerülnek felszínre. Minden adat forrásolt és minden módszer dokumentált."
+      "whatIsBody": "A World Monitor egy ingyenes ($0), nyílt forráskódú (AGPL-3.0) műszerfal, amelyet 2M+ ember használ. {{feeds}} hír- és OSINT-forrást közvetít {{providers}} attribútummal ellátott szolgáltatótól egyetlen élő világtérképre {{mapLayers}} térképréteg-típussal, amely geopolitikát, piacokat, hajózást, repülést és kiberterületet fed le. Korrelálja őket, így az összefutó események a hírcímek előtt kerülnek felszínre. Minden adat forrásolt és minden módszer dokumentált.",
+      "whatIsBestFor": "Elemzőknek, újságíróknak, kereskedőknek és fejlesztőknek ideális, akiknek élő geopolitikai jelzésekre van szükségük."
     },
     "live": {
       "eyebrow": "Most élő",

@@ -485,7 +485,8 @@
       "positioningLink": "WorldMonitor nije otvoreni kod Palantira",
       "asOf": "Stanje od {{date}}",
       "whatIsTitle": "Što je World Monitor?",
-      "whatIsBody": "World Monitor je besplatna ($0), open-source (AGPL-3.0) kontrolna ploča koju koristi 2M+ osoba. Streamira {{feeds}} vijesti i OSINT izvore od {{providers}} atribuiranih pružatelja na jednu živu svjetsku kartu s {{mapLayers}} vrsta slojeva karte, pokrivajući geopolitiku, tržišta, brodarstvo, zrakoplovstvo i cyber sigurnost. Usklađuje ih tako da se konvergentni eventi pojave prije naslova. Svaki podatak je dokumentiran i svaka metoda izvora je navedena."
+      "whatIsBody": "World Monitor je besplatna ($0), open-source (AGPL-3.0) kontrolna ploča koju koristi 2M+ osoba. Streamira {{feeds}} vijesti i OSINT izvore od {{providers}} atribuiranih pružatelja na jednu živu svjetsku kartu s {{mapLayers}} vrsta slojeva karte, pokrivajući geopolitiku, tržišta, brodarstvo, zrakoplovstvo i cyber sigurnost. Usklađuje ih tako da se konvergentni eventi pojave prije naslova. Svaki podatak je dokumentiran i svaka metoda izvora je navedena.",
+      "whatIsBestFor": "Najbolje za analitičare, novinare, tradere i developere kojima trebaju geopolitički signali uživo."
     },
     "live": {
       "eyebrow": "Uživo sada",

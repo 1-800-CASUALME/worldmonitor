@@ -485,7 +485,8 @@
       "positioningLink": "WorldMonitor nu este un Palantir open-source",
       "asOf": "Din {{date}}",
       "whatIsTitle": "Ce este World Monitor?",
-      "whatIsBody": "World Monitor este un dashboard gratuit ($0), open-source (AGPL-3.0) folosit de 2M+ persoane. Transmite {{feeds}} fluxuri de știri și OSINT de la {{providers}} furnizori atribuiți pe o hartă mondială live unificată cu {{mapLayers}} tipuri de straturi de hartă, acoperind geopolitică, piețe, transport maritim, aviație și cyber. Le corelează pentru ca evenimentele convergente să apară înaintea știrilor. Fiecare cifră este sursa și fiecare metodă documentată."
+      "whatIsBody": "World Monitor este un dashboard gratuit ($0), open-source (AGPL-3.0) folosit de 2M+ persoane. Transmite {{feeds}} fluxuri de știri și OSINT de la {{providers}} furnizori atribuiți pe o hartă mondială live unificată cu {{mapLayers}} tipuri de straturi de hartă, acoperind geopolitică, piețe, transport maritim, aviație și cyber. Le corelează pentru ca evenimentele convergente să apară înaintea știrilor. Fiecare cifră este sursa și fiecare metodă documentată.",
+      "whatIsBestFor": "Ideal pentru analiști, jurnaliști, traderi și dezvoltatori care au nevoie de semnale geopolitice în timp real."
     },
     "live": {
       "eyebrow": "Live chiar acum",

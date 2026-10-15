@@ -485,7 +485,8 @@
       "positioningLink": "WorldMonitor nie jest open-source'owym Palantir",
       "asOf": "Stan na {{date}}",
       "whatIsTitle": "Czym jest World Monitor?",
-      "whatIsBody": "World Monitor to darmowy ($0), open-source'owy (AGPL-3.0) dashboard używany przez 2M+ osób. Transmituje {{feeds}} kanałów wiadomości i OSINT ze {{providers}} przypisanych dostawców na jedną żywą mapę świata z {{mapLayers}} typami warstw mapy, obejmującymi geopolitykę, rynki, transport morski, lotnictwo i cyber. Koreluje je, aby zbieżne zdarzenia wyświetliły się przed nagłówkami. Każda liczba jest udokumentowana wraz ze źródłem i metodą."
+      "whatIsBody": "World Monitor to darmowy ($0), open-source'owy (AGPL-3.0) dashboard używany przez 2M+ osób. Transmituje {{feeds}} kanałów wiadomości i OSINT ze {{providers}} przypisanych dostawców na jedną żywą mapę świata z {{mapLayers}} typami warstw mapy, obejmującymi geopolitykę, rynki, transport morski, lotnictwo i cyber. Koreluje je, aby zbieżne zdarzenia wyświetliły się przed nagłówkami. Każda liczba jest udokumentowana wraz ze źródłem i metodą.",
+      "whatIsBestFor": "Najlepszy dla analityków, dziennikarzy, traderów i deweloperów, którzy potrzebują geopolitycznych sygnałów na żywo."
     },
     "live": {
       "eyebrow": "Na żywo teraz",

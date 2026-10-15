@@ -485,7 +485,8 @@
       "positioningLink": "WorldMonitor är inte en öppen källkod Palantir",
       "asOf": "Per {{date}}",
       "whatIsTitle": "Vad är World Monitor?",
-      "whatIsBody": "World Monitor är en kostnadsfri ($0), öppen källkod (AGPL-3.0) dashboard som används av 2M+ personer. Den strömmar {{feeds}} nyhets- och OSINT-flöden från {{providers}} attribuerade leverantörer till en live-världskarta med {{mapLayers}} kartlagertyper, som omfattar geopolitik, marknader, sjöfart, luftfart och cyber. Den korrelerar dem så att konvergerande händelser dyker upp innan rubrikerna gör det. Varje siffra är källa och varje metod dokumenterad."
+      "whatIsBody": "World Monitor är en kostnadsfri ($0), öppen källkod (AGPL-3.0) dashboard som används av 2M+ personer. Den strömmar {{feeds}} nyhets- och OSINT-flöden från {{providers}} attribuerade leverantörer till en live-världskarta med {{mapLayers}} kartlagertyper, som omfattar geopolitik, marknader, sjöfart, luftfart och cyber. Den korrelerar dem så att konvergerande händelser dyker upp innan rubrikerna gör det. Varje siffra är källa och varje metod dokumenterad.",
+      "whatIsBestFor": "Bäst för analytiker, journalister, traders och utvecklare som behöver geopolitiska signaler i realtid."
     },
     "live": {
       "eyebrow": "Live just nu",

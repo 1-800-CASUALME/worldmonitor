@@ -441,6 +441,13 @@ test('homepage answers "What is World Monitor?" and carries page date metadata',
   assert.ok(heading, 'homepage must define World Monitor under an answer-style H2');
   const words = heading[1].replace(/<[^>]+>/g, '').trim().split(/\s+/).length;
   assert.ok(words >= 40 && words <= 60, `definition must be 40-60 words, got ${words}`);
+  // The audience line Elie approved sits in its own paragraph, so it never
+  // counts against the 40-60 word definition budget.
+  assert.match(
+    html,
+    /<h2[^>]*>What is World Monitor\?<\/h2>\s*<p[^>]*>[\s\S]*?<\/p>\s*<p[^>]*>Best for analysts, journalists, traders and builders who need live geopolitical signals\.<\/p>/,
+    'the "Best for" line must follow the definition',
+  );
   assert.match(html, /<meta name="lastmod" content="\d{4}-\d{2}-\d{2}"\s*\/>/);
 });
 
