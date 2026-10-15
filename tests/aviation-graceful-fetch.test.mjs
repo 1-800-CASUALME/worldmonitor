@@ -62,6 +62,9 @@ globalThis.fetch = async (input, options = {}) => {
   }
   if (url.hostname === 'api.aviationstack.com') {
     providerCalls++;
+    const authError = { error: { code: 'invalid_access_key', message: 'You have not supplied a valid API Access Key.' } };
+    if (process.env.TEST_PROVIDER_MODE === 'http401') return Response.json(authError, { status: 401 });
+    if (process.env.TEST_PROVIDER_MODE === 'jsonAuth') return Response.json(authError);
     throw new TypeError('fetch failed', { cause: new Error('fixture connection reset') });
   }
   throw new Error('fixture source unavailable');
@@ -165,3 +168,13 @@ test('aviation command still fails when the AviationStack key is missing', () =>
   assert.match(result.stdout, /=== Failed gracefully/);
   assert.equal(result.state.providerCalls, 0);
 });
+
+for (const mode of ['http401', 'jsonAuth']) {
+  test(`aviation command still fails when AviationStack rejects the key (${mode})`, () => {
+    const result = runAviation({ TEST_PROVIDER_MODE: mode });
+    assert.equal(result.status, 75, result.stdout + result.stderr);
+    assert.match(result.stderr, /intl unpublishable: AviationStack rejected the key on \d+ airport\(s\)/);
+    assert.match(result.stdout, /=== Failed gracefully/);
+    assert.equal(result.state.providerCalls, AVIATIONSTACK_LIST.length);
+  });
+}
