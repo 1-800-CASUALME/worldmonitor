@@ -40,6 +40,15 @@ export function primeBootstrapFastTier(): void {
 }
 
 /**
+ * `performance.now()` at which the pending primed request started, or null.
+ * The fast-tier abort budget counts from here, so boot never waits longer for
+ * the tier than it did before the request moved to the entry script.
+ */
+export function primedBootstrapTierStartedAt(): number | null {
+  return primed?.startedAt ?? null;
+}
+
+/**
  * Hands over the primed fast-tier request once. An abort of `signal` aborts the
  * primed request, so the caller's timeout budget still applies.
  */

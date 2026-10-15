@@ -1,6 +1,6 @@
 import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
 import { isDesktopRuntime, toApiUrl } from '@/services/runtime';
-import { adoptPrimedBootstrapTier, resetPrimedBootstrapTierForTests } from '@/services/bootstrap-prefetch';
+import { adoptPrimedBootstrapTier, primedBootstrapTierStartedAt, resetPrimedBootstrapTierForTests } from '@/services/bootstrap-prefetch';
 import {
   buildBootstrapTransferRumSample,
   readBootstrapEncodedBodySize,
@@ -633,9 +633,12 @@ export async function fetchBootstrapData(onSlowSettled?: () => void): Promise<vo
   // - 3.0 s is a conservative bump to avoid that cascade. Further tuning should be driven by RUM / Sentry
   //   data once available; do not move this without evidence.
   // - Desktop budgets (5 s / 8 s) are unchanged — different network and dependency-loading constraints.
+  // A request primed by the entry script has already spent part of the budget.
+  const fastBudgetMs = desktop ? BOOTSTRAP_TIER_TIMEOUT_MS.desktop.fast : BOOTSTRAP_TIER_TIMEOUT_MS.web.fast;
+  const primedAt = primedBootstrapTierStartedAt();
   const fastTimeout = setTimeout(
     () => fastCtrl.abort(),
-    desktop ? BOOTSTRAP_TIER_TIMEOUT_MS.desktop.fast : BOOTSTRAP_TIER_TIMEOUT_MS.web.fast,
+    primedAt === null ? fastBudgetMs : Math.max(0, fastBudgetMs - (performance.now() - primedAt)),
   );
   try {
     try {

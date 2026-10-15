@@ -118,6 +118,28 @@ describe('fast bootstrap tier prefetch', () => {
     assert.notEqual(harness.getBootstrapHydrationState().tiers.fast.source, 'live');
   });
 
+  it('measures the fast-tier budget from when the primed request started', async () => {
+    // The 1.2 s browser cap bounds the request, not the time since App asked
+    // for it. A primed request already in flight for 1 s gets the remaining
+    // ~0.2 s, so boot never waits longer than it did before the prefetch.
+    let primedSignal: AbortSignal | undefined;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(input).includes('tier=fast')) return Promise.resolve(tierResponse());
+      primedSignal = init?.signal ?? undefined;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+      });
+    }) as typeof fetch;
+
+    harness.primeBootstrapFastTier();
+    await new Promise((r) => setTimeout(r, 1_000));
+    const started = Date.now();
+    await harness.fetchBootstrapData();
+    const waited = Date.now() - started;
+    assert.ok(primedSignal?.aborted, 'the primed request must be aborted at the deadline');
+    assert.ok(waited < 700, `boot waited ${waited} ms; the budget must count the time already spent in flight`);
+  });
+
   it('is started by the dashboard entry before the App chunk import', () => {
     const main = readFileSync(resolve(root, 'src/main.ts'), 'utf8');
     const prime = main.indexOf('primeBootstrapFastTier();');
