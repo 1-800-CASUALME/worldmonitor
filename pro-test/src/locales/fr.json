@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor: Tableau de bord gratuit d'intelligence géopolitique",
-      "description": "World Monitor : tableau de bord de renseignements géopolitiques en temps réel. Une carte en direct gratuite des conflits, du transport maritime, des vols, des marchés et de la cybersécurité, avec une API et un serveur MCP.",
-      "ogTitle": "World Monitor: Tableau de bord gratuit d'intelligence géopolitique",
-      "ogDescription": "World Monitor : tableau de bord de renseignements géopolitiques en temps réel. Une carte en direct gratuite des conflits, du transport maritime, des vols, des marchés et de la cybersécurité, avec une API et un serveur MCP."
+      "title": "World Monitor : tableau de bord géopolitique gratuit",
+      "description": "World Monitor : tableau de bord géopolitique en temps réel. Carte en direct gratuite des conflits, navires, vols, marchés et cyber, avec API et serveur MCP.",
+      "ogTitle": "World Monitor : tableau de bord géopolitique gratuit",
+      "ogDescription": "World Monitor : tableau de bord géopolitique en temps réel. Carte en direct gratuite des conflits, navires, vols, marchés et cyber, avec API et serveur MCP."
     },
     "nav": {
       "useCases": "Corrélations",
@@ -471,8 +471,8 @@
     },
     "hero": {
       "eyebrow": "Tableau de bord d'intelligence mondiale gratuit · en direct maintenant",
-      "headline1": "Géopolitique en temps réel",
-      "headline2": "tableau de bord d'intelligence",
+      "headline1": "Tableau de bord du renseignement",
+      "headline2": "géopolitique en temps réel",
       "sub": "Au moment où c'est une nouvelle, vous le saviez déjà.",
       "ctaPrimary": "Lancer le tableau de bord",
       "ctaFree": "Gratuit · Pas d'inscription · Charge en quelques secondes",

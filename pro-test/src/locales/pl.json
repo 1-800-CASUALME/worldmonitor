@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Darmowy panel wywiadu geopolitycznego",
-      "description": "World Monitor: pulpit nawigacyjny do monitorowania geopolitycznego w czasie rzeczywistym. Bezpłatna interaktywna mapa konfliktów, transportu morskiego, lotów, rynków i cyberzagrożeń z API i serwerem MCP.",
+      "description": "World Monitor: panel wywiadu geopolitycznego w czasie rzeczywistym. Darmowa mapa na żywo: konflikty, żegluga, loty, rynki i cyberzagrożenia, z API i MCP.",
       "ogTitle": "World Monitor: Darmowy panel wywiadu geopolitycznego",
-      "ogDescription": "World Monitor: pulpit nawigacyjny do monitorowania geopolitycznego w czasie rzeczywistym. Bezpłatna interaktywna mapa konfliktów, transportu morskiego, lotów, rynków i cyberzagrożeń z API i serwerem MCP."
+      "ogDescription": "World Monitor: panel wywiadu geopolitycznego w czasie rzeczywistym. Darmowa mapa na żywo: konflikty, żegluga, loty, rynki i cyberzagrożenia, z API i MCP."
     },
     "nav": {
       "useCases": "Korelacje",
@@ -471,8 +471,8 @@
     },
     "hero": {
       "eyebrow": "Darmowy globalny pulpit inteligencji · dostępny teraz",
-      "headline1": "Geopolityka w czasie rzeczywistym",
-      "headline2": "panel wywiadowczy",
+      "headline1": "Panel wywiadu geopolitycznego",
+      "headline2": "w czasie rzeczywistym",
       "sub": "Kiedy to staje się wiadomością, ty już o tym wiesz.",
       "ctaPrimary": "Uruchom pulpit",
       "ctaFree": "Darmowe · Bez rejestracji · Wczytuje się w sekundy",

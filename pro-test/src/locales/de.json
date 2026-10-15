@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Kostenloses geopolitisches Lagebild-Dashboard",
-      "description": "World Monitor: Echtzeit-Dashboard für geopolitische Intelligenz. Eine kostenlose Live-Karte von Konflikten, Schiffsverkehr, Flügen, Märkten und Cyber, mit API und MCP Server.",
+      "description": "World Monitor: geopolitisches Lagebild-Dashboard in Echtzeit. Kostenlose Live-Karte: Konflikte, Schifffahrt, Flüge, Märkte und Cyber, mit API und MCP-Server.",
       "ogTitle": "World Monitor: Kostenloses geopolitisches Lagebild-Dashboard",
-      "ogDescription": "World Monitor: Echtzeit-Dashboard für geopolitische Intelligenz. Eine kostenlose Live-Karte von Konflikten, Schiffsverkehr, Flügen, Märkten und Cyber, mit API und MCP Server."
+      "ogDescription": "World Monitor: geopolitisches Lagebild-Dashboard in Echtzeit. Kostenlose Live-Karte: Konflikte, Schifffahrt, Flüge, Märkte und Cyber, mit API und MCP-Server."
     },
     "nav": {
       "useCases": "Korrelationen",
@@ -471,8 +471,8 @@
     },
     "hero": {
       "eyebrow": "Kostenloses globales Informations-Dashboard · live jetzt",
-      "headline1": "Geopolitik in Echtzeit",
-      "headline2": "Lagebild-Dashboard",
+      "headline1": "Geopolitisches Lagebild-Dashboard",
+      "headline2": "in Echtzeit",
       "sub": "Bevor es Nachrichten sind, wussten Sie es bereits.",
       "ctaPrimary": "Dashboard starten",
       "ctaFree": "Kostenlos · Keine Anmeldung · Lädt in Sekunden",

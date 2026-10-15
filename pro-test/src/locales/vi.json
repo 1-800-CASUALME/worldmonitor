@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor: Bảng điều khiển tình báo địa chính trị miễn phí",
-      "description": "World Monitor: bảng điều khiển tình báo địa chính trị thời gian thực. Bản đồ trực tiếp miễn phí về các cuộc xung đột, vận tải biển, chuyến bay, thị trường và an ninh mạng, với API và MCP server.",
-      "ogTitle": "World Monitor: Bảng điều khiển tình báo địa chính trị miễn phí",
-      "ogDescription": "World Monitor: bảng điều khiển tình báo địa chính trị thời gian thực. Bản đồ trực tiếp miễn phí về các cuộc xung đột, vận tải biển, chuyến bay, thị trường và an ninh mạng, với API và MCP server."
+      "title": "World Monitor: Bảng tình báo địa chính trị miễn phí",
+      "description": "World Monitor: bảng tình báo địa chính trị thời gian thực. Bản đồ trực tiếp miễn phí: xung đột, hàng hải, chuyến bay, thị trường, an ninh mạng; có API và MCP.",
+      "ogTitle": "World Monitor: Bảng tình báo địa chính trị miễn phí",
+      "ogDescription": "World Monitor: bảng tình báo địa chính trị thời gian thực. Bản đồ trực tiếp miễn phí: xung đột, hàng hải, chuyến bay, thị trường, an ninh mạng; có API và MCP."
     },
     "nav": {
       "useCases": "Tương quan",
@@ -471,8 +471,8 @@
     },
     "hero": {
       "eyebrow": "Bảng điều khiển tình báo toàn cầu miễn phí · đang hoạt động",
-      "headline1": "Địa chính trị thời gian thực",
-      "headline2": "bảng điều khiển tình báo",
+      "headline1": "Bảng tình báo địa chính trị",
+      "headline2": "theo thời gian thực",
       "sub": "Khi tin tức xuất hiện, bạn đã biết rồi.",
       "ctaPrimary": "Khởi chạy bảng điều khiển",
       "ctaFree": "Miễn phí · Không cần đăng ký · Tải trong vài giây",

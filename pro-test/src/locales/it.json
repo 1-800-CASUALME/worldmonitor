@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor: Dashboard gratuita di intelligence geopolitica",
-      "description": "World Monitor: dashboard di intelligence geopolitica in tempo reale. Una mappa interattiva gratuita di conflitti, shipping, voli, mercati e cyber, con API e server MCP.",
-      "ogTitle": "World Monitor: Dashboard gratuita di intelligence geopolitica",
-      "ogDescription": "World Monitor: dashboard di intelligence geopolitica in tempo reale. Una mappa interattiva gratuita di conflitti, shipping, voli, mercati e cyber, con API e server MCP."
+      "title": "World Monitor: dashboard di intelligence geopolitica gratis",
+      "description": "World Monitor: dashboard di intelligence geopolitica in tempo reale. Mappa live gratuita di conflitti, navi, voli, mercati e cyber, con API e server MCP.",
+      "ogTitle": "World Monitor: dashboard di intelligence geopolitica gratis",
+      "ogDescription": "World Monitor: dashboard di intelligence geopolitica in tempo reale. Mappa live gratuita di conflitti, navi, voli, mercati e cyber, con API e server MCP."
     },
     "nav": {
       "useCases": "Correlazioni",
@@ -471,8 +471,8 @@
     },
     "hero": {
       "eyebrow": "Dashboard di intelligence globale gratuita · live adesso",
-      "headline1": "Geopolitica in tempo reale",
-      "headline2": "dashboard di intelligence",
+      "headline1": "Dashboard di intelligence geopolitica",
+      "headline2": "in tempo reale",
       "sub": "Quando diventa notizia, tu lo sai già.",
       "ctaPrimary": "Avvia il dashboard",
       "ctaFree": "Gratuito · Nessuna registrazione · Si carica in secondi",

@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor: Bezplatný dashboard geopolitického zpravodajství",
-      "description": "World Monitor: přehled geopolitické zpravodajské služby v reálném čase. Bezplatná živá mapa konfliktů, námořní dopravy, letů, trhů a kybernetiky s API a MCP serverem.",
-      "ogTitle": "World Monitor: Bezplatný dashboard geopolitického zpravodajství",
-      "ogDescription": "World Monitor: přehled geopolitické zpravodajské služby v reálném čase. Bezplatná živá mapa konfliktů, námořní dopravy, letů, trhů a kybernetiky s API a MCP serverem."
+      "title": "World Monitor: Bezplatný geopolitický zpravodajský dashboard",
+      "description": "World Monitor: geopolitický zpravodajský dashboard v reálném čase. Bezplatná živá mapa konfliktů, lodní dopravy, letů, trhů a kybernetiky, s API a MCP serverem.",
+      "ogTitle": "World Monitor: Bezplatný geopolitický zpravodajský dashboard",
+      "ogDescription": "World Monitor: geopolitický zpravodajský dashboard v reálném čase. Bezplatná živá mapa konfliktů, lodní dopravy, letů, trhů a kybernetiky, s API a MCP serverem."
     },
     "nav": {
       "useCases": "Korelace",
@@ -471,8 +471,8 @@
     },
     "hero": {
       "eyebrow": "Bezplatný dashboard globální zpravodajské služby · live nyní",
-      "headline1": "Geopolitika v reálném čase",
-      "headline2": "zpravodajský dashboard",
+      "headline1": "Geopolitický zpravodajský dashboard",
+      "headline2": "v reálném čase",
       "sub": "Když se to stane zprávou, už jste to věděli.",
       "ctaPrimary": "Otevřít dashboard",
       "ctaFree": "Zdarma · Bez registrace · Načte se během sekund",

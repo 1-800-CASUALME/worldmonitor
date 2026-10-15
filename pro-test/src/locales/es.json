@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Panel gratuito de inteligencia geopolítica",
-      "description": "World Monitor: panel de inteligencia geopolítica en tiempo real. Un mapa en vivo gratuito de conflictos, transporte marítimo, vuelos, mercados y cibernética, con API y servidor MCP.",
+      "description": "World Monitor: panel de inteligencia geopolítica en tiempo real. Mapa gratuito en vivo de conflictos, buques, vuelos, mercados y ciber, con API y servidor MCP.",
       "ogTitle": "World Monitor: Panel gratuito de inteligencia geopolítica",
-      "ogDescription": "World Monitor: panel de inteligencia geopolítica en tiempo real. Un mapa en vivo gratuito de conflictos, transporte marítimo, vuelos, mercados y cibernética, con API y servidor MCP."
+      "ogDescription": "World Monitor: panel de inteligencia geopolítica en tiempo real. Mapa gratuito en vivo de conflictos, buques, vuelos, mercados y ciber, con API y servidor MCP."
     },
     "nav": {
       "useCases": "Correlaciones",
@@ -471,8 +471,8 @@
     },
     "hero": {
       "eyebrow": "Panel de inteligencia global gratuito · en vivo ahora",
-      "headline1": "Geopolítica en tiempo real",
-      "headline2": "panel de inteligencia",
+      "headline1": "Panel de inteligencia geopolítica",
+      "headline2": "en tiempo real",
       "sub": "Cuando se convierte en noticia, ya lo sabías.",
       "ctaPrimary": "Abrir el panel",
       "ctaFree": "Gratuito · Sin registro · Se carga en segundos",

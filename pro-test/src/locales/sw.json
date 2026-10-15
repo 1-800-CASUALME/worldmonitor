@@ -451,10 +451,10 @@
   "soonBadge": "Karibu",
   "welcome": {
     "meta": {
-      "title": "World Monitor: Dashibodi ya bure ya intelijensia ya jiografia ya kisiasa",
-      "description": "World Monitor: dashboard ya akili ya simu ya kisiasa ya muda halisi. Ramani ya bure ya mabadiliko, usambazaji, ndege, soko na mitandao, iliyomo API na seva ya MCP.",
-      "ogTitle": "World Monitor: Dashibodi ya bure ya intelijensia ya jiografia ya kisiasa",
-      "ogDescription": "World Monitor: dashboard ya akili ya simu ya kisiasa ya muda halisi. Ramani ya bure ya mabadiliko, usambazaji, ndege, soko na mitandao, iliyomo API na seva ya MCP."
+      "title": "World Monitor: Dashibodi ya bure ya ujasusi wa kijiopolitiki",
+      "description": "World Monitor: dashibodi ya ujasusi wa kijiopolitiki kwa wakati halisi. Ramani hai ya bure ya migogoro, meli, ndege, masoko na mtandao, na API na seva ya MCP.",
+      "ogTitle": "World Monitor: Dashibodi ya bure ya ujasusi wa kijiopolitiki",
+      "ogDescription": "World Monitor: dashibodi ya ujasusi wa kijiopolitiki kwa wakati halisi. Ramani hai ya bure ya migogoro, meli, ndege, masoko na mtandao, na API na seva ya MCP."
     },
     "nav": {
       "useCases": "Mahusiano",
@@ -471,8 +471,8 @@
     },
     "hero": {
       "eyebrow": "Dashibodi ya akili za kimataifa · sasa moja kwa moja",
-      "headline1": "Jiografia ya kisiasa kwa wakati halisi",
-      "headline2": "dashibodi ya intelijensia",
+      "headline1": "Dashibodi ya ujasusi wa kijiopolitiki",
+      "headline2": "kwa wakati halisi",
       "sub": "Wakati itakuwa habari, wewe tayari ulijua.",
       "ctaPrimary": "Anzisha dashibodi",
       "ctaFree": "Bure · Hapana usajili · Hupakiki kwa sekunde",

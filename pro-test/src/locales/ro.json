@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor: Tablou de bord gratuit de informații geopolitice",
-      "description": "World Monitor: tablou de bord de inteligență geopolitică în timp real. O hartă live gratuită a conflictelor, transportului maritim, zborurilor, piețelor și domeniului cibernetic, cu API și server MCP.",
-      "ogTitle": "World Monitor: Tablou de bord gratuit de informații geopolitice",
-      "ogDescription": "World Monitor: tablou de bord de inteligență geopolitică în timp real. O hartă live gratuită a conflictelor, transportului maritim, zborurilor, piețelor și domeniului cibernetic, cu API și server MCP."
+      "title": "World Monitor: tablou de bord geopolitic gratuit",
+      "description": "World Monitor: tablou de bord de informații geopolitice în timp real. Hartă live gratuită: conflicte, transport maritim, zboruri, piețe și cyber, cu API și MCP.",
+      "ogTitle": "World Monitor: tablou de bord geopolitic gratuit",
+      "ogDescription": "World Monitor: tablou de bord de informații geopolitice în timp real. Hartă live gratuită: conflicte, transport maritim, zboruri, piețe și cyber, cu API și MCP."
     },
     "nav": {
       "useCases": "Corelații",
@@ -471,8 +471,8 @@
     },
     "hero": {
       "eyebrow": "Tabloul de bord gratuit de inteligență globală · live acum",
-      "headline1": "Geopolitică în timp real",
-      "headline2": "tablou de bord de informații",
+      "headline1": "Tablou de bord de informații geopolitice",
+      "headline2": "în timp real",
       "sub": "Până când devine știre, deja știai.",
       "ctaPrimary": "Lansați tabloul de bord",
       "ctaFree": "Gratuit · Fără înregistrare · Se încarcă în secunde",

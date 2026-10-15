@@ -404,13 +404,13 @@ test.describe('server-rendered welcome page', () => {
   } of [
     {
       direction: 'ltr',
-      headline: 'Géopolitique en temps réel',
+      headline: 'Tableau de bord du renseignement',
       language: 'fr',
       ogLocale: 'fr_FR',
     },
     {
       direction: 'rtl',
-      headline: 'في الوقت الفعلي',
+      headline: 'لوحة استخبارات جيوسياسية',
       language: 'ar',
       ogLocale: 'ar_SA',
     },

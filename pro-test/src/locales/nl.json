@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Gratis geopolitiek inlichtingendashboard",
-      "description": "World Monitor: real-time geopolitiek intelligence dashboard. Een gratis live kaart van conflicten, scheepsverkeer, vluchten, markten en cyber, met een API en MCP server.",
+      "description": "World Monitor: realtime geopolitiek inlichtingendashboard. Gratis livekaart van conflicten, scheepvaart, vluchten, markten en cyber, met API en MCP-server.",
       "ogTitle": "World Monitor: Gratis geopolitiek inlichtingendashboard",
-      "ogDescription": "World Monitor: real-time geopolitiek intelligence dashboard. Een gratis live kaart van conflicten, scheepsverkeer, vluchten, markten en cyber, met een API en MCP server."
+      "ogDescription": "World Monitor: realtime geopolitiek inlichtingendashboard. Gratis livekaart van conflicten, scheepvaart, vluchten, markten en cyber, met API en MCP-server."
     },
     "nav": {
       "useCases": "Correlaties",
@@ -471,8 +471,8 @@
     },
     "hero": {
       "eyebrow": "Gratis dashboard voor wereldwijd inlichtingen · nu live",
-      "headline1": "Geopolitiek in realtime",
-      "headline2": "inlichtingendashboard",
+      "headline1": "Geopolitiek inlichtingendashboard",
+      "headline2": "in realtime",
       "sub": "Tegen de tijd dat het nieuws is, wist je het al.",
       "ctaPrimary": "Dashboard starten",
       "ctaFree": "Gratis · Geen registratie · Laadt in seconden",

@@ -451,10 +451,10 @@
   "soonBadge": "Soon",
   "welcome": {
     "meta": {
-      "title": "World Monitor: Free Geopolitical Intelligence Dashboard",
-      "description": "World Monitor: داشبورد هوش تجسسی ژئوپلیتیکی در زمان واقعی. نقشه زنده و رایگان برای درگیری‌ها، کشتی‌رانی، پروازها، بازارها و فعالیت‌های سایبری، همراه با API و سرور MCP.",
-      "ogTitle": "World Monitor: Free Geopolitical Intelligence Dashboard",
-      "ogDescription": "World Monitor: داشبورد هوش تجسسی ژئوپلیتیکی در زمان واقعی. نقشه زنده و رایگان برای درگیری‌ها، کشتی‌رانی، پروازها، بازارها و فعالیت‌های سایبری، همراه با API و سرور MCP."
+      "title": "World Monitor: داشبورد رایگان اطلاعات ژئوپلیتیکی",
+      "description": "World Monitor: داشبورد اطلاعات ژئوپلیتیکی در زمان واقعی. نقشه زنده و رایگان درگیری‌ها، کشتیرانی، پروازها، بازارها و فضای سایبری، همراه با API و سرور MCP.",
+      "ogTitle": "World Monitor: داشبورد رایگان اطلاعات ژئوپلیتیکی",
+      "ogDescription": "World Monitor: داشبورد اطلاعات ژئوپلیتیکی در زمان واقعی. نقشه زنده و رایگان درگیری‌ها، کشتیرانی، پروازها، بازارها و فضای سایبری، همراه با API و سرور MCP."
     },
     "nav": {
       "useCases": "Correlations",
@@ -471,9 +471,9 @@
     },
     "hero": {
       "eyebrow": "Free global intelligence dashboard · live now",
-      "headline1": "Real-time geopolitical",
-      "headline2": "intelligence dashboard",
-      "sub": "By the time it's news, you already knew.",
+      "headline1": "داشبورد اطلاعات ژئوپلیتیکی",
+      "headline2": "در زمان واقعی",
+      "sub": "تا وقتی خبر شود، شما از قبل می‌دانستید.",
       "ctaPrimary": "Launch the dashboard",
       "ctaFree": "Free · No signup · Loads in seconds",
       "ctaSecondary": "See how people use it ↓",

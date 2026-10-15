@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Besplatna geopolitička obavještajna ploča",
-      "description": "World Monitor: nadzorna ploča za geopolitičku obavještajnu analizu u stvarnom vremenu. Besplatna živna karta sukoba, pomorskog prometa, letova, tržišta i kibernetike, s API-jem i MCP poslužiteljem.",
+      "description": "World Monitor: geopolitička obavještajna ploča u stvarnom vremenu. Besplatna karta uživo: sukobi, pomorstvo, letovi, tržišta i kibernetika, s API-jem i MCP-om.",
       "ogTitle": "World Monitor: Besplatna geopolitička obavještajna ploča",
-      "ogDescription": "World Monitor: nadzorna ploča za geopolitičku obavještajnu analizu u stvarnom vremenu. Besplatna živna karta sukoba, pomorskog prometa, letova, tržišta i kibernetike, s API-jem i MCP poslužiteljem."
+      "ogDescription": "World Monitor: geopolitička obavještajna ploča u stvarnom vremenu. Besplatna karta uživo: sukobi, pomorstvo, letovi, tržišta i kibernetika, s API-jem i MCP-om."
     },
     "nav": {
       "useCases": "Korelacije",
@@ -471,8 +471,8 @@
     },
     "hero": {
       "eyebrow": "Besplatna nadzorna ploča globalne obavještajne službe · sada dostupna",
-      "headline1": "Geopolitika u stvarnom vremenu",
-      "headline2": "obavještajna nadzorna ploča",
+      "headline1": "Geopolitička obavještajna ploča",
+      "headline2": "u stvarnom vremenu",
       "sub": "Dok postane vijest, već si znao.",
       "ctaPrimary": "Pokreni nadzornu ploču",
       "ctaFree": "Besplatno · Bez prijave · Učitava se u sekundama",

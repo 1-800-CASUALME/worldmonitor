@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Gratis panel för geopolitisk underrättelse",
-      "description": "World Monitor: instrumentpanel för geopolitisk intelligens i realtid. En gratis livekarta över konflikter, sjöfart, flyg, marknader och cyberaktiviteter, med ett API och MCP-server.",
+      "description": "World Monitor: panel för geopolitisk underrättelse i realtid. En gratis livekarta över konflikter, sjöfart, flyg, marknader och cyber, med API och MCP-server.",
       "ogTitle": "World Monitor: Gratis panel för geopolitisk underrättelse",
-      "ogDescription": "World Monitor: instrumentpanel för geopolitisk intelligens i realtid. En gratis livekarta över konflikter, sjöfart, flyg, marknader och cyberaktiviteter, med ett API och MCP-server."
+      "ogDescription": "World Monitor: panel för geopolitisk underrättelse i realtid. En gratis livekarta över konflikter, sjöfart, flyg, marknader och cyber, med API och MCP-server."
     },
     "nav": {
       "useCases": "Korrelationer",
@@ -471,8 +471,8 @@
     },
     "hero": {
       "eyebrow": "Gratis global underrättelseinstrumentpanel · live nu",
-      "headline1": "Geopolitik i realtid",
-      "headline2": "underrättelsepanel",
+      "headline1": "Geopolitisk underrättelsepanel",
+      "headline2": "i realtid",
       "sub": "Innan det blir nyheter, visste du redan.",
       "ctaPrimary": "Starta instrumentpanelen",
       "ctaFree": "Gratis · Ingen registrering · Läses in på sekunder",

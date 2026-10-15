@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor: Ingyenes geopolitikai hírszerzési irányítópult",
-      "description": "World Monitor: valós idejű geopolitikai hírszerzési irányítópult. Ingyenes élő térkép konfliktusokról, hajózásról, repülésről, piacokról és kibernetikai támadásokról, API-val és MCP szerverrel.",
-      "ogTitle": "World Monitor: Ingyenes geopolitikai hírszerzési irányítópult",
-      "ogDescription": "World Monitor: valós idejű geopolitikai hírszerzési irányítópult. Ingyenes élő térkép konfliktusokról, hajózásról, repülésről, piacokról és kibernetikai támadásokról, API-val és MCP szerverrel."
+      "title": "World Monitor: Ingyenes geopolitikai hírszerző irányítópult",
+      "description": "World Monitor: valós idejű geopolitikai hírszerzési irányítópult. Ingyenes élő térkép: konfliktusok, hajózás, járatok, piacok és kiber, API-val és MCP-vel.",
+      "ogTitle": "World Monitor: Ingyenes geopolitikai hírszerző irányítópult",
+      "ogDescription": "World Monitor: valós idejű geopolitikai hírszerzési irányítópult. Ingyenes élő térkép: konfliktusok, hajózás, járatok, piacok és kiber, API-val és MCP-vel."
     },
     "nav": {
       "useCases": "Korrelációk",
@@ -471,7 +471,7 @@
     },
     "hero": {
       "eyebrow": "Ingyenes globális hírszerzési irányítópult · most élő",
-      "headline1": "Geopolitika valós időben",
+      "headline1": "Valós idejű geopolitikai",
       "headline2": "hírszerzési irányítópult",
       "sub": "Amíg hír lesz, már tudtad.",
       "ctaPrimary": "Irányítópult indítása",
