@@ -4,7 +4,7 @@ description: "World Monitor: real-time geopolitical intelligence dashboard. A fr
 canonical: "https://www.worldmonitor.app/home.md"
 ---
 
-# Real-time geopolitical intelligence dashboard
+# World Monitor: real-time geopolitical intelligence dashboard
 
 By the time it's news, you already knew.
 
