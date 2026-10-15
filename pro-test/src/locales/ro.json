@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor — Tabloul de bord gratuit de inteligență globală în timp real",
-      "description": "Până când devine știre, tu deja știai. Conflicte, puncte critice, zboruri militare, piețe, cyber: o hartă live gratuită cu analiză AI. Fără înregistrare.",
-      "ogTitle": "World Monitor — Până când devine știre, deja știai.",
-      "ogDescription": "Semnalele brute ale lumii — nave, avioane, sirene, cabluri, piețe — pe o singură hartă de inteligență în direct, cu AI care marchează când se converg. Gratuit, fără înregistrare."
+      "title": "World Monitor: Tablou de bord gratuit de informații geopolitice",
+      "description": "Tablou de bord OSINT geopolitic gratuit, cu hartă live, plus API și MCP. Urmărește conflicte, puncte critice, zboruri militare, piețe și amenințări cibernetice. Fără înregistrare.",
+      "ogTitle": "World Monitor: Tablou de bord gratuit de informații geopolitice",
+      "ogDescription": "Tablou de bord OSINT geopolitic gratuit, cu hartă live, plus API și MCP. Urmărește conflicte, puncte critice, zboruri militare, piețe și amenințări cibernetice. Fără înregistrare."
     },
     "nav": {
       "useCases": "Corelații",
@@ -471,9 +471,9 @@
     },
     "hero": {
       "eyebrow": "Tabloul de bord gratuit de inteligență globală · live acum",
-      "headline1": "Până când devine știre,",
-      "headline2": "deja știai.",
-      "sub": "Știrile sunt decalajul. World Monitor transmite semnalele brute ale lumii — nave, avioane, sirene, cabluri, piețe — pe o singură hartă în direct, cu AI care marchează când se converg într-ceva care conține.",
+      "headline1": "Geopolitică în timp real",
+      "headline2": "tablou de bord de informații",
+      "sub": "Până când devine știre, deja știai.",
       "ctaPrimary": "Lansați tabloul de bord",
       "ctaFree": "Gratuit · Fără înregistrare · Se încarcă în secunde",
       "ctaSecondary": "Vedeți cum îl folosesc oamenii ↓",

@@ -451,10 +451,10 @@
   "soonBadge": "Soon",
   "welcome": {
     "meta": {
-      "title": "World Monitor — Free Real-Time Global Intelligence Dashboard",
-      "description": "By the time it's news, you already knew. Conflicts, chokepoints, military flights, markets, cyber: one free live map with AI analysis. No signup.",
-      "ogTitle": "World Monitor — By the time it's news, you already knew.",
-      "ogDescription": "The world's raw signals — ships, jets, sirens, cables, markets — on one free live intelligence map, with AI that flags when they converge. Free, no signup."
+      "title": "World Monitor: Free Geopolitical Intelligence Dashboard",
+      "description": "A free geopolitical OSINT dashboard with a live map, plus API and MCP. Track conflicts, chokepoints, military flights, markets and cyber threats. No signup.",
+      "ogTitle": "World Monitor: Free Geopolitical Intelligence Dashboard",
+      "ogDescription": "A free geopolitical OSINT dashboard with a live map, plus API and MCP. Track conflicts, chokepoints, military flights, markets and cyber threats. No signup."
     },
     "nav": {
       "useCases": "Correlations",
@@ -471,9 +471,9 @@
     },
     "hero": {
       "eyebrow": "Free global intelligence dashboard · live now",
-      "headline1": "By the time it's news,",
-      "headline2": "you already knew.",
-      "sub": "Headlines are the lag. World Monitor streams the world's raw signals — ships, jets, sirens, cables, markets — onto one live map, with AI that flags when they converge into something that matters.",
+      "headline1": "Real-time geopolitical",
+      "headline2": "intelligence dashboard",
+      "sub": "By the time it's news, you already knew.",
       "asOf": "As of {{date}}",
       "ctaPrimary": "Launch the dashboard",
       "ctaFree": "Free · No signup · Loads in seconds",

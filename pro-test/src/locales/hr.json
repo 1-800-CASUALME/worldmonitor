@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor — Besplatna nadzorna ploča globalne obavještajne službe u stvarnom vremenu",
-      "description": "Dok se to do vijesti dogodi, vi ste već znali. Konflikti, uska grla, vojni letovi, tržišta, kibernetika: jedna besplatna živa karta s AI analizom. Bez registracije.",
-      "ogTitle": "World Monitor — Dok postane vijest, već si znao.",
-      "ogDescription": "Sirovi signali svijeta — brodovi, zrakoplovi, sirene, kabeli, tržišta — na jednoj besplatnoj živoj obavještajnoj karti, s AI koji se aktivira kada se konvergiraju. Besplatno, bez prijave."
+      "title": "World Monitor: Besplatna geopolitička obavještajna ploča",
+      "description": "Besplatna geopolitička OSINT ploča sa živom kartom, plus API i MCP. Pratite sukobe, uska grla, vojne letove, tržišta i kibernetičke prijetnje. Bez prijave.",
+      "ogTitle": "World Monitor: Besplatna geopolitička obavještajna ploča",
+      "ogDescription": "Besplatna geopolitička OSINT ploča sa živom kartom, plus API i MCP. Pratite sukobe, uska grla, vojne letove, tržišta i kibernetičke prijetnje. Bez prijave."
     },
     "nav": {
       "useCases": "Korelacije",
@@ -471,9 +471,9 @@
     },
     "hero": {
       "eyebrow": "Besplatna nadzorna ploča globalne obavještajne službe · sada dostupna",
-      "headline1": "Dok postane vijest,",
-      "headline2": "već si znao.",
-      "sub": "Naslovi su kašnjenje. World Monitor prenosi sirove signale svijeta — brodove, zrakoplove, sirene, kabele, tržišta — na jednu živu kartu, s AI koji se aktivira kada se konvergiraju u nešto što je važno.",
+      "headline1": "Geopolitika u stvarnom vremenu",
+      "headline2": "obavještajna nadzorna ploča",
+      "sub": "Dok postane vijest, već si znao.",
       "ctaPrimary": "Pokreni nadzornu ploču",
       "ctaFree": "Besplatno · Bez prijave · Učitava se u sekundama",
       "ctaSecondary": "Vidi kako ga koriste ↓",

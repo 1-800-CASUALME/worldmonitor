@@ -451,10 +451,10 @@
   "soonBadge": "Karibu",
   "welcome": {
     "meta": {
-      "title": "World Monitor — Dashibodi ya Kijamii-Simu ya Wakati Halisi Bila Malipo",
-      "description": "Kufikia wakati inakuwa habari, tayari ulikuwa unajua. Migogoro, njia nyeti, ndege za kijeshi, masoko, cyber: ramani moja ya moja kwa moja bila malipo yenye uchambuzi wa AI. Hakuna usajili.",
-      "ogTitle": "World Monitor — Wakati ilivyokuwa hadithi, tayari ulijua.",
-      "ogDescription": "Maajabu ya dunia — meli, ndege, mvua ya kengele, kebo, soko — kwenye ramani moja ya kijamii-simu ya wakati halisi, na AI inayofungua wakati inapogeana. Libre, hakuna jina lako."
+      "title": "World Monitor: Dashibodi ya bure ya intelijensia ya jiografia ya kisiasa",
+      "description": "Dashibodi ya bure ya OSINT ya jiografia ya kisiasa yenye ramani ya moja kwa moja, pamoja na API na MCP. Fuatilia migogoro, njia nyeti, ndege za kijeshi, masoko na vitisho vya mtandao. Bila usajili.",
+      "ogTitle": "World Monitor: Dashibodi ya bure ya intelijensia ya jiografia ya kisiasa",
+      "ogDescription": "Dashibodi ya bure ya OSINT ya jiografia ya kisiasa yenye ramani ya moja kwa moja, pamoja na API na MCP. Fuatilia migogoro, njia nyeti, ndege za kijeshi, masoko na vitisho vya mtandao. Bila usajili."
     },
     "nav": {
       "useCases": "Mahusiano",
@@ -471,9 +471,9 @@
     },
     "hero": {
       "eyebrow": "Dashibodi ya akili za kimataifa · sasa moja kwa moja",
-      "headline1": "Wakati itakuwa habari,",
-      "headline2": "wewe tayari ulijua.",
-      "sub": "Habari ni kuchelewesha. World Monitor inapiga mtiririko wa mawimbi ya ulimwengu — mitambo ya baharini, ndege, sireni, kebo, soko — kwenye ramani moja tu ya moja kwa moja, na AI inayofanya alama wakati inakuja kuwa kitu kinachohitaji.",
+      "headline1": "Jiografia ya kisiasa kwa wakati halisi",
+      "headline2": "dashibodi ya intelijensia",
+      "sub": "Wakati itakuwa habari, wewe tayari ulijua.",
       "ctaPrimary": "Anzisha dashibodi",
       "ctaFree": "Bure · Hapana usajili · Hupakiki kwa sekunde",
       "ctaSecondary": "Tazama jinsi watu wanavyotumia ↓",

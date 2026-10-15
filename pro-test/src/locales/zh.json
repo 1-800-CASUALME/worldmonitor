@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor — 免费实时全球情报仪表板\t",
-      "description": "成为新闻之前，你已经知道。冲突、咽喉要道、军事飞行、市场、网络：一张免费实时地图加AI分析。无需注册。",
-      "ogTitle": "World Monitor — 新闻报道之前，您已经了解。\t",
-      "ogDescription": "世界原始信号 — 船舶、飞机、警报、电缆、市场 — 汇聚在一张免费实时情报地图上，AI 会在它们汇聚成重要信息时发出标记。免费、无需注册。\t"
+      "title": "World Monitor: 免费地缘政治情报仪表板",
+      "description": "免费地缘政治 OSINT 仪表板，带实时地图，以及 API 和 MCP。追踪冲突、咽喉要道、军事飞行、市场和网络威胁。无需注册。",
+      "ogTitle": "World Monitor: 免费地缘政治情报仪表板",
+      "ogDescription": "免费地缘政治 OSINT 仪表板，带实时地图，以及 API 和 MCP。追踪冲突、咽喉要道、军事飞行、市场和网络威胁。无需注册。"
     },
     "nav": {
       "useCases": "关联\t",
@@ -471,9 +471,9 @@
     },
     "hero": {
       "eyebrow": "免费全球情报仪表板 · 实时在线\t",
-      "headline1": "新闻报道之前，\t",
-      "headline2": "您已经了解。\t",
-      "sub": "新闻报道滞后。World Monitor 将世界的原始信号 — 船舶、飞机、警报、电缆、市场 — 流式传输到一张实时地图上，配有 AI 技术，可在它们汇聚成重要信息时发出标记。\t",
+      "headline1": "实时地缘政治",
+      "headline2": "情报仪表板",
+      "sub": "新闻报道之前， 您已经了解。",
       "ctaPrimary": "启动仪表板\t",
       "ctaFree": "免费 · 无需注册 · 秒速加载\t",
       "ctaSecondary": "查看人们如何使用它 ↓\t",

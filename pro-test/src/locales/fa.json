@@ -451,10 +451,10 @@
   "soonBadge": "Soon",
   "welcome": {
     "meta": {
-      "title": "World Monitor — Free Real-Time Global Intelligence Dashboard",
-      "description": "تا زمانی که خبری شود، شما قبلاً می‌دانستید. درگیری‌ها، تنگناهای جغرافیایی، پروازهای نظامی، بازارها، فعالیت‌های سایبری: یک نقشه زنده رایگان با تحلیل هوش مصنوعی. بدون نیاز به ثبت‌نام.",
-      "ogTitle": "World Monitor — By the time it's news, you already knew.",
-      "ogDescription": "The world's raw signals — ships, jets, sirens, cables, markets — on one free live intelligence map, with AI that flags when they converge. Free, no signup."
+      "title": "World Monitor: Free Geopolitical Intelligence Dashboard",
+      "description": "داشبورد رایگان OSINT ژئوپلیتیک با نقشه زنده، به همراه API و MCP. درگیری‌ها، تنگناهای جغرافیایی، پروازهای نظامی، بازارها و تهدیدهای سایبری را دنبال کنید. بدون ثبت‌نام.",
+      "ogTitle": "World Monitor: Free Geopolitical Intelligence Dashboard",
+      "ogDescription": "داشبورد رایگان OSINT ژئوپلیتیک با نقشه زنده، به همراه API و MCP. درگیری‌ها، تنگناهای جغرافیایی، پروازهای نظامی، بازارها و تهدیدهای سایبری را دنبال کنید. بدون ثبت‌نام."
     },
     "nav": {
       "useCases": "Correlations",
@@ -471,9 +471,9 @@
     },
     "hero": {
       "eyebrow": "Free global intelligence dashboard · live now",
-      "headline1": "By the time it's news,",
-      "headline2": "you already knew.",
-      "sub": "Headlines are the lag. World Monitor streams the world's raw signals — ships, jets, sirens, cables, markets — onto one live map, with AI that flags when they converge into something that matters.",
+      "headline1": "Real-time geopolitical",
+      "headline2": "intelligence dashboard",
+      "sub": "By the time it's news, you already knew.",
       "ctaPrimary": "Launch the dashboard",
       "ctaFree": "Free · No signup · Loads in seconds",
       "ctaSecondary": "See how people use it ↓",

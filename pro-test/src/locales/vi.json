@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor — Bảng điều khiển tình báo toàn cầu trực tiếp miễn phí",
-      "description": "Khi nó trở thành tin tức thì bạn đã biết rồi. Xung đột, điểm nghẽn, chuyến bay quân sự, thị trường, an ninh mạng: một bản đồ trực tiếp miễn phí với phân tích AI. Không cần đăng ký.",
-      "ogTitle": "World Monitor — Khi tin tức xuất hiện, bạn đã biết rồi.",
-      "ogDescription": "Các tín hiệu thô của thế giới — tàu, máy bay, còi báo động, cáp, thị trường — trên một bản đồ tình báo trực tiếp miễn phí, có AI để phát hiệ khi chúng hội tụ. Miễn phí, không cần đăng ký."
+      "title": "World Monitor: Bảng điều khiển tình báo địa chính trị miễn phí",
+      "description": "Bảng điều khiển OSINT địa chính trị miễn phí với bản đồ trực tiếp, cùng API và MCP. Theo dõi xung đột, điểm nghẽn, chuyến bay quân sự, thị trường và mối đe dọa mạng. Không cần đăng ký.",
+      "ogTitle": "World Monitor: Bảng điều khiển tình báo địa chính trị miễn phí",
+      "ogDescription": "Bảng điều khiển OSINT địa chính trị miễn phí với bản đồ trực tiếp, cùng API và MCP. Theo dõi xung đột, điểm nghẽn, chuyến bay quân sự, thị trường và mối đe dọa mạng. Không cần đăng ký."
     },
     "nav": {
       "useCases": "Tương quan",
@@ -471,9 +471,9 @@
     },
     "hero": {
       "eyebrow": "Bảng điều khiển tình báo toàn cầu miễn phí · đang hoạt động",
-      "headline1": "Khi tin tức xuất hiện,",
-      "headline2": "bạn đã biết rồi.",
-      "sub": "Tin tức là độ trễ. World Monitor truyền phát các tín hiệu thô của thế giới — tàu, máy bay, còi báo động, cáp, thị trường — lên một bản đồ trực tiếp, với AI phát hiệ khi chúng hội tụ thành một điều quan trọng.",
+      "headline1": "Địa chính trị thời gian thực",
+      "headline2": "bảng điều khiển tình báo",
+      "sub": "Khi tin tức xuất hiện, bạn đã biết rồi.",
       "ctaPrimary": "Khởi chạy bảng điều khiển",
       "ctaFree": "Miễn phí · Không cần đăng ký · Tải trong vài giây",
       "ctaSecondary": "Xem cách mọi người sử dụng nó ↓",

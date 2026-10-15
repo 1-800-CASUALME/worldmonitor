@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor — Kostenloses Live-Dashboard für globale Informationen in Echtzeit",
-      "description": "Bis es Nachrichten sind, wissen Sie bereits Bescheid. Konflikte, Engpässe, Militärflugverkehr, Märkte, Cyber: eine kostenlose Live-Karte mit KI-Analyse. Keine Registrierung erforderlich.",
-      "ogTitle": "World Monitor — Bevor es Nachrichten sind, wussten Sie es bereits.",
-      "ogDescription": "Die Rohsignale der Welt — Schiffe, Jets, Sirenen, Kabel, Märkte — auf einer kostenlosen Live-Intelligenz-Karte mit KI, die kennzeichnet, wenn sie zusammenlaufen. Kostenlos, keine Anmeldung."
+      "title": "World Monitor: Kostenloses geopolitisches Lagebild-Dashboard",
+      "description": "Ein kostenloses geopolitisches OSINT-Dashboard mit Live-Karte sowie API und MCP. Verfolgen Sie Konflikte, Engpässe, Militärflüge, Märkte und Cyberbedrohungen. Ohne Anmeldung.",
+      "ogTitle": "World Monitor: Kostenloses geopolitisches Lagebild-Dashboard",
+      "ogDescription": "Ein kostenloses geopolitisches OSINT-Dashboard mit Live-Karte sowie API und MCP. Verfolgen Sie Konflikte, Engpässe, Militärflüge, Märkte und Cyberbedrohungen. Ohne Anmeldung."
     },
     "nav": {
       "useCases": "Korrelationen",
@@ -471,9 +471,9 @@
     },
     "hero": {
       "eyebrow": "Kostenloses globales Informations-Dashboard · live jetzt",
-      "headline1": "Bevor es Nachrichten sind,",
-      "headline2": "wussten Sie es bereits.",
-      "sub": "Nachrichten sind die Verzögerung. World Monitor streamt die Rohsignale der Welt — Schiffe, Jets, Sirenen, Kabel, Märkte — auf eine Live-Karte mit KI, die kennzeichnet, wenn sie sich zu etwas Wichtigem verbinden.",
+      "headline1": "Geopolitik in Echtzeit",
+      "headline2": "Lagebild-Dashboard",
+      "sub": "Bevor es Nachrichten sind, wussten Sie es bereits.",
       "ctaPrimary": "Dashboard starten",
       "ctaFree": "Kostenlos · Keine Anmeldung · Lädt in Sekunden",
       "ctaSecondary": "Sehen Sie, wie Leute es nutzen ↓",

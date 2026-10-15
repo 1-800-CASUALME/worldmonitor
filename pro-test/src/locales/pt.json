@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor — Painel Gratuito de Inteligência Global em Tempo Real",
-      "description": "Quando vira notícia, você já sabia. Conflitos, pontos críticos, voos militares, mercados, cibernética: um mapa ao vivo gratuito com análise de IA. Sem cadastro.",
-      "ogTitle": "World Monitor — Quando vira notícia, você já sabia.",
-      "ogDescription": "Os sinais brutos do mundo — navios, jatos, sirenes, cabos, mercados — em um mapa de inteligência ao vivo gratuito, com IA que sinaliza quando convergem. Grátis, sem cadastro."
+      "title": "World Monitor: Painel gratuito de inteligência geopolítica",
+      "description": "Um painel OSINT geopolítico gratuito com mapa ao vivo, além de API e MCP. Acompanhe conflitos, pontos críticos, voos militares, mercados e ameaças cibernéticas. Sem cadastro.",
+      "ogTitle": "World Monitor: Painel gratuito de inteligência geopolítica",
+      "ogDescription": "Um painel OSINT geopolítico gratuito com mapa ao vivo, além de API e MCP. Acompanhe conflitos, pontos críticos, voos militares, mercados e ameaças cibernéticas. Sem cadastro."
     },
     "nav": {
       "useCases": "Correlações",
@@ -471,9 +471,9 @@
     },
     "hero": {
       "eyebrow": "Painel de inteligência global gratuito · agora ao vivo",
-      "headline1": "Quando vira notícia,",
-      "headline2": "você já sabia.",
-      "sub": "Manchetes são o atraso. World Monitor transmite os sinais brutos do mundo — navios, jatos, sirenes, cabos, mercados — para um mapa ao vivo, com IA que sinaliza quando convergem em algo que importa.",
+      "headline1": "Geopolítica em tempo real",
+      "headline2": "painel de inteligência",
+      "sub": "Quando vira notícia, você já sabia.",
       "ctaPrimary": "Abrir o painel",
       "ctaFree": "Grátis · Sem cadastro · Carrega em segundos",
       "ctaSecondary": "Veja como as pessoas usam ↓",

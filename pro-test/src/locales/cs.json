@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor — Bezplatný dashboard globální zpravodajské služby v reálném čase",
-      "description": "Než se stane zprávou, už to víš. Konflikty, kritické průchody, vojenské lety, trhy, kybernetika: jedna bezplatná živá mapa s AI analýzou. Bez registrace.",
-      "ogTitle": "World Monitor — Když se to stane zprávou, už jste to věděli.",
-      "ogDescription": "Nezpracované signály světa — lodě, letadla, sirény, kabely, trhy — na jedné bezplatné živé zpravodajské mapě s AI, která upozorní, když se convergují. Zdarma, bez registrace."
+      "title": "World Monitor: Bezplatný dashboard geopolitického zpravodajství",
+      "description": "Bezplatný geopolitický OSINT dashboard s živou mapou a s API i MCP. Sledujte konflikty, kritické průchody, vojenské lety, trhy a kybernetické hrozby. Bez registrace.",
+      "ogTitle": "World Monitor: Bezplatný dashboard geopolitického zpravodajství",
+      "ogDescription": "Bezplatný geopolitický OSINT dashboard s živou mapou a s API i MCP. Sledujte konflikty, kritické průchody, vojenské lety, trhy a kybernetické hrozby. Bez registrace."
     },
     "nav": {
       "useCases": "Korelace",
@@ -471,9 +471,9 @@
     },
     "hero": {
       "eyebrow": "Bezplatný dashboard globální zpravodajské služby · live nyní",
-      "headline1": "Když se to stane zprávou,",
-      "headline2": "už jste to věděli.",
-      "sub": "Titulky jsou zpoždění. World Monitor streamuje nezpracované signály světa — lodě, letadla, sirény, kabely, trhy — na jednu živou mapu s AI, která upozorní, když se convergují do něčeho, na čem záleží.",
+      "headline1": "Geopolitika v reálném čase",
+      "headline2": "zpravodajský dashboard",
+      "sub": "Když se to stane zprávou, už jste to věděli.",
       "ctaPrimary": "Otevřít dashboard",
       "ctaFree": "Zdarma · Bez registrace · Načte se během sekund",
       "ctaSecondary": "Podívejte se, jak to lidé používají ↓",

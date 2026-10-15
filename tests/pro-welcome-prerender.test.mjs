@@ -236,6 +236,11 @@ test('built welcome page ships the real hero in #root before JavaScript', { skip
   assert.doesNotMatch(rootContent, /id="seo-prerender"/);
   assert.equal([...rootContent.matchAll(/<h1\b/g)].length, 1);
   assert.match(rootContent, /<nav[\s>]/);
+  assert.match(
+    rootContent,
+    /<h1\b[^>]*>[\s\S]*Real-time geopolitical[\s\S]*intelligence dashboard[\s\S]*<\/h1>/,
+    'welcome H1 should name the product',
+  );
   assert.match(rootContent, /By the time it&#x27;s news,[\s\S]*you already knew\./);
   assert.match(rootContent, /Launch the dashboard/);
   assert.match(rootContent, /Open source · AGPL-3\.0/);
@@ -270,8 +275,8 @@ test('built welcome page ships the real hero in #root before JavaScript', { skip
   assert.match(navContent, /href="\/sources\/"[^>]*>Attributed providers<\/a>/);
   assert.match(navContent, /id="welcome-tablet-navigation"/);
   assert.match(navContent, />Menu</);
-  const headlineIndex = rootContent.indexOf('By the time it&#x27;s news,');
-  assert.ok(headlineIndex > 0, 'welcome headline should be in the prerendered root');
+  const headlineIndex = rootContent.indexOf('Real-time geopolitical');
+  assert.ok(headlineIndex > 0, 'welcome H1 should name the product');
   const heroSection = rootContent.slice(0, rootContent.indexOf('<section class="py-16'));
   assert.doesNotMatch(heroSection, /opacity:0/);
   assert.match(rootContent, /<img[^>]+src="\/pro\/assets\/worldmonitor-7-mar-2026-[^"]+\.jpg"[^>]+fetchPriority="high"/);
@@ -312,7 +317,7 @@ test('built welcome root hides no SSR content and links every primary reference 
 
 test('built welcome page prerenders task routes and agent discovery links', { skip }, () => {
   const { content: rootContent } = welcomeRoot();
-  const heroIndex = rootContent.indexOf('By the time it&#x27;s news,');
+  const heroIndex = rootContent.indexOf('Real-time geopolitical');
   const taskIndex = rootContent.indexOf('What are you trying to find out?');
   // Keep in sync with welcome.live.title in pro-test/src/locales/en.json (#7381).
   const liveIndex = rootContent.indexOf('What live data is this page showing right now?');

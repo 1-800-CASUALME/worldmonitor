@@ -76,6 +76,29 @@ describe('reported landing-page SEO metadata', () => {
     assertDescription('Chinese sandbox', sandboxDescription);
   });
 
+  it('keeps the homepage description product-led, canonical, and bounded', () => {
+    const welcomeHtml = source('pro-test/welcome.html');
+    const welcomeLocale = JSON.parse(source('pro-test/src/locales/en.json')).welcome.meta;
+    const expectedDescription = 'A free geopolitical OSINT dashboard with a live map, plus API and MCP. Track conflicts, chokepoints, military flights, markets and cyber threats. No signup.';
+    const expectedTitle = 'World Monitor: Free Geopolitical Intelligence Dashboard';
+
+    assertTitle('homepage locale', welcomeLocale.title);
+    assertDescription('homepage locale', welcomeLocale.description);
+    assert.equal(welcomeLocale.title, expectedTitle);
+    assert.equal(welcomeLocale.ogTitle, expectedTitle);
+    assert.equal(welcomeLocale.description, expectedDescription);
+    assert.equal(welcomeLocale.ogDescription, expectedDescription);
+
+    const htmlTitle = welcomeHtml.match(/<title>([^<]+)<\/title>/)?.[1];
+    const htmlDescription = welcomeHtml.match(/<meta name="description" content="([^"]+)"/)?.[1];
+    const ogDescription = welcomeHtml.match(/<meta property="og:description" content="([^"]+)"/)?.[1];
+    const twitterDescription = welcomeHtml.match(/<meta name="twitter:description" content="([^"]+)"/)?.[1];
+    assert.equal(htmlTitle, expectedTitle);
+    assert.equal(htmlDescription, expectedDescription);
+    assert.equal(ogDescription, expectedDescription);
+    assert.equal(twitterDescription, expectedDescription);
+  });
+
   it('keeps full and variant dashboard descriptions bounded and synchronized', () => {
     const indexHtml = source('index.html');
     const variants = ['full', 'tech', 'finance', 'commodity', 'happy', 'energy'];

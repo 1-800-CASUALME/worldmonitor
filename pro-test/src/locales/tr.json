@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor — Ücretsiz Gerçek Zamanlı Global İstihbarat Panosu",
-      "description": "Haber olduğunda zaten biliyorsun. Çatışmalar, boğazlar, askeri uçuşlar, piyasalar, siber: AI analiziyle tek bir ücretsiz canlı harita. Kayıt yok.",
-      "ogTitle": "World Monitor — Haber olduğunda zaten biliyordun.",
-      "ogDescription": "Dünyanın ham sinyalleri — gemiler, jetler, sirenler, kablolar, piyasalar — AI ile birlikte tek bir ücretsiz canlı istihbarat haritasında ve bunlar bir şeye dönüştüğünde flaglenir. Ücretsiz, kayıt yok."
+      "title": "World Monitor: Ücretsiz jeopolitik istihbarat panosu",
+      "description": "Ücretsiz bir jeopolitik OSINT panosu, canlı harita ile, artı API ve MCP. Çatışmaları, boğazları, askeri uçuşları, piyasaları ve siber tehditleri izle. Kayıt yok.",
+      "ogTitle": "World Monitor: Ücretsiz jeopolitik istihbarat panosu",
+      "ogDescription": "Ücretsiz bir jeopolitik OSINT panosu, canlı harita ile, artı API ve MCP. Çatışmaları, boğazları, askeri uçuşları, piyasaları ve siber tehditleri izle. Kayıt yok."
     },
     "nav": {
       "useCases": "Korelasyonlar",
@@ -471,9 +471,9 @@
     },
     "hero": {
       "eyebrow": "Ücretsiz global istihbarat panosu · şimdi canlı",
-      "headline1": "Haber olduğunda,",
-      "headline2": "zaten biliyordun.",
-      "sub": "Başlıklar gecikme. World Monitor, dünyanın ham sinyallerini — gemiler, jetler, sirenler, kablolar, piyasalar — tek bir canlı haritaya akıtır ve bunlar önemli bir şeye dönüştüğünde flaglemeyi yapan AI ile.",
+      "headline1": "Gerçek zamanlı jeopolitik",
+      "headline2": "istihbarat panosu",
+      "sub": "Haber olduğunda, zaten biliyordun.",
       "ctaPrimary": "Panoyu başlat",
       "ctaFree": "Ücretsiz · Kayıt yok · Saniyeler içinde yüklenir",
       "ctaSecondary": "İnsanlar bunu nasıl kullanıyor ↓",

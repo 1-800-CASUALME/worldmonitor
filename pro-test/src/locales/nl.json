@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor — Gratis realtime dashboard voor wereldwijd inlichtingen",
-      "description": "Op het moment dat het nieuws is, wist je het al. Conflicten, knelpunten, militaire vluchten, markten, cyberdreiging: één gratis live kaart met AI-analyse. Geen registratie nodig.",
-      "ogTitle": "World Monitor — Tegen de tijd dat het nieuws is, wist je het al.",
-      "ogDescription": "De onbewerkte signalen van de wereld — schepen, vliegtuigen, sirenes, kabels, markten — op één gratis live inlichtingenkaart, met AI die aangeeft wanneer ze samenkomen. Gratis, geen registratie."
+      "title": "World Monitor: Gratis geopolitiek inlichtingendashboard",
+      "description": "Een gratis geopolitiek OSINT-dashboard met een live kaart, plus API en MCP. Volg conflicten, knelpunten, militaire vluchten, markten en cyberdreigingen. Geen registratie.",
+      "ogTitle": "World Monitor: Gratis geopolitiek inlichtingendashboard",
+      "ogDescription": "Een gratis geopolitiek OSINT-dashboard met een live kaart, plus API en MCP. Volg conflicten, knelpunten, militaire vluchten, markten en cyberdreigingen. Geen registratie."
     },
     "nav": {
       "useCases": "Correlaties",
@@ -471,9 +471,9 @@
     },
     "hero": {
       "eyebrow": "Gratis dashboard voor wereldwijd inlichtingen · nu live",
-      "headline1": "Tegen de tijd dat het nieuws is,",
-      "headline2": "wist je het al.",
-      "sub": "Koppen zijn de vertraging. World Monitor streamt de onbewerkte signalen van de wereld — schepen, vliegtuigen, sirenes, kabels, markten — op één live kaart, met AI die aangeeft wanneer ze samenkomen tot iets wat ertoe doet.",
+      "headline1": "Geopolitiek in realtime",
+      "headline2": "inlichtingendashboard",
+      "sub": "Tegen de tijd dat het nieuws is, wist je het al.",
       "ctaPrimary": "Dashboard starten",
       "ctaFree": "Gratis · Geen registratie · Laadt in seconden",
       "ctaSecondary": "Zie hoe mensen het gebruiken ↓",

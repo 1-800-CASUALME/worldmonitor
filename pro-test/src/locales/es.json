@@ -451,10 +451,10 @@
   },
   "welcome": {
     "meta": {
-      "title": "World Monitor — Panel de Inteligencia Global en Tiempo Real Gratuito",
-      "description": "Antes de que sea noticia, ya lo sabías. Conflictos, cuellos de botella, vuelos militares, mercados, cibernética: un mapa en vivo gratuito con análisis de IA. Sin registro.",
-      "ogTitle": "World Monitor — Cuando se convierte en noticia, ya lo sabías.",
-      "ogDescription": "Las señales crudas del mundo — barcos, aviones, sirenas, cables, mercados — en un mapa de inteligencia en vivo gratuito, con IA que señala cuándo convergen. Gratuito, sin registro."
+      "title": "World Monitor: Panel gratuito de inteligencia geopolítica",
+      "description": "Un panel OSINT geopolítico gratuito con mapa en vivo, más API y MCP. Sigue conflictos, cuellos de botella, vuelos militares, mercados y amenazas cibernéticas. Sin registro.",
+      "ogTitle": "World Monitor: Panel gratuito de inteligencia geopolítica",
+      "ogDescription": "Un panel OSINT geopolítico gratuito con mapa en vivo, más API y MCP. Sigue conflictos, cuellos de botella, vuelos militares, mercados y amenazas cibernéticas. Sin registro."
     },
     "nav": {
       "useCases": "Correlaciones",
@@ -471,9 +471,9 @@
     },
     "hero": {
       "eyebrow": "Panel de inteligencia global gratuito · en vivo ahora",
-      "headline1": "Cuando se convierte en noticia,",
-      "headline2": "ya lo sabías.",
-      "sub": "Los titulares son el retraso. World Monitor transmite las señales crudas del mundo — barcos, aviones, sirenas, cables, mercados — en un mapa en vivo, con IA que señala cuándo convergen en algo que importa.",
+      "headline1": "Geopolítica en tiempo real",
+      "headline2": "panel de inteligencia",
+      "sub": "Cuando se convierte en noticia, ya lo sabías.",
       "ctaPrimary": "Abrir el panel",
       "ctaFree": "Gratuito · Sin registro · Se carga en segundos",
       "ctaSecondary": "Ver cómo lo usan ↓",
