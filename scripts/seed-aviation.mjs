@@ -39,6 +39,7 @@ import {
   releaseLock,
   getRedisCredentials,
   readCanonicalValue,
+  markPreservableFetchFailure,
 } from './_seed-utils.mjs';
 import notificationDedup from './shared/notification-dedup.cjs';
 import countryNameMap from './shared/country-name-to-iso2.cjs';
@@ -256,7 +257,7 @@ export const AIRPORTS = [
 ];
 
 // Derived per-source views (built once at module load)
-const AVIATIONSTACK_LIST = AIRPORTS.filter(a => a.sources.includes('aviationstack'));
+export const AVIATIONSTACK_LIST = AIRPORTS.filter(a => a.sources.includes('aviationstack'));
 const FAA_LIST           = AIRPORTS.filter(a => a.sources.includes('faa')).map(a => a.iata);
 const NOTAM_LIST         = AIRPORTS.filter(a => a.sources.includes('notam')).map(a => a.icao);
 const AVIATIONSTACK_IATAS = new Set(AVIATIONSTACK_LIST.map(a => a.iata));
@@ -1325,9 +1326,10 @@ async function runNewsSideCar() {
 // contract-mode envelope, retry-on-throw, graceful TTL-extend on failure,
 // seed-meta freshness. When intl is unhealthy we throw to force runSeed into
 // its catch path — which extends the INTL_KEY + seed-meta:aviation:intl TTLs
-// and exits 0 only when Redis confirms last-good retention, without touching
-// afterPublish. FAA/NOTAM/news already ran via their side-cars and are
-// independent — an intl outage does NOT freeze their freshness.
+// and exits 0 only for a provider outage while Redis confirms last-good
+// retention within maxStaleMin, without touching afterPublish. FAA/NOTAM/news
+// already ran via their side-cars and are independent — an intl outage does
+// NOT freeze their freshness.
 
 // Quota guard: returns true when the last successful intl publish is younger
 // than INTL_MIN_REFRESH_MIN, meaning we can serve last-good and skip the paid
@@ -1461,6 +1463,9 @@ export async function fetchIntl() {
     // reservation. We lose nothing: the seeder already re-runs every cron tick.
     const err = new Error(`intl unpublishable: ${why}`);
     err.nonRetryable = true;
+    // Only a real provider outage may ride out on last-good with exit 0. A
+    // missing key is a configuration error and must keep crashing the cron.
+    if (!result.skipped) markPreservableFetchFailure(err);
     throw err;
   }
 

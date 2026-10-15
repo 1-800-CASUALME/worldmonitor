@@ -6,11 +6,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
+import { AVIATIONSTACK_LIST } from '../scripts/seed-aviation.mjs';
+
 const root = fileURLToPath(new URL('..', import.meta.url));
 const preload = `
 const intlKey = 'aviation:delays:intl:v3';
 const metaKey = 'seed-meta:aviation:intl';
-const fetchedAt = 1700000000000;
+const fetchedAt = Date.now() - Number(process.env.TEST_META_AGE_MIN ?? 30) * 60_000;
 const lastGood = {
   _seed: { fetchedAt, recordCount: 0, state: 'OK_ZERO' },
   data: { alerts: [], coverage: [{ iata: 'PEK', status: 'normal', flightCount: 8, updatedAt: fetchedAt }] },
@@ -66,7 +68,7 @@ globalThis.fetch = async (input, options = {}) => {
 };
 process.on('exit', () => {
   console.log('FIXTURE_STATE=' + JSON.stringify({
-    providerCalls, writes, expires,
+    providerCalls, writes, expires, initialFetchedAt: fetchedAt,
     intl: JSON.parse(values.get(intlKey) ?? 'null'),
     meta: JSON.parse(values.get(metaKey) ?? 'null'),
     lockHeld: values.has('seed-lock:aviation:intl'),
@@ -78,6 +80,10 @@ function runAviation(overrides = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'aviation-graceful-'));
   const path = join(directory, 'preload.mjs');
   writeFileSync(path, preload);
+  // An explicit empty env file stops loadEnvFile from pulling a developer's
+  // .env.local into the child, so only the fixture env below is in effect.
+  const envFile = join(directory, 'empty.env');
+  writeFileSync(envFile, '');
   try {
     const result = spawnSync(process.execPath, ['--import', path, 'seed-aviation.mjs'], {
       cwd: join(root, 'scripts'),
@@ -89,6 +95,7 @@ function runAviation(overrides = {}) {
         AVIATIONSTACK_MONTHLY_BUDGET: '0',
         AVIATIONSTACK_MIN_REFRESH_MIN: '0',
         WM_SEED_RETRY_DELAY_MS: '0',
+        WM_SEED_ENV_FILE: envFile,
         ...overrides,
       },
       encoding: 'utf8',
@@ -108,13 +115,16 @@ test('aviation command completes a failed refresh when last-good retention is co
   const result = runAviation();
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stderr, /intl unpublishable: systemic fetch failure/);
-  assert.match(result.stderr, /Refresh failed; last-good retained/);
+  assert.match(result.stderr, /last-good is 30min old \(maxStaleMin 90\); exiting 0/);
   assert.doesNotMatch(result.stdout, /"event":"seed_complete"/);
-  assert.equal(result.state.providerCalls, 56, 'a failed sweep must not repeat paid calls');
-  assert.equal(result.state.intl._seed.fetchedAt, 1700000000000);
-  assert.equal(result.state.meta.fetchedAt, 1700000000000);
+  assert.match(result.stdout, /=== Refresh failed; last-good retained/);
+  assert.doesNotMatch(result.stdout, /=== Failed gracefully/);
+  assert.equal(result.state.providerCalls, AVIATIONSTACK_LIST.length, 'a failed sweep must not repeat paid calls');
+  const { initialFetchedAt } = result.state;
+  assert.equal(result.state.intl._seed.fetchedAt, initialFetchedAt);
+  assert.equal(result.state.meta.fetchedAt, initialFetchedAt);
   assert.deepEqual(result.state.intl.data.coverage, [
-    { iata: 'PEK', status: 'normal', flightCount: 8, updatedAt: 1700000000000 },
+    { iata: 'PEK', status: 'normal', flightCount: 8, updatedAt: initialFetchedAt },
   ]);
   assert.equal(result.state.writes.includes('aviation:delays:intl:v3'), false);
   assert.equal(result.state.writes.includes('seed-meta:aviation:intl'), false);
@@ -129,7 +139,7 @@ for (const missingKey of ['aviation:delays:intl:v3', 'seed-meta:aviation:intl'])
     const result = runAviation({ TEST_MISSING_KEY: missingKey });
     assert.equal(result.status, 75, result.stdout + result.stderr);
     assert.match(result.stdout, /Failed gracefully/);
-    assert.equal(result.state.providerCalls, 56);
+    assert.equal(result.state.providerCalls, AVIATIONSTACK_LIST.length);
   });
 }
 
@@ -137,5 +147,21 @@ test('aviation command still fails when Redis cannot confirm last-good retention
   const result = runAviation({ TEST_RETENTION_FAILURE: '1' });
   assert.equal(result.status, 75, result.stdout + result.stderr);
   assert.match(result.stderr, /TTL extension pipeline failed/);
-  assert.equal(result.state.providerCalls, 56);
+  assert.equal(result.state.providerCalls, AVIATIONSTACK_LIST.length);
+});
+
+test('aviation command still fails when last-good is older than maxStaleMin', () => {
+  const result = runAviation({ TEST_META_AGE_MIN: '91' });
+  assert.equal(result.status, 75, result.stdout + result.stderr);
+  assert.match(result.stderr, /last-good age 91min is not within maxStaleMin 90/);
+  assert.match(result.stdout, /=== Failed gracefully/);
+  assert.equal(result.state.providerCalls, AVIATIONSTACK_LIST.length);
+});
+
+test('aviation command still fails when the AviationStack key is missing', () => {
+  const result = runAviation({ AVIATIONSTACK_API: '' });
+  assert.equal(result.status, 75, result.stdout + result.stderr);
+  assert.match(result.stderr, /intl unpublishable: no AVIATIONSTACK_API key/);
+  assert.match(result.stdout, /=== Failed gracefully/);
+  assert.equal(result.state.providerCalls, 0);
 });
