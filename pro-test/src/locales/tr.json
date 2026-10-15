@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Ücretsiz jeopolitik istihbarat panosu",
-      "description": "Ücretsiz bir jeopolitik OSINT panosu, canlı harita ile, artı API ve MCP. Çatışmaları, boğazları, askeri uçuşları, piyasaları ve siber tehditleri izle. Kayıt yok.",
+      "description": "World Monitor: gerçek zamanlı jeopolitik istihbarat panosu. Çatışmalar, gemi trafiği, uçuşlar, piyasalar ve siber tehditlerin canlı haritası (ücretsiz), API ve MCP sunucusu ile.",
       "ogTitle": "World Monitor: Ücretsiz jeopolitik istihbarat panosu",
-      "ogDescription": "Ücretsiz bir jeopolitik OSINT panosu, canlı harita ile, artı API ve MCP. Çatışmaları, boğazları, askeri uçuşları, piyasaları ve siber tehditleri izle. Kayıt yok."
+      "ogDescription": "World Monitor: gerçek zamanlı jeopolitik istihbarat panosu. Çatışmalar, gemi trafiği, uçuşlar, piyasalar ve siber tehditlerin canlı haritası (ücretsiz), API ve MCP sunucusu ile."
     },
     "nav": {
       "useCases": "Korelasyonlar",

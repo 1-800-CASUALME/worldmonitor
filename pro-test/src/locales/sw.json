@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Dashibodi ya bure ya intelijensia ya jiografia ya kisiasa",
-      "description": "Dashibodi ya bure ya OSINT ya jiografia ya kisiasa yenye ramani ya moja kwa moja, pamoja na API na MCP. Fuatilia migogoro, njia nyeti, ndege za kijeshi, masoko na vitisho vya mtandao. Bila usajili.",
+      "description": "World Monitor: dashboard ya akili ya simu ya kisiasa ya muda halisi. Ramani ya bure ya mabadiliko, usambazaji, ndege, soko na mitandao, iliyomo API na seva ya MCP.",
       "ogTitle": "World Monitor: Dashibodi ya bure ya intelijensia ya jiografia ya kisiasa",
-      "ogDescription": "Dashibodi ya bure ya OSINT ya jiografia ya kisiasa yenye ramani ya moja kwa moja, pamoja na API na MCP. Fuatilia migogoro, njia nyeti, ndege za kijeshi, masoko na vitisho vya mtandao. Bila usajili."
+      "ogDescription": "World Monitor: dashboard ya akili ya simu ya kisiasa ya muda halisi. Ramani ya bure ya mabadiliko, usambazaji, ndege, soko na mitandao, iliyomo API na seva ya MCP."
     },
     "nav": {
       "useCases": "Mahusiano",

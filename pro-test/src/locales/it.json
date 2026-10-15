@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Dashboard gratuita di intelligence geopolitica",
-      "description": "Una dashboard OSINT geopolitica gratuita con mappa live, più API e MCP. Segui conflitti, strozzature, voli militari, mercati e minacce cyber. Senza registrazione.",
+      "description": "World Monitor: dashboard di intelligence geopolitica in tempo reale. Una mappa interattiva gratuita di conflitti, shipping, voli, mercati e cyber, con API e server MCP.",
       "ogTitle": "World Monitor: Dashboard gratuita di intelligence geopolitica",
-      "ogDescription": "Una dashboard OSINT geopolitica gratuita con mappa live, più API e MCP. Segui conflitti, strozzature, voli militari, mercati e minacce cyber. Senza registrazione."
+      "ogDescription": "World Monitor: dashboard di intelligence geopolitica in tempo reale. Una mappa interattiva gratuita di conflitti, shipping, voli, mercati e cyber, con API e server MCP."
     },
     "nav": {
       "useCases": "Correlazioni",

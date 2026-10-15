@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Painel gratuito de inteligência geopolítica",
-      "description": "Um painel OSINT geopolítico gratuito com mapa ao vivo, além de API e MCP. Acompanhe conflitos, pontos críticos, voos militares, mercados e ameaças cibernéticas. Sem cadastro.",
+      "description": "World Monitor: painel de inteligência geopolítica em tempo real. Um mapa ao vivo gratuito de conflitos, transporte marítimo, voos, mercados e segurança cibernética, com API e servidor MCP.",
       "ogTitle": "World Monitor: Painel gratuito de inteligência geopolítica",
-      "ogDescription": "Um painel OSINT geopolítico gratuito com mapa ao vivo, além de API e MCP. Acompanhe conflitos, pontos críticos, voos militares, mercados e ameaças cibernéticas. Sem cadastro."
+      "ogDescription": "World Monitor: painel de inteligência geopolítica em tempo real. Um mapa ao vivo gratuito de conflitos, transporte marítimo, voos, mercados e segurança cibernética, com API e servidor MCP."
     },
     "nav": {
       "useCases": "Correlações",

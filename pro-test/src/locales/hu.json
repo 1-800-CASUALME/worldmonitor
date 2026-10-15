@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Ingyenes geopolitikai hírszerzési irányítópult",
-      "description": "Ingyenes geopolitikai OSINT irányítópult élő térképpel, valamint API-val és MCP-vel. Kövesd a konfliktusokat, a szoros pontokat, a katonai repüléseket, a piacokat és a kiberfenyegetéseket. Regisztráció nélkül.",
+      "description": "World Monitor: valós idejű geopolitikai hírszerzési irányítópult. Ingyenes élő térkép konfliktusokról, hajózásról, repülésről, piacokról és kibernetikai támadásokról, API-val és MCP szerverrel.",
       "ogTitle": "World Monitor: Ingyenes geopolitikai hírszerzési irányítópult",
-      "ogDescription": "Ingyenes geopolitikai OSINT irányítópult élő térképpel, valamint API-val és MCP-vel. Kövesd a konfliktusokat, a szoros pontokat, a katonai repüléseket, a piacokat és a kiberfenyegetéseket. Regisztráció nélkül."
+      "ogDescription": "World Monitor: valós idejű geopolitikai hírszerzési irányítópult. Ingyenes élő térkép konfliktusokról, hajózásról, repülésről, piacokról és kibernetikai támadásokról, API-val és MCP szerverrel."
     },
     "nav": {
       "useCases": "Korrelációk",

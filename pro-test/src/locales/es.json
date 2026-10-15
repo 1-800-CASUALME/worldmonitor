@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Panel gratuito de inteligencia geopolítica",
-      "description": "Un panel OSINT geopolítico gratuito con mapa en vivo, más API y MCP. Sigue conflictos, cuellos de botella, vuelos militares, mercados y amenazas cibernéticas. Sin registro.",
+      "description": "World Monitor: panel de inteligencia geopolítica en tiempo real. Un mapa en vivo gratuito de conflictos, transporte marítimo, vuelos, mercados y cibernética, con API y servidor MCP.",
       "ogTitle": "World Monitor: Panel gratuito de inteligencia geopolítica",
-      "ogDescription": "Un panel OSINT geopolítico gratuito con mapa en vivo, más API y MCP. Sigue conflictos, cuellos de botella, vuelos militares, mercados y amenazas cibernéticas. Sin registro."
+      "ogDescription": "World Monitor: panel de inteligencia geopolítica en tiempo real. Un mapa en vivo gratuito de conflictos, transporte marítimo, vuelos, mercados y cibernética, con API y servidor MCP."
     },
     "nav": {
       "useCases": "Correlaciones",

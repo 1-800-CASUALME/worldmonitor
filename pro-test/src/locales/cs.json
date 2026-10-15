@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Bezplatný dashboard geopolitického zpravodajství",
-      "description": "Bezplatný geopolitický OSINT dashboard s živou mapou a s API i MCP. Sledujte konflikty, kritické průchody, vojenské lety, trhy a kybernetické hrozby. Bez registrace.",
+      "description": "World Monitor: přehled geopolitické zpravodajské služby v reálném čase. Bezplatná živá mapa konfliktů, námořní dopravy, letů, trhů a kybernetiky s API a MCP serverem.",
       "ogTitle": "World Monitor: Bezplatný dashboard geopolitického zpravodajství",
-      "ogDescription": "Bezplatný geopolitický OSINT dashboard s živou mapou a s API i MCP. Sledujte konflikty, kritické průchody, vojenské lety, trhy a kybernetické hrozby. Bez registrace."
+      "ogDescription": "World Monitor: přehled geopolitické zpravodajské služby v reálném čase. Bezplatná živá mapa konfliktů, námořní dopravy, letů, trhů a kybernetiky s API a MCP serverem."
     },
     "nav": {
       "useCases": "Korelace",

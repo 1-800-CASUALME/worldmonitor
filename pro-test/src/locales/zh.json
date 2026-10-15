@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: 免费地缘政治情报仪表板",
-      "description": "免费地缘政治 OSINT 仪表板，带实时地图，以及 API 和 MCP。追踪冲突、咽喉要道、军事飞行、市场和网络威胁。无需注册。",
+      "description": "World Monitor：实时地缘政治情报仪表板。免费实时地图，涵盖冲突、海运、航班、市场和网络安全，提供 API 和 MCP 服务器。",
       "ogTitle": "World Monitor: 免费地缘政治情报仪表板",
-      "ogDescription": "免费地缘政治 OSINT 仪表板，带实时地图，以及 API 和 MCP。追踪冲突、咽喉要道、军事飞行、市场和网络威胁。无需注册。"
+      "ogDescription": "World Monitor：实时地缘政治情报仪表板。免费实时地图，涵盖冲突、海运、航班、市场和网络安全，提供 API 和 MCP 服务器。"
     },
     "nav": {
       "useCases": "关联\t",

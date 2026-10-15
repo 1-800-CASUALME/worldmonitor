@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Free Geopolitical Intelligence Dashboard",
-      "description": "داشبورد رایگان OSINT ژئوپلیتیک با نقشه زنده، به همراه API و MCP. درگیری‌ها، تنگناهای جغرافیایی، پروازهای نظامی، بازارها و تهدیدهای سایبری را دنبال کنید. بدون ثبت‌نام.",
+      "description": "World Monitor: داشبورد هوش تجسسی ژئوپلیتیکی در زمان واقعی. نقشه زنده و رایگان برای درگیری‌ها، کشتی‌رانی، پروازها، بازارها و فعالیت‌های سایبری، همراه با API و سرور MCP.",
       "ogTitle": "World Monitor: Free Geopolitical Intelligence Dashboard",
-      "ogDescription": "داشبورد رایگان OSINT ژئوپلیتیک با نقشه زنده، به همراه API و MCP. درگیری‌ها، تنگناهای جغرافیایی، پروازهای نظامی، بازارها و تهدیدهای سایبری را دنبال کنید. بدون ثبت‌نام."
+      "ogDescription": "World Monitor: داشبورد هوش تجسسی ژئوپلیتیکی در زمان واقعی. نقشه زنده و رایگان برای درگیری‌ها، کشتی‌رانی، پروازها، بازارها و فعالیت‌های سایبری، همراه با API و سرور MCP."
     },
     "nav": {
       "useCases": "Correlations",

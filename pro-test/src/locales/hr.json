@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Besplatna geopolitička obavještajna ploča",
-      "description": "Besplatna geopolitička OSINT ploča sa živom kartom, plus API i MCP. Pratite sukobe, uska grla, vojne letove, tržišta i kibernetičke prijetnje. Bez prijave.",
+      "description": "World Monitor: nadzorna ploča za geopolitičku obavještajnu analizu u stvarnom vremenu. Besplatna živna karta sukoba, pomorskog prometa, letova, tržišta i kibernetike, s API-jem i MCP poslužiteljem.",
       "ogTitle": "World Monitor: Besplatna geopolitička obavještajna ploča",
-      "ogDescription": "Besplatna geopolitička OSINT ploča sa živom kartom, plus API i MCP. Pratite sukobe, uska grla, vojne letove, tržišta i kibernetičke prijetnje. Bez prijave."
+      "ogDescription": "World Monitor: nadzorna ploča za geopolitičku obavještajnu analizu u stvarnom vremenu. Besplatna živna karta sukoba, pomorskog prometa, letova, tržišta i kibernetike, s API-jem i MCP poslužiteljem."
     },
     "nav": {
       "useCases": "Korelacije",

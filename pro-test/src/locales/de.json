@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Kostenloses geopolitisches Lagebild-Dashboard",
-      "description": "Ein kostenloses geopolitisches OSINT-Dashboard mit Live-Karte sowie API und MCP. Verfolgen Sie Konflikte, Engpässe, Militärflüge, Märkte und Cyberbedrohungen. Ohne Anmeldung.",
+      "description": "World Monitor: Echtzeit-Dashboard für geopolitische Intelligenz. Eine kostenlose Live-Karte von Konflikten, Schiffsverkehr, Flügen, Märkten und Cyber, mit API und MCP Server.",
       "ogTitle": "World Monitor: Kostenloses geopolitisches Lagebild-Dashboard",
-      "ogDescription": "Ein kostenloses geopolitisches OSINT-Dashboard mit Live-Karte sowie API und MCP. Verfolgen Sie Konflikte, Engpässe, Militärflüge, Märkte und Cyberbedrohungen. Ohne Anmeldung."
+      "ogDescription": "World Monitor: Echtzeit-Dashboard für geopolitische Intelligenz. Eine kostenlose Live-Karte von Konflikten, Schiffsverkehr, Flügen, Märkten und Cyber, mit API und MCP Server."
     },
     "nav": {
       "useCases": "Korrelationen",

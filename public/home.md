@@ -1,6 +1,6 @@
 ---
 title: "World Monitor"
-description: "A free geopolitical OSINT dashboard with a live map, plus API and MCP. Track conflicts, chokepoints, military flights, markets and cyber threats. No signup."
+description: "World Monitor: real-time geopolitical intelligence dashboard. A free live map of conflicts, shipping, flights, markets and cyber, with an API and MCP server."
 canonical: "https://www.worldmonitor.app/home.md"
 ---
 

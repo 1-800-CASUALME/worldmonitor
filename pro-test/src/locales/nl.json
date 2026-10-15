@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Gratis geopolitiek inlichtingendashboard",
-      "description": "Een gratis geopolitiek OSINT-dashboard met een live kaart, plus API en MCP. Volg conflicten, knelpunten, militaire vluchten, markten en cyberdreigingen. Geen registratie.",
+      "description": "World Monitor: real-time geopolitiek intelligence dashboard. Een gratis live kaart van conflicten, scheepsverkeer, vluchten, markten en cyber, met een API en MCP server.",
       "ogTitle": "World Monitor: Gratis geopolitiek inlichtingendashboard",
-      "ogDescription": "Een gratis geopolitiek OSINT-dashboard met een live kaart, plus API en MCP. Volg conflicten, knelpunten, militaire vluchten, markten en cyberdreigingen. Geen registratie."
+      "ogDescription": "World Monitor: real-time geopolitiek intelligence dashboard. Een gratis live kaart van conflicten, scheepsverkeer, vluchten, markten en cyber, met een API en MCP server."
     },
     "nav": {
       "useCases": "Correlaties",

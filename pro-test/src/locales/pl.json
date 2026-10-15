@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Darmowy panel wywiadu geopolitycznego",
-      "description": "Darmowy geopolityczny panel OSINT z żywą mapą oraz API i MCP. Śledź konflikty, wąskie gardła, loty wojskowe, rynki i zagrożenia cybernetyczne. Bez rejestracji.",
+      "description": "World Monitor: pulpit nawigacyjny do monitorowania geopolitycznego w czasie rzeczywistym. Bezpłatna interaktywna mapa konfliktów, transportu morskiego, lotów, rynków i cyberzagrożeń z API i serwerem MCP.",
       "ogTitle": "World Monitor: Darmowy panel wywiadu geopolitycznego",
-      "ogDescription": "Darmowy geopolityczny panel OSINT z żywą mapą oraz API i MCP. Śledź konflikty, wąskie gardła, loty wojskowe, rynki i zagrożenia cybernetyczne. Bez rejestracji."
+      "ogDescription": "World Monitor: pulpit nawigacyjny do monitorowania geopolitycznego w czasie rzeczywistym. Bezpłatna interaktywna mapa konfliktów, transportu morskiego, lotów, rynków i cyberzagrożeń z API i serwerem MCP."
     },
     "nav": {
       "useCases": "Korelacje",

@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Tablou de bord gratuit de informații geopolitice",
-      "description": "Tablou de bord OSINT geopolitic gratuit, cu hartă live, plus API și MCP. Urmărește conflicte, puncte critice, zboruri militare, piețe și amenințări cibernetice. Fără înregistrare.",
+      "description": "World Monitor: tablou de bord de inteligență geopolitică în timp real. O hartă live gratuită a conflictelor, transportului maritim, zborurilor, piețelor și domeniului cibernetic, cu API și server MCP.",
       "ogTitle": "World Monitor: Tablou de bord gratuit de informații geopolitice",
-      "ogDescription": "Tablou de bord OSINT geopolitic gratuit, cu hartă live, plus API și MCP. Urmărește conflicte, puncte critice, zboruri militare, piețe și amenințări cibernetice. Fără înregistrare."
+      "ogDescription": "World Monitor: tablou de bord de inteligență geopolitică în timp real. O hartă live gratuită a conflictelor, transportului maritim, zborurilor, piețelor și domeniului cibernetic, cu API și server MCP."
     },
     "nav": {
       "useCases": "Corelații",

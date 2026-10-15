@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: 무료 지정학 인텔리전스 대시보드",
-      "description": "무료 지정학 OSINT 대시보드. 실시간 지도와 API, MCP를 포함합니다. 분쟁, 병목, 군용기, 시장, 사이버 위협을 추적하세요. 가입 불필요.",
+      "description": "World Monitor: 실시간 지정학 인텔리전스 대시보드. 분쟁, 해운, 항공, 시장 및 사이버를 다루는 무료 라이브 맵(API 및 MCP 서버 포함).",
       "ogTitle": "World Monitor: 무료 지정학 인텔리전스 대시보드",
-      "ogDescription": "무료 지정학 OSINT 대시보드. 실시간 지도와 API, MCP를 포함합니다. 분쟁, 병목, 군용기, 시장, 사이버 위협을 추적하세요. 가입 불필요."
+      "ogDescription": "World Monitor: 실시간 지정학 인텔리전스 대시보드. 분쟁, 해운, 항공, 시장 및 사이버를 다루는 무료 라이브 맵(API 및 MCP 서버 포함)."
     },
     "nav": {
       "useCases": "상관관계",

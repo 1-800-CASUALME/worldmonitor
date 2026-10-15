@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Tableau de bord gratuit d'intelligence géopolitique",
-      "description": "Un tableau de bord OSINT géopolitique gratuit avec une carte en direct, plus une API et MCP. Suivez les conflits, les points d'étranglement, les vols militaires, les marchés et les cybermenaces. Sans inscription.",
+      "description": "World Monitor : tableau de bord de renseignements géopolitiques en temps réel. Une carte en direct gratuite des conflits, du transport maritime, des vols, des marchés et de la cybersécurité, avec une API et un serveur MCP.",
       "ogTitle": "World Monitor: Tableau de bord gratuit d'intelligence géopolitique",
-      "ogDescription": "Un tableau de bord OSINT géopolitique gratuit avec une carte en direct, plus une API et MCP. Suivez les conflits, les points d'étranglement, les vols militaires, les marchés et les cybermenaces. Sans inscription."
+      "ogDescription": "World Monitor : tableau de bord de renseignements géopolitiques en temps réel. Une carte en direct gratuite des conflits, du transport maritime, des vols, des marchés et de la cybersécurité, avec une API et un serveur MCP."
     },
     "nav": {
       "useCases": "Corrélations",

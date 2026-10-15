@@ -79,7 +79,7 @@ describe('reported landing-page SEO metadata', () => {
   it('keeps the homepage description product-led, canonical, and bounded', () => {
     const welcomeHtml = source('pro-test/welcome.html');
     const welcomeLocale = JSON.parse(source('pro-test/src/locales/en.json')).welcome.meta;
-    const expectedDescription = 'A free geopolitical OSINT dashboard with a live map, plus API and MCP. Track conflicts, chokepoints, military flights, markets and cyber threats. No signup.';
+    const expectedDescription = 'World Monitor: real-time geopolitical intelligence dashboard. A free live map of conflicts, shipping, flights, markets and cyber, with an API and MCP server.';
     const expectedTitle = 'World Monitor: Free Geopolitical Intelligence Dashboard';
 
     assertTitle('homepage locale', welcomeLocale.title);

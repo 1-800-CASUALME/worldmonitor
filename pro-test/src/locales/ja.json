@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: 無料の地政学インテリジェンスダッシュボード",
-      "description": "無料の地政学OSINTダッシュボード。ライブ地図に加え、APIとMCPに対応。紛争、要衝、軍用機、市場、サイバー脅威を追跡。登録不要。",
+      "description": "World Monitor: リアルタイム地政学インテリジェンスダッシュボード。紛争、海運、航空便、市場、サイバーのライブマップが無料で利用でき、API と MCP サーバーも備えています。",
       "ogTitle": "World Monitor: 無料の地政学インテリジェンスダッシュボード",
-      "ogDescription": "無料の地政学OSINTダッシュボード。ライブ地図に加え、APIとMCPに対応。紛争、要衝、軍用機、市場、サイバー脅威を追跡。登録不要。"
+      "ogDescription": "World Monitor: リアルタイム地政学インテリジェンスダッシュボード。紛争、海運、航空便、市場、サイバーのライブマップが無料で利用でき、API と MCP サーバーも備えています。"
     },
     "nav": {
       "useCases": "相関分析",

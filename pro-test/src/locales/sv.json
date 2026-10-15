@@ -452,9 +452,9 @@
   "welcome": {
     "meta": {
       "title": "World Monitor: Gratis panel för geopolitisk underrättelse",
-      "description": "En gratis geopolitisk OSINT-panel med livekarta, plus API och MCP. Följ konflikter, flaskhalsar, militärflyg, marknader och cyberhot. Ingen registrering.",
+      "description": "World Monitor: instrumentpanel för geopolitisk intelligens i realtid. En gratis livekarta över konflikter, sjöfart, flyg, marknader och cyberaktiviteter, med ett API och MCP-server.",
       "ogTitle": "World Monitor: Gratis panel för geopolitisk underrättelse",
-      "ogDescription": "En gratis geopolitisk OSINT-panel med livekarta, plus API och MCP. Följ konflikter, flaskhalsar, militärflyg, marknader och cyberhot. Ingen registrering."
+      "ogDescription": "World Monitor: instrumentpanel för geopolitisk intelligens i realtid. En gratis livekarta över konflikter, sjöfart, flyg, marknader och cyberaktiviteter, med ett API och MCP-server."
     },
     "nav": {
       "useCases": "Korrelationer",
