@@ -349,7 +349,12 @@ async function fetchTier(
     const primed = tier === 'fast' ? adoptPrimedBootstrapTier(requestUrl, signal) : null;
     if (primed) requestStartedAt = primed.startedAt;
     const resp = primed
-      ? await primed.response
+      ? await primed.response.catch((error: unknown) => {
+        // A network failure before App loaded gets one direct attempt within
+        // the same budget; an abort is the budget itself and propagates.
+        if (isAbortFailure(error, signal)) throw error;
+        return fetch(requestUrl, { signal, credentials: 'omit' });
+      })
       : await fetch(requestUrl, { signal, credentials: 'omit' });
     if (!resp.ok) {
       failedOutcome = 'http-error';

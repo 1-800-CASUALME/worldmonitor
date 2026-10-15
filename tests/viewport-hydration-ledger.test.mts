@@ -85,6 +85,21 @@ describe('ViewportHydrationLedger', () => {
     assert.equal(ledger.claim('premium-tail'), true);
   });
 
+  it('lets a served panel load again after the re-hydration window', () => {
+    // Loaders swallow their own failures, so a pass cannot tell an empty panel
+    // from a loaded one. Expiring the mark lets a failed first load retry on a
+    // later scroll while a burst of scrolling still loads each panel once.
+    let clock = 0;
+    const ledger = new ViewportHydrationLedger({ rehydrateAfterMs: 60_000, now: () => clock });
+    const panels = { economic: {} };
+    ledger.beginPass(false);
+    ledger.markServed(panels, ['economic']);
+    clock = 59_999;
+    assert.equal(ledger.collectUnserved(panels, () => true).size, 0);
+    clock = 60_000;
+    assert.deepEqual([...ledger.collectUnserved(panels, () => true)], ['economic']);
+  });
+
   it('ignores ids with no mounted panel', () => {
     const ledger = new ViewportHydrationLedger();
     const panels: Record<string, object | undefined> = { cii: undefined };

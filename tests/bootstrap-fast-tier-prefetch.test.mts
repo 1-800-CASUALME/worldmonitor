@@ -191,6 +191,22 @@ describe('fast bootstrap tier prefetch', () => {
     assert.ok(harness.primedBootstrapTierBudgetUsedMs() >= 100, 'a pending request is charged for its time in flight');
   });
 
+  it('falls back to a direct request when the primed request failed on the network', async () => {
+    let calls = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      if (!String(input).includes('tier=fast')) return tierResponse();
+      calls += 1;
+      if (calls === 1) throw new TypeError('Failed to fetch');
+      return tierResponse();
+    }) as typeof fetch;
+
+    harness.primeBootstrapFastTier();
+    await new Promise((r) => setTimeout(r, 10));
+    await harness.fetchBootstrapData();
+    assert.equal(calls, 2, 'a network failure before App loaded gets one direct retry');
+    assert.equal(harness.getBootstrapHydrationState().tiers.fast.source, 'live');
+  });
+
   it('is started by the dashboard entry before the App chunk import', () => {
     const main = readFileSync(resolve(root, 'src/main.ts'), 'utf8');
     const prime = main.indexOf('primeBootstrapFastTier();');
