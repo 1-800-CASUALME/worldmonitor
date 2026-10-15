@@ -4,14 +4,15 @@
 // captain calls — this file locks them as untouched rather than guessed.
 
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { comparisonDiscoveryEntries } from '../scripts/build-comparison-pages.mjs';
 import { COMPARISONS_HEADING, buildLlmsFullText, redactInternalApiOrigins, withComparisonsSection, withCorpusNavigation, withResilienceCoverage } from '../scripts/build-llms-full.mjs';
-import { resolveLatestLivePulseSnapshotPath } from '../scripts/build-crawlable-corpus.mjs';
+import { buildCorpus, resolveLatestLivePulseSnapshotPath } from '../scripts/build-crawlable-corpus.mjs';
 import { parseSitemapDocument } from '../scripts/verify-sitemaps.mjs';
 import { accuracyStateAudit, classifyAccuracyState } from '../scripts/build-accuracy-page.mjs';
 import { RANKABLE_UNIVERSE_SIZE } from '../scripts/shared/rankable-universe.mjs';
@@ -371,6 +372,46 @@ describe('GEO residue #7616 (U1 agent surfaces)', () => {
     for (const file of COVERAGE_FILES) {
       assert.doesNotMatch(read(file), /across 190\+ countries/, `${file} must not use the legacy reach phrasing`);
       assert.doesNotMatch(read(file), /used in 190\+ countries/, `${file} must not use the legacy reach phrasing`);
+    }
+  });
+
+  // The /countries/ hub (meta, og, twitter and JSON-LD descriptions plus its
+  // FAQ) and the CII page are generated, so check the built corpus rather than
+  // a committed file: every "N of M countries" there must be the snapshot pair.
+  it('states resilience coverage on the generated country pages as the snapshot pair', async () => {
+    const { ranked, universe } = latestResilienceCoverage();
+    const phrase = `structural resilience ranked for ${ranked} of ${universe} countries`;
+    const outDir = mkdtempSync(join(tmpdir(), 'wm-coverage-'));
+    try {
+      await buildCorpus({ rootDir: repoRoot, outDir, baseUrl: 'https://www.worldmonitor.app' });
+      for (const page of ['countries/index.html', 'country-instability-index/index.html']) {
+        const html = readFileSync(join(outDir, page), 'utf8');
+        assert.ok(html.includes(phrase), `${page} must state "${phrase}"`);
+        const pairs = [...html.matchAll(/\b(\d+) of (\d+) countries\b/g)];
+        for (const [statement, statedRanked, statedUniverse] of pairs) {
+          assert.deepEqual(
+            [Number(statedRanked), Number(statedUniverse)],
+            [ranked, universe],
+            `${page} states "${statement}", not the snapshot's ${ranked} of ${universe}`,
+          );
+        }
+        assert.doesNotMatch(
+          html,
+          /structural (?:resilience|capacity) across \d+ countries/,
+          `${page} must not state resilience coverage as the universe alone`,
+        );
+      }
+      const hub = readFileSync(join(outDir, 'countries/index.html'), 'utf8');
+      for (const pattern of [
+        /<meta name="description" content="([^"]+)"/,
+        /<meta property="og:description" content="([^"]+)"/,
+        /<meta name="twitter:description" content="([^"]+)"/,
+      ]) {
+        const description = hub.match(pattern)?.[1];
+        assert.ok(description?.includes(phrase), `/countries/ ${pattern.source} must carry "${phrase}"`);
+      }
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
     }
   });
 });

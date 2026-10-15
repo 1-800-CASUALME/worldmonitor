@@ -31,7 +31,7 @@ import { PIPELINES } from '../shared/pipelines-data.ts';
 import { INTEL_HOTSPOTS } from '../shared/geo-data.ts';
 import { lngFacilityCount } from './_storage-facility-registry.mjs';
 import { SOURCE_DOMAINS } from './crawlable-sources-page.mjs';
-import { resolveLatestResilienceSnapshotPath } from './build-crawlable-corpus.mjs';
+import { resilienceCoveragePhrase, resolveLatestResilienceSnapshotPath } from './build-crawlable-corpus.mjs';
 import { RANKABLE_UNIVERSE_SIZE } from './shared/rankable-universe.mjs';
 import {
   AI_SEARCH_COVERAGE_CLOSE,
@@ -95,14 +95,9 @@ export function publishedRankedCountries(rootDir = ROOT) {
   return { ranked, universe, capturedAt: snapshot.capturedAt };
 }
 
-/**
- * The one public wording for resilience coverage: the ranked count is always
- * stated against the universe it is drawn from, never on its own and never as
- * the universe alone.
- */
-export function resilienceCoveragePhrase({ ranked, universe }) {
-  return `structural resilience ranked for ${ranked} of ${universe} countries`;
-}
+// Defined next to the snapshot resolver so the corpus pages can use it without
+// importing this module (which already imports the corpus builder).
+export { resilienceCoveragePhrase };
 
 /**
  * The homepage publishes "57 · Map layer types" (the full variant's reachable
