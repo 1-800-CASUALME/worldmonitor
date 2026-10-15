@@ -10,7 +10,8 @@ import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { comparisonDiscoveryEntries } from '../scripts/build-comparison-pages.mjs';
-import { COMPARISONS_HEADING, buildLlmsFullText, redactInternalApiOrigins, withComparisonsSection, withCorpusNavigation } from '../scripts/build-llms-full.mjs';
+import { COMPARISONS_HEADING, buildLlmsFullText, redactInternalApiOrigins, withComparisonsSection, withCorpusNavigation, withRankedCountryCount } from '../scripts/build-llms-full.mjs';
+import { RANKABLE_UNIVERSE_SIZE } from '../scripts/shared/rankable-universe.mjs';
 import { resolveLatestLivePulseSnapshotPath } from '../scripts/build-crawlable-corpus.mjs';
 import { parseSitemapDocument } from '../scripts/verify-sitemaps.mjs';
 import { accuracyStateAudit, classifyAccuracyState } from '../scripts/build-accuracy-page.mjs';
@@ -328,14 +329,30 @@ describe('GEO residue #7616 (U1 agent surfaces)', () => {
 
   it('states coverage with the two-part definition pinned to the live snapshot', () => {
     const ranked = latestRankedCount();
-    const standard = new RegExp(`live in 190\\+ countries[^.]*structural resilience ranked for ${ranked}`);
-    for (const file of ['public/llms.txt', 'public/llms-full.txt', 'index.html', 'docs/about.mdx']) {
-      assert.match(read(file), standard, `${file} must carry the standard coverage definition`);
+    const snapshotPhrase = new RegExp(`live in 190\\+ countries[^.]*structural resilience ranked for ${ranked}`);
+    for (const file of ['index.html', 'docs/about.mdx']) {
+      assert.match(read(file), snapshotPhrase, `${file} must carry the snapshot ranked-country count`);
     }
     for (const file of ['public/llms.txt', 'public/llms-full.txt', 'index.html', 'docs/about.mdx']) {
       assert.doesNotMatch(read(file), /across 190\+ countries/, `${file} must not use the legacy reach phrasing`);
       assert.doesNotMatch(read(file), /used in 190\+ countries/, `${file} must not use the legacy reach phrasing`);
     }
+  });
+
+  it('states llms coverage with the rankable-universe country count', () => {
+    const universePhrase = new RegExp(`live in 190\\+ countries[^.]*structural resilience ranked for ${RANKABLE_UNIVERSE_SIZE}`);
+    for (const file of ['public/llms.txt', 'public/llms-full.txt']) {
+      assert.match(read(file), universePhrase, `${file} must carry the rankable-universe country count`);
+    }
+    assert.match(
+      buildLlmsFullText({ rootDir: repoRoot }),
+      universePhrase,
+      'generated llms-full must derive the ranked-country count from the universe',
+    );
+    assert.equal(
+      withRankedCountryCount('live in 190+ countries, with structural resilience ranked for 170.'),
+      `live in 190+ countries, with structural resilience ranked for ${RANKABLE_UNIVERSE_SIZE}.`,
+    );
   });
 });
 
