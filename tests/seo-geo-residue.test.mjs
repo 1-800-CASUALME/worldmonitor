@@ -386,7 +386,7 @@ describe('GEO residue #7616 (U1 agent surfaces)', () => {
       /\{t\('welcome\.hero\.whatIsBody', depthProofStats\)\}<\/p>\s*<p[^>]*>\{t\('welcome\.hero\.whatIsBestFor'\)\}<\/p>/,
       'the Hero must render the audience line right after the definition',
     );
-    assert.match(read('public/home.md'), new RegExp(`^${line.replace(/[.]/g, '\\.')}$`, 'm'));
+    assert.ok(read('public/home.md').split('\n').includes(line), 'public/home.md must carry the audience line on its own line');
   });
 
   // The /countries/ hub (meta, og, twitter and JSON-LD descriptions plus its
