@@ -16,6 +16,7 @@ import { buildCorpus, resolveLatestLivePulseSnapshotPath } from '../scripts/buil
 import { parseSitemapDocument } from '../scripts/verify-sitemaps.mjs';
 import { accuracyStateAudit, classifyAccuracyState } from '../scripts/build-accuracy-page.mjs';
 import { RANKABLE_UNIVERSE_SIZE } from '../scripts/shared/rankable-universe.mjs';
+import { GLOSSARY_TERMS } from '../blog-site/src/data/glossary.ts';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -372,6 +373,59 @@ describe('GEO residue #7616 (U1 agent surfaces)', () => {
     for (const file of COVERAGE_FILES) {
       assert.doesNotMatch(read(file), /across 190\+ countries/, `${file} must not use the legacy reach phrasing`);
       assert.doesNotMatch(read(file), /used in 190\+ countries/, `${file} must not use the legacy reach phrasing`);
+    }
+  });
+
+  // Elie's standing decision: resilience coverage reads "{ranked} of
+  // {universe}" everywhere. These hand-written pages cannot run the snapshot
+  // helper, so each must carry the newest snapshot's pair verbatim, and no
+  // public surface may claim to score or rank "196 countries" bare. The 196-
+  // country rankable universe as a definition stays allowed.
+  it('states CRI ranking coverage on docs and blog pages as the snapshot pair', () => {
+    const { ranked, universe } = latestResilienceCoverage();
+    const required = [
+      ['docs/methodology/country-resilience-index.mdx', `Live resilience scoring with ${ranked} of ${universe} countries ranked`],
+      ['docs/zh/methodology/country-resilience-index.mdx', `其中 ${ranked} 个国家进入排名（${ranked}/${universe}）`],
+      ['docs/overview.mdx', `ranks ${ranked} of ${universe} countries`],
+      ['blog-site/src/content/blog/country-instability-index-methodology-explained.md', `Ranked for ${ranked} of ${universe} countries, refreshed every six hours`],
+      ['public/llms-full.txt', `refreshed every six hours, ranking ${ranked} of ${universe} countries.`],
+    ];
+    for (const [file, text] of required) {
+      assert.ok(read(file).includes(text), `${file} must state "${text}"`);
+    }
+    const facts = JSON.parse(read('shared/product-facts.generated.json'));
+    assert.deepEqual(facts.resilienceCoverage, { ranked, universe }, 'product facts must carry the snapshot pair');
+    const cri = GLOSSARY_TERMS.find((term) => term.slug === 'country-resilience-index');
+    assert.ok(cri.short.includes(`refreshed every six hours, ranking ${ranked} of ${universe} countries.`), cri.short);
+    assert.doesNotMatch(read('blog-site/src/data/glossary.ts'), new RegExp(`\\b${ranked} of ${universe}\\b`), 'the glossary must interpolate the pair, not hard-code it');
+
+    const surfaces = [
+      ...required.map(([file]) => file),
+      ...COVERAGE_FILES,
+      'blog-site/src/data/glossary.ts',
+      'docs/features.mdx',
+      'docs/documentation.mdx',
+      'docs/PRESS_KIT.md',
+      'public/home.md',
+      'public/ai-search.md',
+    ];
+    for (const file of new Set(surfaces)) {
+      const text = read(file);
+      // "the published score for all 196 countries" (a changelog fact about
+      // every scored country) is not a coverage claim, so "all" is excluded.
+      const bare = text.match(
+        /\b(?:scoring|scores|ranked|ranking|refresh\w*[^.\n]{0,40})\s+(?:for|across)\s+196 countries\b|\branks?\s+(?:a|the)\s+196-country\b|面向 196 个国家的实时韧性评分体系。/i,
+      );
+      assert.equal(bare?.[0] ?? null, null, `${file} states CRI coverage as a bare 196 countries`);
+      for (const line of text.split('\n').filter((row) => /rank|排名/i.test(row))) {
+        for (const [statement, statedRanked, statedUniverse] of line.matchAll(/\b(\d+) of (\d+) countries\b/g)) {
+          assert.deepEqual(
+            [Number(statedRanked), Number(statedUniverse)],
+            [ranked, universe],
+            `${file} states "${statement}", not the snapshot's ${ranked} of ${universe}`,
+          );
+        }
+      }
     }
   });
 

@@ -160,6 +160,10 @@ const facts = {
   plans,
   heroProofStats,
   depthProofStats: buildDepthProofStats(heroProofStats),
+  // Resilience ranking coverage from the newest published snapshot, so copy
+  // that cannot run the snapshot helper (the blog glossary) can still state
+  // "{ranked} of {universe} countries" without hard-coding either number.
+  resilienceCoverage: (({ ranked, universe }) => ({ ranked, universe }))(publishedRankedCountries(ROOT)),
 };
 
 /**

@@ -186,6 +186,10 @@ export const PUBLIC_PRODUCT_FACTS = {
     "mcpTools": 93,
     "commands": 619,
     "languages": 28
+  },
+  "resilienceCoverage": {
+    "ranked": 170,
+    "universe": 196
   }
 };
 
