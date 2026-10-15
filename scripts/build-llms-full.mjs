@@ -28,7 +28,7 @@ import { CHOKEPOINT_CONTENT } from './chokepoint-page-content.mjs';
 import { SITE_ORIGIN } from './discover-content-corpus-pages.mjs';
 import { buildSourceCatalog, buildSourcePages } from './crawlable-sources-page.mjs';
 import { activeSourceAttributionEntries, loadManifest } from './source-attribution.mjs';
-import { RANKABLE_UNIVERSE_SIZE } from './shared/rankable-universe.mjs';
+import { publishedRankedCountries, resilienceCoveragePhrase } from './build-ai-search.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUTPUT_PATH = 'public/llms-full.txt';
@@ -301,24 +301,20 @@ function renderSourceDirectory(rootDir) {
   ].join('\n');
 }
 
-const RANKED_COUNTRY_COUNT_RE = /structural resilience ranked for \d+/g;
+const RESILIENCE_COVERAGE_RE = /structural resilience ranked for \d+(?: of \d+ countries)?/g;
 
 /**
- * The agent briefs used to hardcode the latest snapshot's ranked-row count
- * (170). That is the scored table, not the rankable universe (193 UN members
- * plus 3 SARs). Rewrite the phrase from RANKABLE_UNIVERSE_SIZE so a universe
- * change cannot leave a stale count behind.
+ * Restate resilience coverage in the agent briefs from the newest published
+ * snapshot: "{ranked} of {universe} countries". Both numbers are read from the
+ * snapshot (ranked rows; ranked plus greyed-out rows), so a new snapshot
+ * rewrites the briefs instead of leaving a stale count behind.
  */
-export function withRankedCountryCount(text, size = RANKABLE_UNIVERSE_SIZE) {
+export function withResilienceCoverage(text, coverage = publishedRankedCountries(ROOT)) {
   const source = String(text);
-  const next = source.replace(
-    RANKED_COUNTRY_COUNT_RE,
-    `structural resilience ranked for ${size}`,
-  );
-  if (next === source && !source.includes('structural resilience ranked for ')) {
-    throw new Error('expected "structural resilience ranked for <n>" in the llms brief');
+  if (!source.match(RESILIENCE_COVERAGE_RE)) {
+    throw new Error('expected "structural resilience ranked for <n> of <m> countries" in the llms brief');
   }
-  return next;
+  return source.replace(RESILIENCE_COVERAGE_RE, resilienceCoveragePhrase(coverage));
 }
 
 /**
@@ -351,8 +347,9 @@ export function buildLlmsFullText({ rootDir = ROOT } = {}) {
   const existing = existsSync(join(rootDir, OUTPUT_PATH))
     ? read(rootDir, OUTPUT_PATH)
     : '';
-  const prefix = withRankedCountryCount(
+  const prefix = withResilienceCoverage(
     withVersionHeader(briefPrefix(existing), readVersionHeader(rootDir)),
+    publishedRankedCountries(rootDir),
   );
   const introduction = [
     LLMS_FULL_GENERATED_HEADING,
@@ -393,7 +390,10 @@ export function buildLlmsFullText({ rootDir = ROOT } = {}) {
  */
 export function writeLlmsFull({ rootDir = ROOT, check = false } = {}) {
   const outputs = [
-    { relativePath: LLMS_TXT_PATH, next: withRankedCountryCount(withComparisonsSection(read(rootDir, LLMS_TXT_PATH))) },
+    {
+      relativePath: LLMS_TXT_PATH,
+      next: withResilienceCoverage(withComparisonsSection(read(rootDir, LLMS_TXT_PATH)), publishedRankedCountries(rootDir)),
+    },
     { relativePath: OUTPUT_PATH, next: buildLlmsFullText({ rootDir }) },
   ].map(({ relativePath, next }) => {
     const path = join(rootDir, relativePath);

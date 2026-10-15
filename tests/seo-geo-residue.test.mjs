@@ -10,11 +10,11 @@ import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { comparisonDiscoveryEntries } from '../scripts/build-comparison-pages.mjs';
-import { COMPARISONS_HEADING, buildLlmsFullText, redactInternalApiOrigins, withComparisonsSection, withCorpusNavigation, withRankedCountryCount } from '../scripts/build-llms-full.mjs';
-import { RANKABLE_UNIVERSE_SIZE } from '../scripts/shared/rankable-universe.mjs';
+import { COMPARISONS_HEADING, buildLlmsFullText, redactInternalApiOrigins, withComparisonsSection, withCorpusNavigation, withResilienceCoverage } from '../scripts/build-llms-full.mjs';
 import { resolveLatestLivePulseSnapshotPath } from '../scripts/build-crawlable-corpus.mjs';
 import { parseSitemapDocument } from '../scripts/verify-sitemaps.mjs';
 import { accuracyStateAudit, classifyAccuracyState } from '../scripts/build-accuracy-page.mjs';
+import { RANKABLE_UNIVERSE_SIZE } from '../scripts/shared/rankable-universe.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -301,15 +301,28 @@ describe('GEO residue #7463', () => {
 });
 
 describe('GEO residue #7616 (U1 agent surfaces)', () => {
-  function latestRankedCount() {
+  // Ranked = rows in the newest published snapshot; universe = ranked plus
+  // greyed-out rows, which must equal the committed rankable whitelist.
+  function latestResilienceCoverage() {
     const snapshots = readdirSync(join(repoRoot, 'docs/snapshots'))
       .filter((name) => /^resilience-ranking-\d{4}-\d{2}-\d{2}\.json$/.test(name))
       .sort();
     assert.ok(snapshots.length > 0, 'a published resilience snapshot must exist');
     const snapshot = JSON.parse(read(`docs/snapshots/${snapshots[ snapshots.length - 1]}`));
     assert.ok(Array.isArray(snapshot.items) && snapshot.items.length > 0);
-    return snapshot.items.length;
+    const ranked = snapshot.items.length;
+    const universe = ranked + (Array.isArray(snapshot.greyedOut) ? snapshot.greyedOut.length : 0);
+    assert.equal(universe, RANKABLE_UNIVERSE_SIZE, 'snapshot ranked + greyedOut must equal the rankable universe');
+    return { ranked, universe };
   }
+
+  const COVERAGE_FILES = [
+    'public/llms.txt',
+    'public/llms-full.txt',
+    'index.html',
+    'docs/about.mdx',
+    'src/config/variant-meta.ts',
+  ];
 
   it('links the real documentation file, not the dead DOCUMENTATION.md blob path', () => {
     const generated = buildLlmsFullText({ rootDir: repoRoot });
@@ -328,31 +341,37 @@ describe('GEO residue #7616 (U1 agent surfaces)', () => {
   });
 
   it('states coverage with the two-part definition pinned to the live snapshot', () => {
-    const ranked = latestRankedCount();
-    const snapshotPhrase = new RegExp(`live in 190\\+ countries[^.]*structural resilience ranked for ${ranked}`);
-    for (const file of ['index.html', 'docs/about.mdx']) {
-      assert.match(read(file), snapshotPhrase, `${file} must carry the snapshot ranked-country count`);
-    }
-    for (const file of ['public/llms.txt', 'public/llms-full.txt', 'index.html', 'docs/about.mdx']) {
-      assert.doesNotMatch(read(file), /across 190\+ countries/, `${file} must not use the legacy reach phrasing`);
-      assert.doesNotMatch(read(file), /used in 190\+ countries/, `${file} must not use the legacy reach phrasing`);
-    }
-  });
-
-  it('states llms coverage with the rankable-universe country count', () => {
-    const universePhrase = new RegExp(`live in 190\\+ countries[^.]*structural resilience ranked for ${RANKABLE_UNIVERSE_SIZE}`);
-    for (const file of ['public/llms.txt', 'public/llms-full.txt']) {
-      assert.match(read(file), universePhrase, `${file} must carry the rankable-universe country count`);
+    const { ranked, universe } = latestResilienceCoverage();
+    const phrase = `structural resilience ranked for ${ranked} of ${universe} countries`;
+    const standard = new RegExp(`live in 190\\+ countries[^.]*${phrase}`);
+    for (const file of COVERAGE_FILES) {
+      const body = read(file);
+      assert.match(body, standard, `${file} must carry the standard coverage definition`);
+      // Every statement of the ranked count must carry the exact snapshot
+      // pair, so a bare "ranked for N" or a stale pair fails here.
+      const statements = body.match(/structural resilience ranked for [^,.;—"']*/g) ?? [];
+      assert.ok(statements.length > 0, `${file} must state resilience coverage`);
+      for (const statement of statements) {
+        assert.equal(statement.trim(), phrase, `${file} must state exactly "${phrase}"`);
+      }
     }
     assert.match(
       buildLlmsFullText({ rootDir: repoRoot }),
-      universePhrase,
-      'generated llms-full must derive the ranked-country count from the universe',
+      standard,
+      'generated llms-full must derive the coverage pair from the newest snapshot',
     );
     assert.equal(
-      withRankedCountryCount('live in 190+ countries, with structural resilience ranked for 170.'),
-      `live in 190+ countries, with structural resilience ranked for ${RANKABLE_UNIVERSE_SIZE}.`,
+      withResilienceCoverage('live in 190+ countries, with structural resilience ranked for 1.', { ranked, universe }),
+      `live in 190+ countries, with ${phrase}.`,
     );
+    assert.equal(
+      withResilienceCoverage('ranked: structural resilience ranked for 9 of 9 countries.', { ranked, universe }),
+      `ranked: ${phrase}.`,
+    );
+    for (const file of COVERAGE_FILES) {
+      assert.doesNotMatch(read(file), /across 190\+ countries/, `${file} must not use the legacy reach phrasing`);
+      assert.doesNotMatch(read(file), /used in 190\+ countries/, `${file} must not use the legacy reach phrasing`);
+    }
   });
 });
 

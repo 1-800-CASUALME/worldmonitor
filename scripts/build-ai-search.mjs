@@ -32,6 +32,7 @@ import { INTEL_HOTSPOTS } from '../shared/geo-data.ts';
 import { lngFacilityCount } from './_storage-facility-registry.mjs';
 import { SOURCE_DOMAINS } from './crawlable-sources-page.mjs';
 import { resolveLatestResilienceSnapshotPath } from './build-crawlable-corpus.mjs';
+import { RANKABLE_UNIVERSE_SIZE } from './shared/rankable-universe.mjs';
 import {
   AI_SEARCH_COVERAGE_CLOSE,
   AI_SEARCH_COVERAGE_HEADING,
@@ -79,7 +80,28 @@ export function publishedRankedCountries(rootDir = ROOT) {
   if (!Array.isArray(snapshot.items) || snapshot.items.length === 0) {
     throw new Error('the published resilience ranking snapshot must contain ranked items');
   }
-  return { ranked: snapshot.items.length, capturedAt: snapshot.capturedAt };
+  const ranked = snapshot.items.length;
+  const greyedOut = Array.isArray(snapshot.greyedOut) ? snapshot.greyedOut.length : 0;
+  // Every country in the rankable universe is either ranked or greyed out, so
+  // the snapshot itself carries the universe size. Cross-check it against the
+  // committed whitelist so a stale snapshot cannot publish the wrong total.
+  const universe = ranked + greyedOut;
+  if (universe !== RANKABLE_UNIVERSE_SIZE) {
+    throw new Error(
+      `the published resilience snapshot covers ${universe} countries (${ranked} ranked + ${greyedOut} greyed out), `
+      + `but the rankable universe has ${RANKABLE_UNIVERSE_SIZE}`,
+    );
+  }
+  return { ranked, universe, capturedAt: snapshot.capturedAt };
+}
+
+/**
+ * The one public wording for resilience coverage: the ranked count is always
+ * stated against the universe it is drawn from, never on its own and never as
+ * the universe alone.
+ */
+export function resilienceCoveragePhrase({ ranked, universe }) {
+  return `structural resilience ranked for ${ranked} of ${universe} countries`;
 }
 
 /**
