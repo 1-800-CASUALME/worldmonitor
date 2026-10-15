@@ -7,8 +7,8 @@
  *     once (replays keep the anchor, no re-send)
  *   - send action: per-episode idempotency, suppression skip, recovered-sub
  *     skip, stale-episode skip, email resolution fallback to customers row
- *   - daily scan: day-3/day-7 windows, at most ONE step per sub per tick
- *     (pre-existing holds get a single catch-up email), ledger pre-check
+ *   - daily scan: day-3/day-7 windows, at most ONE step per sub per tick,
+ *     no automatic backfill for holds older than 10 days, ledger pre-check
  *   - winback: 30–60d window, skips while still entitled, skips
  *     resubscribed users, one-shot
  *
@@ -25,6 +25,7 @@ import {
   DUNNING_DAY0_RETRY_MIN_AGE_MS,
   DUNNING_DAY3_AGE_MS,
   DUNNING_DAY7_AGE_MS,
+  DUNNING_NO_BACKFILL_AGE_MS,
   WINBACK_MIN_AGE_MS,
   WINBACK_MAX_AGE_MS,
   SEND_SPACING_MS,
@@ -32,6 +33,7 @@ import {
   isConvexOccExhaustedError,
   reserveResendSlotWithOccRetry,
   RESEND_SLOT_OCC_MAX_ATTEMPTS,
+  buildDunningEmail,
 } from "../payments/subscriptionEmails";
 
 const modules = import.meta.glob("../**/*.ts");
@@ -207,7 +209,7 @@ describe("on_hold webhook → day-0 email", () => {
 });
 
 describe("sendDunningEmail guards", () => {
-  test("delayed on_hold after currentPeriodEnd skips the day-0 send", async () => {
+  test("failed-renewal hold after currentPeriodEnd still sends day-0", async () => {
     vi.useFakeTimers();
     process.env.RESEND_API_KEY = "re_test";
     const fetchMock = mockResend();
@@ -232,11 +234,15 @@ describe("sendDunningEmail guards", () => {
       step: "dunning_day0",
       episodeAt: eventTs,
     });
-    expect(result).toEqual({ sent: false, reason: "not_covering" });
+    expect(result).toEqual({ sent: true });
 
     await t.finishAllScheduledFunctions(vi.runAllTimers);
-    expect(resendSends(fetchMock)).toHaveLength(0);
-    expect(await ledgerRows(t)).toHaveLength(0);
+    const sends = resendSends(fetchMock);
+    expect(sends).toHaveLength(1);
+    expect(sends[0]!.subject).toContain("restore access");
+    expect(sends[0]!.html).toContain("/api/customer-portal?t=");
+    expect(sends[0]!.html).not.toContain("Access continues for now");
+    expect(await ledgerRows(t)).toHaveLength(1);
   });
 
   test("second invocation for the same step+episode is a no-op", async () => {
@@ -282,6 +288,10 @@ describe("sendDunningEmail guards", () => {
   test("recovered subscription (active again) skips a scheduled dunning send", async () => {
     process.env.RESEND_API_KEY = "re_test";
     const fetchMock = mockResend();
+    const logs: unknown[] = [];
+    const logSpy = vi.spyOn(console, "log").mockImplementation((...args) => {
+      logs.push(args[0]);
+    });
     const t = convexTest(schema, modules);
     const anchor = Date.now() - 4 * DAY_MS;
     await seedSub(t, { status: "active", onHoldAt: anchor });
@@ -293,6 +303,19 @@ describe("sendDunningEmail guards", () => {
     });
     expect(result).toEqual({ sent: false, reason: "recovered" });
     expect(resendSends(fetchMock)).toHaveLength(0);
+    const skip = logs
+      .filter((line): line is string => typeof line === "string" && line.includes("dunning_skip"))
+      .map((line) => JSON.parse(line) as { event: string; reason: string; step: string });
+    expect(skip).toEqual([
+      expect.objectContaining({
+        event: "dunning_skip",
+        reason: "recovered",
+        step: "dunning_day3",
+        dodoSubscriptionId: SUB_ID,
+        episodeAt: anchor,
+      }),
+    ]);
+    logSpy.mockRestore();
   });
 
   test("a newer on_hold episode invalidates sends scheduled for the old one", async () => {
@@ -361,20 +384,17 @@ describe("runDunningScan windows", () => {
     expect(resendSends(fetchMock)).toHaveLength(1);
   });
 
-  test("pre-existing 20-day hold (no onHoldAt) gets ONE catch-up email — the final notice", async () => {
+  test("pre-existing 20-day hold is not backfilled automatically", async () => {
     vi.useFakeTimers();
     process.env.RESEND_API_KEY = "re_test";
     const fetchMock = mockResend();
     const t = convexTest(schema, modules);
-    // Pre-deploy row shape: on_hold with no onHoldAt; updatedAt is the anchor.
     await seedSub(t, { updatedAt: Date.now() - 20 * DAY_MS });
 
-    await t.mutation(internal.payments.subscriptionEmails.runDunningScan, {});
+    const summary = await t.mutation(internal.payments.subscriptionEmails.runDunningScan, {});
+    expect(summary.scheduled).toBe(0);
     await t.finishAllScheduledFunctions(vi.runAllTimers);
-
-    const sends = resendSends(fetchMock);
-    expect(sends).toHaveLength(1);
-    expect(sends[0]!.subject).toContain("Final notice");
+    expect(resendSends(fetchMock)).toHaveLength(0);
   });
 
   test("day-7 fires after day-3 was already sent for the same episode", async () => {
@@ -409,8 +429,8 @@ describe("runDunningScan windows", () => {
     process.env.RESEND_API_KEY = "re_test";
     const fetchMock = mockResend();
     const t = convexTest(schema, modules);
-    // Pre-#4932 row: on_hold for 20 days, no onHoldAt — updatedAt is the anchor.
-    const anchor = Date.now() - 20 * DAY_MS;
+    // Hold inside the no-backfill window so the catch-up day-7 still fires.
+    const anchor = Date.now() - (DUNNING_DAY7_AGE_MS + DAY_MS);
     await seedSub(t, { updatedAt: anchor });
 
     // Catch-up scan sends the final notice for episode `anchor`.
@@ -965,5 +985,118 @@ describe("winback", () => {
     });
     expect(result).toEqual({ sent: false, reason: "resubscribed" });
     expect(resendSends(fetchMock)).toHaveLength(0);
+  });
+});
+
+describe("failed-renewal hold sequence", () => {
+  test("expired currentPeriodEnd still receives day0 then day3 then day7", async () => {
+    vi.useFakeTimers();
+    process.env.RESEND_API_KEY = "re_test";
+    const fetchMock = mockResend();
+    const t = convexTest(schema, modules);
+    const holdAt = Date.now();
+    await seedSub(t, {
+      status: "active",
+      currentPeriodEnd: holdAt - 60_000,
+      updatedAt: holdAt - 5_000,
+    });
+
+    await t.mutation(internal.payments.webhookMutations.processWebhookEvent, {
+      webhookId: "wh_failed_renewal",
+      eventType: "subscription.on_hold",
+      rawPayload: { data: { subscription_id: SUB_ID, customer: { email: EMAIL } } },
+      timestamp: holdAt,
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(resendSends(fetchMock)[0]!.subject).toContain("restore access");
+
+    vi.setSystemTime(holdAt + DUNNING_DAY3_AGE_MS + 60_000);
+    await t.mutation(internal.payments.subscriptionEmails.runDunningScan, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(resendSends(fetchMock).map((s) => s.subject).some((s) => s.includes("Reminder"))).toBe(true);
+
+    vi.setSystemTime(holdAt + DUNNING_DAY7_AGE_MS + 60_000);
+    await t.mutation(internal.payments.subscriptionEmails.runDunningScan, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const subjects = resendSends(fetchMock).map((s) => s.subject);
+    expect(subjects.some((s) => s.includes("Final notice"))).toBe(true);
+    expect(await ledgerRows(t)).toHaveLength(3);
+  });
+
+  test("send of an older-than-cutoff hold is skipped and logged", async () => {
+    process.env.RESEND_API_KEY = "re_test";
+    const fetchMock = mockResend();
+    const logs: unknown[] = [];
+    const logSpy = vi.spyOn(console, "log").mockImplementation((...args) => {
+      logs.push(args[0]);
+    });
+    const t = convexTest(schema, modules);
+    const anchor = Date.now() - DUNNING_NO_BACKFILL_AGE_MS;
+    await seedSub(t, { onHoldAt: anchor, currentPeriodEnd: Date.now() - DAY_MS });
+
+    const result = await t.action(internal.payments.subscriptionEmails.sendDunningEmail, {
+      dodoSubscriptionId: SUB_ID,
+      step: "dunning_day7",
+      episodeAt: anchor,
+    });
+    expect(result).toEqual({ sent: false, reason: "too_old" });
+    expect(resendSends(fetchMock)).toHaveLength(0);
+    expect(await ledgerRows(t)).toHaveLength(0);
+    const skip = logs
+      .filter((line): line is string => typeof line === "string" && line.includes("dunning_skip"))
+      .map((line) => JSON.parse(line) as { reason: string });
+    expect(skip).toEqual([expect.objectContaining({ event: "dunning_skip", reason: "too_old" })]);
+    logSpy.mockRestore();
+  });
+
+  test("scan does not email a hold older than the no-backfill cutoff", async () => {
+    vi.useFakeTimers();
+    process.env.RESEND_API_KEY = "re_test";
+    const fetchMock = mockResend();
+    const logs: unknown[] = [];
+    const logSpy = vi.spyOn(console, "log").mockImplementation((...args) => {
+      logs.push(args[0]);
+    });
+    const t = convexTest(schema, modules);
+    const anchor = Date.now() - DUNNING_NO_BACKFILL_AGE_MS;
+    await seedSub(t, {
+      onHoldAt: anchor,
+      currentPeriodEnd: Date.now() - 2 * DAY_MS,
+    });
+
+    const summary = await t.mutation(internal.payments.subscriptionEmails.runDunningScan, {});
+    expect(summary.scheduled).toBe(0);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(resendSends(fetchMock)).toHaveLength(0);
+    const skip = logs
+      .filter((line): line is string => typeof line === "string" && line.includes("dunning_skip"))
+      .map((line) => JSON.parse(line) as { reason: string });
+    expect(skip).toEqual([expect.objectContaining({ event: "dunning_skip", reason: "too_old" })]);
+    logSpy.mockRestore();
+  });
+});
+
+describe("day-0 copy", () => {
+  test("ended access does not claim access continues", () => {
+    const ended = buildDunningEmail(
+      "dunning_day0",
+      "Pro (Monthly)",
+      "https://www.worldmonitor.app/api/customer-portal",
+      Date.now() - DAY_MS,
+    );
+    expect(ended.subject).toContain("restore access");
+    expect(ended.html).toContain("Paid access has already ended");
+    expect(ended.html).not.toContain("access continues for now");
+  });
+
+  test("still-covered access keeps the continues wording", () => {
+    const covered = buildDunningEmail(
+      "dunning_day0",
+      "Pro (Monthly)",
+      "https://www.worldmonitor.app/api/customer-portal",
+      Date.now() + 3 * DAY_MS,
+    );
+    expect(covered.subject).toContain("access continues");
+    expect(covered.html).toContain("access continues for now");
   });
 });

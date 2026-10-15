@@ -9,8 +9,8 @@ import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { PRODUCT_CATALOG } from "../config/productCatalog";
-import { createCustomerPortalUrlForUser } from "./billing";
 import { buildCancellationConfirmEmail } from "./cancellationEmailCopy";
+import { signDunningPortalToken } from "../lib/identitySigning";
 import { billingDeletionForEvent, billingDeletionForUser, isCoveringAt } from "./subscriptionHelpers";
 
 export { formatAccessEndDate } from "./cancellationEmailCopy";
@@ -566,6 +566,11 @@ const DAY_MS = 86_400_000;
 export const DUNNING_DAY0_RETRY_MIN_AGE_MS = 60 * 60 * 1000;
 export const DUNNING_DAY3_AGE_MS = 3 * DAY_MS;
 export const DUNNING_DAY7_AGE_MS = 7 * DAY_MS;
+// Automatic dunning is only for holds that started inside this window.
+// Older on_hold rows are left for a manual decision (existing customers
+// from before this cutoff are not backfilled). Day-7 is still due inside
+// the window, so a hold between 7 and 10 days gets the final notice.
+export const DUNNING_NO_BACKFILL_AGE_MS = 10 * DAY_MS;
 // Winback window bounds, measured from currentPeriodEnd (access end).
 export const WINBACK_MIN_AGE_MS = 30 * DAY_MS;
 export const WINBACK_MAX_AGE_MS = 60 * DAY_MS;
@@ -578,8 +583,10 @@ export const WINBACK_MAX_AGE_MS = 60 * DAY_MS;
 // timely enough to still be about a cancellation the subscriber remembers.
 export const CANCELLATION_CONFIRM_RETRY_MAX_AGE_MS = 3 * DAY_MS;
 
-const DASHBOARD_URL = "https://www.worldmonitor.app/dashboard";
-const PRICING_URL = "https://www.worldmonitor.app/pro#pricing";
+const APP_ORIGIN = "https://www.worldmonitor.app";
+const DASHBOARD_URL = `${APP_ORIGIN}/dashboard`;
+const PRICING_URL = `${APP_ORIGIN}/pro#pricing`;
+const DUNNING_PORTAL_PATH = "/api/customer-portal";
 
 // Resend caps at 10 requests/second. TWO complementary layers keep dunning
 // under it:
@@ -775,17 +782,23 @@ export function buildDunningEmail(
   switch (step) {
     case "cancellation_confirm":
       return buildCancellationConfirmEmail(planName, ctaUrl, accessUntil);
-    case "dunning_day0":
+    case "dunning_day0": {
+      const stillCovered = typeof accessUntil === "number" && accessUntil > Date.now();
       return {
-        subject: `Your World Monitor payment failed — access continues while you fix it`,
+        subject: stillCovered
+          ? `Your World Monitor payment failed — access continues while you fix it`
+          : `Your World Monitor payment failed — update your card to restore access`,
         html: dunningEmailShell(
           "Your latest payment didn't go through.",
-          `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">Your ${planName} subscription is paused because the last charge failed — usually an expired card or a bank decline. Your access continues for now: update your payment method and the subscription resumes automatically. No new checkout needed.</p>`,
+          stillCovered
+            ? `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">Your ${planName} subscription is paused because the last charge failed — usually an expired card or a bank decline. Your access continues for now: update your payment method and the subscription resumes automatically. No new checkout needed.</p>`
+            : `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">Your ${planName} subscription is paused because the last charge failed — usually an expired card or a bank decline. Paid access has already ended. Update your payment method to restore briefs, alerts and Pro panels. No new checkout needed.</p>`,
           "Update payment method",
           ctaUrl,
           "You're receiving this because a payment on your World Monitor subscription failed.",
         ),
       };
+    }
     case "dunning_day3":
       return {
         subject: `Reminder: update your payment method to keep ${planName}`,
@@ -951,7 +964,23 @@ type DunningSkipReason =
   | "recovered"
   | "no_email"
   | "suppressed"
-  | "already_sent";
+  | "already_sent"
+  | "too_old";
+
+function logDunningSkip(fields: {
+  dodoSubscriptionId: string;
+  step: DunningStep;
+  episodeAt: number;
+  reason: string;
+}): void {
+  console.log(JSON.stringify({
+    event: "dunning_skip",
+    dodoSubscriptionId: fields.dodoSubscriptionId,
+    step: fields.step,
+    episodeAt: fields.episodeAt,
+    reason: fields.reason,
+  }));
+}
 
 /**
  * Live-state gates for a detached send. The Resend wait is uncapped, so
@@ -993,9 +1022,11 @@ function evaluateDunningEligibility(
   }
   // Dunning only while THIS episode is still open — a recovery or a
   // newer episode (different anchor) invalidates the scheduled send.
+  // Failed-renewal holds keep the paid-through currentPeriodEnd, so
+  // coverage is not a send gate. Age is measured from the hold anchor.
   if (sub.status !== "on_hold") return { ok: false, reason: "recovered" };
   if (sub.episodeAnchor !== episodeAt) return { ok: false, reason: "stale_episode" };
-  if (sub.currentPeriodEnd <= now) return { ok: false, reason: "not_covering" };
+  if (now - episodeAt >= DUNNING_NO_BACKFILL_AGE_MS) return { ok: false, reason: "too_old" };
   return { ok: true };
 }
 
@@ -1009,6 +1040,7 @@ export const sendDunningEmail = internalAction({
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
       console.error("[dunning] RESEND_API_KEY not set — skipping");
+      logDunningSkip({ ...args, reason: "no_api_key" });
       return { sent: false, reason: "no_api_key" as const };
     }
 
@@ -1045,40 +1077,35 @@ export const sendDunningEmail = internalAction({
     };
 
     const first = await resolveSend();
-    if (!first.ok) return { sent: false, reason: first.reason };
+    if (!first.ok) {
+      logDunningSkip({ ...args, reason: first.reason });
+      return { sent: false, reason: first.reason };
+    }
 
-    // CTA: only the dunning steps mint a freshly minted Dodo portal session —
-    // card update is their whole point. Winback goes to pricing. A
-    // cancellation confirmation goes to the dashboard the subscriber still
-    // has access to; a billing-portal link there would read as "there's
-    // something left to fix", the opposite of the message. Portal minting can
-    // fail (no customer id, Dodo error) — fall back to the dashboard, where
-    // the payment-failure banner routes to the same portal after sign-in.
+    // Dunning CTAs go to a stable app route that mints a fresh Dodo
+    // portal session on click. Direct Dodo session links expire in ~24h,
+    // which is shorter than the day-3 / day-7 reminders. Winback goes to
+    // pricing. Cancellation confirmation stays on the dashboard.
     let ctaUrl = args.step === "winback_day30" ? PRICING_URL : DASHBOARD_URL;
     if (args.step !== "winback_day30" && args.step !== "cancellation_confirm") {
       try {
-        ctaUrl = (await createCustomerPortalUrlForUser(ctx, first.sub.userId)).portal_url;
+        const token = await signDunningPortalToken(first.sub.userId, Date.now());
+        ctaUrl = `${APP_ORIGIN}${DUNNING_PORTAL_PATH}?t=${encodeURIComponent(token)}`;
       } catch (err) {
-        // Designed degradation, not a failure (Sentry-coverage gate: no
-        // warn without capture; convex has no silent-capture helper and
-        // throwing here would kill the send). NO_CUSTOMER rows and Dodo
-        // hiccups land on the dashboard CTA, where the payment-failure
-        // banner reaches the same portal after sign-in. Greppable in
-        // Convex logs via the [dunning] prefix if it starts recurring.
         console.log(
-          `[dunning] portal mint failed for ${args.dodoSubscriptionId} (${err instanceof Error ? err.message : String(err)}) — falling back to dashboard CTA`,
+          `[dunning] portal token sign failed for ${args.dodoSubscriptionId} (${err instanceof Error ? err.message : String(err)}) — falling back to sign-in portal route`,
         );
+        ctaUrl = `${APP_ORIGIN}${DUNNING_PORTAL_PATH}`;
       }
     }
 
-    // Pace the actual POST (not just the scheduled start): the portal mint above
-    // has variable latency, so reserve the Resend slot HERE — after the mint —
-    // and wait for it. This bounds the true POST rate to <= 1/SEND_SPACING_MS
-    // even when portal jitter bunches start-staggered sends together, which
-    // start-time staggering alone can't guarantee (review follow-up to
-    // WORLDMONITOR-VH). The wait is intentionally uncapped (see resendPacingWaitMs)
-    // so a large backlog stays serialized instead of collapsing into a burst.
-    // Action-level OCC retry: portal bunching can exhaust Convex's in-mutation
+    // Pace the actual POST (not just the scheduled start). Reserve the
+    // Resend slot after eligibility and CTA construction, then wait.
+    // This bounds the true POST rate to <= 1/SEND_SPACING_MS even when
+    // start-staggered sends bunch together. The wait is intentionally
+    // uncapped (see resendPacingWaitMs) so a large backlog stays
+    // serialized instead of collapsing into a burst. Action-level OCC
+    // retry: concurrent slot writes can exhaust Convex's in-mutation
     // retries on the shared counters row (Sentry WORLDMONITOR-17R / 17S).
     const slotAt = await reserveResendSlotWithOccRetry(() =>
       ctx.runMutation(internal.payments.subscriptionEmails.reserveResendSlot, {}),
@@ -1090,7 +1117,10 @@ export const sendDunningEmail = internalAction({
     // episode / suppression / a concurrent ledger write can all land while
     // queued; sending the pre-wait snapshot would be the wrong email.
     const fresh = await resolveSend();
-    if (!fresh.ok) return { sent: false, reason: fresh.reason };
+    if (!fresh.ok) {
+      logDunningSkip({ ...args, reason: fresh.reason });
+      return { sent: false, reason: fresh.reason };
+    }
 
     const planName = PLAN_DISPLAY[fresh.sub.planKey] ?? fresh.sub.planKey;
     const { subject, html } = buildDunningEmail(
@@ -1120,10 +1150,11 @@ export const sendDunningEmail = internalAction({
 /**
  * Daily cron: schedule every due, unsent dunning/winback step.
  *
- * At most ONE step per subscription per tick (the latest due one), so a
- * subscription that entered on_hold before this feature deployed gets a
- * single catch-up email, never a day-3 + day-7 double-send. Pre-existing
- * rows without `onHoldAt` anchor on `updatedAt` (their last on_hold event).
+ * At most ONE step per subscription per tick (the latest due one). A hold
+ * older than 7 days still gets day-7, but holds older than
+ * DUNNING_NO_BACKFILL_AGE_MS are not emailed automatically. Existing
+ * on_hold customers outside that window are a manual decision. Rows
+ * without `onHoldAt` anchor on `updatedAt`.
  */
 export const runDunningScan = internalMutation({
   args: {},
@@ -1138,6 +1169,15 @@ export const runDunningScan = internalMutation({
     for (const sub of onHold) {
       const episodeAt = sub.onHoldAt ?? sub.updatedAt;
       const age = now - episodeAt;
+      if (age >= DUNNING_NO_BACKFILL_AGE_MS) {
+        logDunningSkip({
+          dodoSubscriptionId: sub.dodoSubscriptionId,
+          step: "dunning_day7",
+          episodeAt,
+          reason: "too_old",
+        });
+        continue;
+      }
       // Day-0 is first enqueued by the on_hold webhook, but a send that throws
       // (Resend error, exhausted slot OCC, RESEND_API_KEY missing at webhook
       // time) leaves no ledger row and is never auto-retried. Retry it here
