@@ -83,22 +83,24 @@ describe('fetchDividendProfile', () => {
   });
 
   it('produces a non-zero CAGR for a quarterly payer with several full calendar years', async () => {
-    // Build quarterly dividends anchored at known, past calendar years.
-    // Month-count gating (pre-fix) discarded years with < 10 distinct
-    // months, which dropped every non-monthly payer's first/last full
-    // year and collapsed CAGR to 0.
-    const currentYear = new Date().getFullYear();
+    // Calendar-year quarters, not a sliding `now - N days` series. CAGR
+    // uses only years < currentYear (see computeDividendCagr), so the
+    // four completed prior years are the CAGR signal. Current-year
+    // quarters that have already occurred keep the trailing 365.25-day
+    // frequency window populated after Oct 15, when last year's Oct 15
+    // payment ages out. Future current-year quarters are omitted.
+    const nowMs = Date.now();
+    const currentYear = new Date(nowMs).getFullYear();
     const divs: Record<string, { amount: number; date: number }> = {};
-    // Four fully completed prior calendar years, growing 0.50 -> 0.65.
-    // CAGR is computed only on years < currentYear (see computeDividendCagr),
-    // so the prior-year block is the sole source of CAGR signal.
     const startYear = currentYear - 4;
-    for (let yearIndex = 0; yearIndex < 4; yearIndex++) {
+    for (let yearIndex = 0; yearIndex < 5; yearIndex++) {
       const year = startYear + yearIndex;
       const amount = 0.50 + yearIndex * 0.05;
       for (let q = 0; q < 4; q++) {
         const month = q * 3;
-        const ts = Math.floor(Date.UTC(year, month, 15) / 1000);
+        const tsMs = Date.UTC(year, month, 15);
+        if (tsMs > nowMs) continue;
+        const ts = Math.floor(tsMs / 1000);
         divs[String(ts)] = { amount, date: ts };
       }
     }
