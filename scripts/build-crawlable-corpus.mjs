@@ -385,26 +385,41 @@ function readJson(rootDir, relativePath) {
 /**
  * The one public wording for resilience coverage: the ranked count is always
  * stated against the universe it is drawn from, never on its own and never as
- * the universe alone. Re-exported by build-ai-search.mjs.
+ * the universe alone.
  */
 export function resilienceCoveragePhrase({ ranked, universe }) {
   return `structural resilience ranked for ${ranked} of ${universe} countries`;
 }
 
 /**
- * Coverage from the corpus country rows built off the newest snapshot: ranked
- * rows carry an integer rank, greyed-out rows do not, and together they must
- * span the committed rankable universe.
+ * The single definition of resilience coverage. A snapshot lists every
+ * country in the rankable universe as either a ranked item or a greyed-out
+ * row, so ranked is the item count and universe is items plus greyed-out.
+ * The universe is cross-checked against the committed whitelist so a stale
+ * snapshot cannot publish the wrong total. The rankable universe (196) and the
+ * published ranking (170) are different facts and third-party coverage has
+ * conflated them, so public copy states both together.
  */
-export function resilienceCoverageFromCountries(countries) {
-  const ranked = countries.filter((country) => Number.isInteger(country.rank)).length;
-  const universe = countries.length;
+export function resilienceCoverageOf(snapshot) {
+  if (!Array.isArray(snapshot?.items) || snapshot.items.length === 0) {
+    throw new Error('the published resilience ranking snapshot must contain ranked items');
+  }
+  const ranked = snapshot.items.length;
+  const greyedOut = Array.isArray(snapshot.greyedOut) ? snapshot.greyedOut.length : 0;
+  const universe = ranked + greyedOut;
   if (universe !== RANKABLE_UNIVERSE_SIZE) {
     throw new Error(
-      `the resilience country pages cover ${universe} countries, but the rankable universe has ${RANKABLE_UNIVERSE_SIZE}`,
+      `the published resilience snapshot covers ${universe} countries (${ranked} ranked + ${greyedOut} greyed out), `
+      + `but the rankable universe has ${RANKABLE_UNIVERSE_SIZE}`,
     );
   }
   return { ranked, universe };
+}
+
+/** Coverage of the newest published resilience snapshot, with its capture date. */
+export function publishedRankedCountries(rootDir = DEFAULT_ROOT) {
+  const snapshot = readJson(rootDir, resolveLatestResilienceSnapshotPath(rootDir));
+  return { ...resilienceCoverageOf(snapshot), capturedAt: snapshot.capturedAt };
 }
 
 export function resolveLatestResilienceSnapshotPath(rootDir = DEFAULT_ROOT) {
@@ -1871,6 +1886,17 @@ export async function loadCorpusData({
     ...country,
     microstateTerritory: microstateTerritoryCodes.has(country.code),
   }));
+  // Every page that states coverage reads this one pair. The country rows are
+  // built from the same snapshot, so their ranked rows must match it exactly,
+  // or the /countries/ table would list a different count than its copy.
+  const resilienceCoverage = resilienceCoverageOf(resilience);
+  const rankedRows = countries.filter((country) => country.rank != null).length;
+  if (rankedRows !== resilienceCoverage.ranked || countries.length !== resilienceCoverage.universe) {
+    throw new Error(
+      `the resilience country rows (${rankedRows} ranked of ${countries.length}) do not match the snapshot `
+      + `(${resilienceCoverage.ranked} of ${resilienceCoverage.universe})`,
+    );
+  }
   // Publish rules for the frozen developments (#7738, #7748), applied once
   // here so the page, its dataset download, its WebPage dateModified and the
   // coverage tripwire all read the same rows: a brief withheld for thin
@@ -2040,6 +2066,7 @@ export async function loadCorpusData({
     sourceStats,
     sourceCatalog,
     resilience,
+    resilienceCoverage,
     ciiRanking,
     countries,
     countryBounds,
@@ -2497,12 +2524,12 @@ ${ciiRanking.entries.map((entry) => `            <tr data-cii-country="${escapeH
   return html;
 }
 
-function renderCountriesIndex({ countries, ciiRanking, baseUrl, capturedAt, lastmod, snapshotPath }) {
+function renderCountriesIndex({ countries, ciiRanking, resilienceCoverage, baseUrl, capturedAt, lastmod, snapshotPath }) {
   const path = '/countries/';
-  const description = `Browse World Monitor country risk pages: ${resilienceCoveragePhrase(resilienceCoverageFromCountries(countries))} and high-frequency instability scores for ${ciiRanking.entries.length} Tier-1 countries.`;
+  const description = `Browse World Monitor country risk pages: ${resilienceCoveragePhrase(resilienceCoverage)} and high-frequency instability scores for ${ciiRanking.entries.length} Tier-1 countries.`;
   const datasetId = `${absoluteUrl(baseUrl, path)}#dataset`;
   const rankedCountries = countries
-    .filter((country) => Number.isInteger(country.rank))
+    .filter((country) => country.rank != null)
     .sort((a, b) => a.rank - b.rank);
   const topRankedNames = rankedCountries.slice(0, 3).map((country) => country.name);
   const rankingYear = capturedAt.slice(0, 4);
@@ -5502,7 +5529,7 @@ export async function buildCorpus({
     'country-instability-index/index.html',
     renderCountryInstabilityIndexPage({
       ciiRanking: data.ciiRanking,
-      resilienceCoverage: resilienceCoverageFromCountries(data.countries),
+      resilienceCoverage: data.resilienceCoverage,
       baseUrl,
       capturedAt: data.livePulse.capturedAt,
       lastmod: data.lastmod.countryInstabilityIndex,
@@ -5524,6 +5551,7 @@ export async function buildCorpus({
     renderCountriesIndex({
       countries: data.countries,
       ciiRanking: data.ciiRanking,
+      resilienceCoverage: data.resilienceCoverage,
       baseUrl,
       capturedAt: data.resilience.capturedAt,
       lastmod: data.lastmod.countriesIndex,
@@ -5543,7 +5571,7 @@ export async function buildCorpus({
       ),
     }),
   );
-  const rankedCount = data.countries.filter((country) => country.rank != null).length;
+  const rankedCount = data.resilienceCoverage.ranked;
   let developmentsPageCount = 0;
   for (const country of data.countries) {
     const pagePath = `/countries/${country.slug}/`;

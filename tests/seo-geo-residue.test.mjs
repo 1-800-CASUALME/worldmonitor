@@ -17,6 +17,7 @@ import { parseSitemapDocument } from '../scripts/verify-sitemaps.mjs';
 import { accuracyStateAudit, classifyAccuracyState } from '../scripts/build-accuracy-page.mjs';
 import { RANKABLE_UNIVERSE_SIZE } from '../scripts/shared/rankable-universe.mjs';
 import { GLOSSARY_TERMS } from '../blog-site/src/data/glossary.ts';
+import { RESILIENCE_COVERAGE_SURFACES, restateCoverage, syncResilienceCoverage } from '../scripts/sync-resilience-coverage.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -480,6 +481,54 @@ describe('GEO residue #7616 (U1 agent surfaces)', () => {
       }
     } finally {
       rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
+  // The hand-written surfaces cannot import the snapshot, so the monthly
+  // refresh restates them with scripts/sync-resilience-coverage.mjs. Prove the
+  // sync both agrees with the newest snapshot today and rewrites every surface
+  // when the ranked count moves, so a new snapshot cannot fail the checks above.
+  it('restates hand-written coverage from the newest snapshot', () => {
+    const { ranked, universe } = latestResilienceCoverage();
+    assert.deepEqual(syncResilienceCoverage({ rootDir: repoRoot, check: true }), []);
+    const moved = { ranked: ranked - 1, universe };
+    for (const surface of RESILIENCE_COVERAGE_SURFACES) {
+      const current = read(surface.path);
+      assert.equal(restateCoverage(current, surface, { ranked, universe }), current, `${surface.path} is stale`);
+      const next = restateCoverage(current, surface, moved);
+      assert.equal(next.split(surface.render(moved)).length - 1, surface.occurrences, `${surface.path} must restate every statement`);
+      assert.ok(!next.includes(surface.render({ ranked, universe })), `${surface.path} kept the old pair`);
+    }
+    assert.throws(
+      () => restateCoverage('no coverage here', RESILIENCE_COVERAGE_SURFACES[0], { ranked, universe }),
+      /expected 3 resilience coverage statement/,
+    );
+  });
+
+  it('regenerates every coverage surface in the monthly snapshot refresh', () => {
+    const workflow = read('.github/workflows/resilience-snapshot-refresh.yml');
+    const step = (command) => {
+      const index = workflow.indexOf(command);
+      assert.ok(index > 0, `the refresh workflow must run ${command}`);
+      return index;
+    };
+    // inventory:facts derives public/product-facts.json from product facts,
+    // and the glossary CRI line in llms-full reads them, so both run after.
+    const productFacts = step('scripts/generate-public-product-facts.mjs');
+    assert.ok(productFacts < step('npm run inventory:facts'), 'product facts must be regenerated before inventory:facts');
+    assert.ok(productFacts < step('npm run build:llms-full'), 'product facts must be regenerated before build:llms-full');
+    assert.ok(step('npm run resilience:coverage') < step('node --import tsx --test'));
+    const staged = workflow.slice(workflow.indexOf('git add "$snapshot_path"'), workflow.indexOf('git commit'));
+    for (const path of [
+      ...RESILIENCE_COVERAGE_SURFACES.map((surface) => surface.path),
+      'shared/product-facts.generated.json',
+      'scripts/shared/product-facts.generated.json',
+      'shared/product-catalog.generated.json',
+      'scripts/shared/product-catalog.generated.json',
+      'api/_product-catalog.generated.js',
+      'pro-test/src/generated/depth-stats.json',
+    ]) {
+      assert.ok(staged.includes(path), `the refresh workflow must commit ${path}`);
     }
   });
 });

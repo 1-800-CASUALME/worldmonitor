@@ -23,12 +23,17 @@ import { GLOSSARY_TERMS } from '../blog-site/src/data/glossary.ts';
 import { getRootlessDocsDestination } from '../src/config/docs-root-redirects.ts';
 import { COMPARISON_MATRIX_COLUMNS, comparisonDiscoveryEntries } from './build-comparison-pages.mjs';
 import { renderAccuracyLlmsSection } from './build-accuracy-page.mjs';
-import { resolveLatestLivePulseSnapshotPath, resolveLatestResilienceSnapshotPath, slugify } from './build-crawlable-corpus.mjs';
+import {
+  publishedRankedCountries,
+  resilienceCoveragePhrase,
+  resolveLatestLivePulseSnapshotPath,
+  resolveLatestResilienceSnapshotPath,
+  slugify,
+} from './build-crawlable-corpus.mjs';
 import { CHOKEPOINT_CONTENT } from './chokepoint-page-content.mjs';
 import { SITE_ORIGIN } from './discover-content-corpus-pages.mjs';
 import { buildSourceCatalog, buildSourcePages } from './crawlable-sources-page.mjs';
 import { activeSourceAttributionEntries, loadManifest } from './source-attribution.mjs';
-import { publishedRankedCountries, resilienceCoveragePhrase } from './build-ai-search.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUTPUT_PATH = 'public/llms-full.txt';
@@ -309,7 +314,7 @@ const RESILIENCE_COVERAGE_RE = /structural resilience ranked for \d+(?: of \d+ c
  * snapshot (ranked rows; ranked plus greyed-out rows), so a new snapshot
  * rewrites the briefs instead of leaving a stale count behind.
  */
-export function withResilienceCoverage(text, coverage = publishedRankedCountries(ROOT)) {
+export function withResilienceCoverage(text, coverage) {
   const source = String(text);
   if (!source.match(RESILIENCE_COVERAGE_RE)) {
     throw new Error('expected "structural resilience ranked for <n> of <m> countries" in the llms brief');
