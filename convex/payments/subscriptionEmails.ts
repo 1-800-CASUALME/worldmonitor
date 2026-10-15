@@ -561,8 +561,8 @@ export const sendReactivationEmail = internalAction({
 const DAY_MS = 86_400_000;
 // The scan retries an unsent day-0 only once the hold is at least this old.
 // Younger holds belong to the webhook's own send, which may still be in its
-// portal mint or Resend slot wait; a scan copy started then could pass the
-// ledger check before either records and send the email twice.
+// Resend slot wait; a scan copy started then could pass the ledger check
+// before either records and send the email twice.
 export const DUNNING_DAY0_RETRY_MIN_AGE_MS = 60 * 60 * 1000;
 export const DUNNING_DAY3_AGE_MS = 3 * DAY_MS;
 export const DUNNING_DAY7_AGE_MS = 7 * DAY_MS;
@@ -583,26 +583,10 @@ const DASHBOARD_URL = `${APP_ORIGIN}/dashboard`;
 const PRICING_URL = `${APP_ORIGIN}/pro#pricing`;
 const DUNNING_PORTAL_PATH = "/api/customer-portal";
 
-// Resend caps at 10 requests/second. TWO complementary layers keep dunning
-// under it:
-//
-//   1. runDunningScan staggers each send's START by SEND_SPACING_MS (below).
-//      This spreads the upstream Dodo portal-mint load and the initial Resend
-//      load, and keeps reserveResendSlot contention low.
-//   2. The actual Resend POST happens AFTER a variable-latency Dodo portal-mint
-//      (createCustomerPortalUrlForUser), so staggering START times does NOT by
-//      itself bound the POST rate — portal-latency jitter can bunch several
-//      POSTs into the same instant and recreate the burst. So immediately
-//      before the POST, every send reserves a monotonic slot from a shared
-//      token bucket (reserveResendSlot) and waits for it. Slots are handed out
-//      >= SEND_SPACING_MS apart, so actual POSTs stay >= SEND_SPACING_MS apart
-//      regardless of portal latency.
-//
+// Resend caps at 10 requests/second.
 // Original bug (WORLDMONITOR-VH): sends were scheduled at runAfter(0) and burst
 // concurrently; the 11th+ threw an uncaught 429 out of sendEmail, and since the
 // throw precedes the ledger write those rows re-burst next tick and compounded.
-// The cadence is daily and non-urgent, so spreading a batch over a few seconds
-// (250ms => <=4/s) is inconsequential.
 export const SEND_SPACING_MS = 250;
 
 // Shared-cursor key in the generic `counters` table: the epoch-ms timestamp of
@@ -831,23 +815,15 @@ export function buildDunningEmail(
 }
 
 /**
- * Deliver one dunning/winback step. Defensive by design: every precondition
- * is re-checked at send time because this action runs detached (scheduler /
- * cron) and the subscription may have recovered, been cancelled, or been
- * re-held (new episode) since it was scheduled.
- */
-/**
  * Token-bucket pacer for Resend POSTs across the whole dunning/winback fleet.
  *
  * Returns the epoch-ms instant at which the caller may perform its Resend POST.
  * sendDunningEmail calls this immediately before the send and waits until the
- * returned slot, so concurrent sends POST >= SEND_SPACING_MS apart no matter how
- * their upstream Dodo portal-mint latency varies. Single-row OCC makes
- * concurrent reservations serialize, so no two callers get overlapping slots.
- * The cursor floors at `now`, so after any idle gap the next send fires
- * immediately instead of sleeping toward a stale future slot.
+ * returned slot, so concurrent sends POST >= SEND_SPACING_MS apart.
+ * Single-row OCC makes concurrent reservations serialize, so no two callers
+ * get overlapping slots. The cursor floors at `now`, so after any idle gap
+ * the next send fires immediately instead of sleeping toward a stale future slot.
  *
- * Under portal-latency bunching, many actions can call this at once and
  * Convex's in-mutation OCC retries can exhaust (WORLDMONITOR-17R / 17S).
  * Callers MUST use `reserveResendSlotWithOccRetry` so a fresh mutation
  * attempt (with jittered backoff) absorbs that exhaustion instead of
@@ -1079,10 +1055,8 @@ export const sendDunningEmail = internalAction({
       return { sent: false, reason: first.reason };
     }
 
-    // Dunning CTAs go to a stable app route that mints a fresh Dodo
-    // portal session on click. Direct Dodo session links expire in ~24h,
-    // which is shorter than the day-3 / day-7 reminders. Winback goes to
-    // pricing. Cancellation confirmation stays on the dashboard.
+    // Direct Dodo session links expire in ~24h, which is shorter than the
+    // day-3 / day-7 reminders.
     let ctaUrl = args.step === "winback_day30" ? PRICING_URL : DASHBOARD_URL;
     if (args.step !== "winback_day30" && args.step !== "cancellation_confirm") {
       try {
@@ -1096,14 +1070,6 @@ export const sendDunningEmail = internalAction({
       }
     }
 
-    // Pace the actual POST (not just the scheduled start). Reserve the
-    // Resend slot after eligibility and CTA construction, then wait.
-    // This bounds the true POST rate to <= 1/SEND_SPACING_MS even when
-    // start-staggered sends bunch together. The wait is intentionally
-    // uncapped (see resendPacingWaitMs) so a large backlog stays
-    // serialized instead of collapsing into a burst. Action-level OCC
-    // retry: concurrent slot writes can exhaust Convex's in-mutation
-    // retries on the shared counters row (Sentry WORLDMONITOR-17R / 17S).
     const slotAt = await reserveResendSlotWithOccRetry(() =>
       ctx.runMutation(internal.payments.subscriptionEmails.reserveResendSlot, {}),
     );
@@ -1144,13 +1110,6 @@ export const sendDunningEmail = internalAction({
   },
 });
 
-/**
- * Daily cron: schedule every due, unsent dunning/winback step.
- *
- * At most ONE step per subscription per tick (the latest due one). A
- * hold older than 7 days still gets day-7. This scan does not invent
- * extra backfill. Rows without `onHoldAt` anchor on `updatedAt`.
- */
 export const runDunningScan = internalMutation({
   args: {},
   handler: async (ctx) => {

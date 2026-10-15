@@ -1862,9 +1862,6 @@ http.route({
   }),
 });
 
-// Service-to-service: Vercel edge gateway creates Dodo customer portal sessions.
-// Authenticated via CONVEX_TENANT_RELAY_SECRET; edge endpoint validates Clerk JWT
-// and forwards the verified userId.
 http.route({
   path: "/relay/customer-portal",
   method: "POST",

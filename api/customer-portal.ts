@@ -1,12 +1,3 @@
-/**
- * Customer portal edge gateway.
- *
- * POST: Clerk bearer auth, then relay to Convex for a JSON { portal_url }.
- * GET: email CTA / sign-in bounce. A signed `t` query token or a Clerk
- * bearer mints a fresh Dodo session and 302s to it. No token and no
- * session redirects to the dashboard, never to a caller-supplied URL.
- */
-
 export const config = { runtime: 'edge' };
 
 // @ts-expect-error — JS module, no declaration file

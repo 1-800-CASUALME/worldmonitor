@@ -1,21 +1,3 @@
-/**
- * Dunning + winback email lifecycle (#4932).
- *
- * Coverage map (every guard has a test because each one, if silently
- * removed, emails real customers wrongly):
- *   - on_hold webhook sets the episode anchor and schedules day-0 exactly
- *     once (replays keep the anchor, no re-send)
- *   - send action: per-episode idempotency, suppression skip, recovered-sub
- *     skip, stale-episode skip, email resolution fallback to customers row
- *   - daily scan: day-3/day-7 windows, at most ONE step per sub per tick
- *     (pre-existing holds get a single catch-up email), ledger pre-check
- *   - winback: 30–60d window, skips while still entitled, skips
- *     resubscribed users, one-shot
- *
- * Cancellation confirmation, copy, retry-scan, and shared-ledger cases live
- * in cancellationEmails.test.ts so this file stays on the dunning + winback
- * lifecycle.
- */
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import schema from "../schema";

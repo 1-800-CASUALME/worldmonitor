@@ -1,11 +1,3 @@
-/**
- * Open-redirect guard for Dodo customer-portal session URLs.
- *
- * Email CTAs land on /api/customer-portal, which mints a session and 302s
- * to Dodo. The Location must be HTTPS on a Dodo host. A look-alike suffix
- * such as dodopayments.com.evil.com is rejected.
- */
-
 export function safeDodoPortalRedirectUrl(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   try {

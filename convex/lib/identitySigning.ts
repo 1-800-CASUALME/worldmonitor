@@ -470,14 +470,6 @@ function dunningPortalPayload(userId: string, expiresAt: number): string {
   return `dunning-portal:${DUNNING_PORTAL_TOKEN_VERSION}:${userId.length}:${userId}:${expiresAt}`;
 }
 
-/**
- * Signs a short-lived email CTA token that the /api/customer-portal GET
- * route exchanges for a fresh Dodo portal session. Domain-separated from
- * checkout, invite, and anon-claim tokens so a stolen dunning link cannot
- * be replayed as those credentials.
- *
- * `nowMs` is a required clock so expiry boundaries stay testable.
- */
 export async function signDunningPortalToken(
   userId: string,
   nowMs: number,
@@ -493,10 +485,6 @@ export async function signDunningPortalToken(
   return `${DUNNING_PORTAL_TOKEN_VERSION}.${userId}.${expiresAt}.${signature}`;
 }
 
-/**
- * Returns the bound userId when the token is authentic and unexpired.
- * Malformed, tampered, expired, or foreign-purpose tokens return null.
- */
 export async function verifyDunningPortalToken(
   token: string | undefined,
   nowMs: number,
