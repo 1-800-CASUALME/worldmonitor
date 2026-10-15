@@ -222,7 +222,8 @@ describe("sendDunningEmail guards", () => {
     expect(sends).toHaveLength(1);
     expect(sends[0]!.subject).toContain("restore access");
     expect(sends[0]!.html).toContain("/api/customer-portal?t=");
-    expect(sends[0]!.html).not.toContain("Access continues for now");
+    expect(sends[0]!.html).not.toContain("access continues for now");
+    expect(sends[0]!.html).toContain("Paid access has already ended");
     expect(await ledgerRows(t)).toHaveLength(1);
   });
 
@@ -1003,9 +1004,52 @@ describe("failed-renewal hold whose period ended at hold start", () => {
     vi.setSystemTime(holdAt + DUNNING_DAY7_AGE_MS + 60_000);
     await t.mutation(internal.payments.subscriptionEmails.runDunningScan, {});
     await t.finishAllScheduledFunctions(vi.runAllTimers);
-    const subjects = resendSends(fetchMock).map((s) => s.subject);
-    expect(subjects.some((s) => s.includes("Final notice"))).toBe(true);
+    const sends = resendSends(fetchMock);
+    expect(sends.some((s) => s.subject.includes("Final notice"))).toBe(true);
+    for (const send of sends) {
+      expect(send.html).not.toContain("Once your paid period ends");
+      expect(send.html).not.toContain("access ends with your paid period");
+      expect(send.html).not.toContain("access continues for now");
+    }
     expect(await ledgerRows(t)).toHaveLength(3);
+  });
+
+  test("comped user whose held period ended is not told access has ended", async () => {
+    vi.useFakeTimers();
+    process.env.RESEND_API_KEY = "re_test";
+    const fetchMock = mockResend();
+    const t = convexTest(schema, modules);
+    const holdAt = Date.now() - 60_000;
+    await seedSub(t, { onHoldAt: holdAt, currentPeriodEnd: holdAt - 60_000 });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("entitlements", {
+        userId: USER_ID,
+        planKey: "pro_monthly",
+        features: {
+          tier: 1,
+          maxDashboards: 10,
+          apiAccess: false,
+          apiRateLimit: 0,
+          prioritySupport: false,
+          exportFormats: ["csv", "pdf"],
+          mcpAccess: true,
+        },
+        validUntil: holdAt - 60_000,
+        compUntil: Date.now() + 30 * DAY_MS,
+        updatedAt: holdAt,
+      });
+    });
+
+    const result = await t.action(internal.payments.subscriptionEmails.sendDunningEmail, {
+      dodoSubscriptionId: SUB_ID,
+      step: "dunning_day0",
+      episodeAt: holdAt,
+    });
+    expect(result).toEqual({ sent: true });
+    const sends = resendSends(fetchMock);
+    expect(sends).toHaveLength(1);
+    expect(sends[0]!.html).not.toContain("Paid access has already ended");
+    expect(sends[0]!.html).toContain("access continues for now");
   });
 
   test("period that ended after hold start still skips as not_covering and is logged", async () => {
@@ -1048,6 +1092,21 @@ describe("day-0 copy", () => {
     expect(ended.subject).toContain("restore access");
     expect(ended.html).toContain("Paid access has already ended");
     expect(ended.html).not.toContain("access continues for now");
+  });
+
+  test("ended access day-3 and day-7 do not promise access until the period ends", () => {
+    const ctaUrl = "https://www.worldmonitor.app/api/customer-portal";
+    const ended = Date.now() - DAY_MS;
+    const day3 = buildDunningEmail("dunning_day3", "Pro (Monthly)", ctaUrl, ended);
+    const day7 = buildDunningEmail("dunning_day7", "Pro (Monthly)", ctaUrl, ended);
+    expect(day3.subject).toContain("restore");
+    expect(day3.html).not.toContain("Once your paid period ends");
+    expect(day7.html).not.toContain("access ends with your paid period");
+    const covered = Date.now() + 3 * DAY_MS;
+    expect(buildDunningEmail("dunning_day3", "Pro (Monthly)", ctaUrl, covered).html)
+      .toContain("Once your paid period ends");
+    expect(buildDunningEmail("dunning_day7", "Pro (Monthly)", ctaUrl, covered).html)
+      .toContain("access ends with your paid period");
   });
 
   test("still-covered access keeps the continues wording", () => {

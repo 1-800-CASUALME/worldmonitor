@@ -758,11 +758,11 @@ export function buildDunningEmail(
   ctaUrl: string,
   accessUntil?: number,
 ): { subject: string; html: string } {
+  const stillCovered = typeof accessUntil === "number" && accessUntil > Date.now();
   switch (step) {
     case "cancellation_confirm":
       return buildCancellationConfirmEmail(planName, ctaUrl, accessUntil);
     case "dunning_day0": {
-      const stillCovered = typeof accessUntil === "number" && accessUntil > Date.now();
       return {
         subject: stillCovered
           ? `Your World Monitor payment failed — access continues while you fix it`
@@ -780,10 +780,14 @@ export function buildDunningEmail(
     }
     case "dunning_day3":
       return {
-        subject: `Reminder: update your payment method to keep ${planName}`,
+        subject: stillCovered
+          ? `Reminder: update your payment method to keep ${planName}`
+          : `Reminder: update your payment method to restore ${planName}`,
         html: dunningEmailShell(
           "Still paused — 2 minutes to fix.",
-          `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">Your ${planName} payment is still failing. Once your paid period ends, briefs, alerts and your Pro panels stop. Updating your card takes about two minutes and restores everything instantly.</p>`,
+          stillCovered
+            ? `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">Your ${planName} payment is still failing. Once your paid period ends, briefs, alerts and your Pro panels stop. Updating your card takes about two minutes and restores everything instantly.</p>`
+            : `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">Your ${planName} payment is still failing, so briefs, alerts and your Pro panels are off. Updating your card takes about two minutes and restores everything instantly.</p>`,
           "Update payment method",
           ctaUrl,
           "You're receiving this because a payment on your World Monitor subscription failed.",
@@ -794,7 +798,9 @@ export function buildDunningEmail(
         subject: `Final notice: your World Monitor ${planName} subscription is paused`,
         html: dunningEmailShell(
           "Last reminder from us.",
-          `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">This is the last email about this — your ${planName} subscription has been paused for a week over a failed payment. Update your payment method to keep your briefs, alerts and dashboards; otherwise access ends with your paid period.</p>`,
+          stillCovered
+            ? `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">This is the last email about this — your ${planName} subscription has been paused for a week over a failed payment. Update your payment method to keep your briefs, alerts and dashboards; otherwise access ends with your paid period.</p>`
+            : `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">This is the last email about this — your ${planName} subscription has been paused for a week over a failed payment. Update your payment method to restore your briefs, alerts and dashboards.</p>`,
           "Update payment method",
           ctaUrl,
           "This is the final payment reminder for this billing episode — we won't email about it again.",
@@ -824,7 +830,8 @@ export function buildDunningEmail(
  * get overlapping slots. The cursor floors at `now`, so after any idle gap
  * the next send fires immediately instead of sleeping toward a stale future slot.
  *
- * Convex's in-mutation OCC retries can exhaust (WORLDMONITOR-17R / 17S).
+ * When many sends reserve at once, Convex's in-mutation OCC retries can
+ * exhaust (WORLDMONITOR-17R / 17S).
  * Callers MUST use `reserveResendSlotWithOccRetry` so a fresh mutation
  * attempt (with jittered backoff) absorbs that exhaustion instead of
  * dropping the dunning send for the tick.
@@ -992,9 +999,9 @@ function evaluateDunningEligibility(
   }
   // Dunning only while THIS episode is still open — a recovery or a
   // newer episode (different anchor) invalidates the scheduled send.
-  // Prod: 110 of 111 on_hold rows already receive dunning. not_covering
-  // is not the common failed-renewal path. The one hold whose period
-  // ended at or before the hold start stays eligible.
+  // A period that ended at or before the hold start is a failed renewal and
+  // stays dunned. A period that ends after the hold start means access
+  // lapsed mid-dunning, so later steps skip as not_covering.
   if (sub.status !== "on_hold") return { ok: false, reason: "recovered" };
   if (sub.episodeAnchor !== episodeAt) return { ok: false, reason: "stale_episode" };
   if (sub.currentPeriodEnd <= now && sub.currentPeriodEnd > episodeAt) {
@@ -1063,6 +1070,9 @@ export const sendDunningEmail = internalAction({
         const token = await signDunningPortalToken(first.sub.userId, Date.now());
         ctaUrl = `${APP_ORIGIN}${DUNNING_PORTAL_PATH}?t=${encodeURIComponent(token)}`;
       } catch (err) {
+        // Degrade, never drop the send: the tokenless route 302s to sign-in,
+        // where the payment banner reaches the portal. console.log, not warn:
+        // Convex has no silent-capture helper for the Sentry-coverage gate.
         console.log(
           `[dunning] portal token sign failed for ${args.dodoSubscriptionId} (${err instanceof Error ? err.message : String(err)}) — falling back to sign-in portal route`,
         );
@@ -1090,7 +1100,9 @@ export const sendDunningEmail = internalAction({
       args.step,
       planName,
       ctaUrl,
-      fresh.sub.currentPeriodEnd,
+      args.step === "cancellation_confirm"
+        ? fresh.sub.currentPeriodEnd
+        : Math.max(fresh.sub.currentPeriodEnd, fresh.sub.entitlementCoveredUntil),
     );
     await sendEmail(apiKey, fresh.sub.email, subject, html, ADMIN_EMAIL);
     // Ledger write AFTER the send: a Resend failure throws above, leaving no
@@ -1110,6 +1122,14 @@ export const sendDunningEmail = internalAction({
   },
 });
 
+/**
+ * Daily cron: schedule every due, unsent dunning/winback step.
+ *
+ * At most ONE step per subscription per tick (the latest due one), so a
+ * subscription that entered on_hold before this feature deployed gets a
+ * single catch-up email, never a day-3 + day-7 double-send. Pre-existing
+ * rows without `onHoldAt` anchor on `updatedAt` (their last on_hold event).
+ */
 export const runDunningScan = internalMutation({
   args: {},
   handler: async (ctx) => {

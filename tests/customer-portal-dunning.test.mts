@@ -54,9 +54,53 @@ it('GET without a token or session requires sign-in and does not call the relay'
   assert.equal(relayCalls, 0);
 });
 
-it('GET refuses to redirect to a non-Dodo portal_url', async () => {
+it('GET refuses to redirect to a non-Dodo portal_url and falls back to the dashboard', async () => {
   mockInfra(() => Response.json({ portal_url: 'https://evil.example/phish' }));
   const res = await handler(new Request('https://worldmonitor.app/api/customer-portal?t=v1.user_x.1.sig'));
-  assert.equal(res.status, 502);
-  assert.equal(res.headers.get('Location'), null);
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard');
+});
+
+for (const [label, status, body, expectLogged] of [
+  ['relay 404 NO_CUSTOMER', 404, { error: 'NO_CUSTOMER' }, false],
+  ['relay 500', 500, { error: 'boom' }, true],
+  ['relay-secret 401 UNAUTHORIZED', 401, { error: 'UNAUTHORIZED' }, true],
+  ['invalid portal token', 401, { error: 'INVALID_PORTAL_TOKEN' }, false],
+] as const) {
+  it(`GET email click on ${label} lands on the dashboard${expectLogged ? ' and is logged' : ''}`, async () => {
+    mockInfra(() => Response.json(body, { status }));
+    const errors: unknown[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => { errors.push(args); };
+    try {
+      const res = await handler(new Request('https://worldmonitor.app/api/customer-portal?t=v1.user_x.1.sig'));
+      assert.equal(res.status, 302);
+      assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard');
+    } finally {
+      console.error = originalError;
+    }
+    assert.equal(errors.length > 0, expectLogged);
+  });
+}
+
+it('GET email click when the relay fetch throws lands on the dashboard', async () => {
+  mockInfra(() => { throw new TypeError('network down'); });
+  const res = await handler(new Request('https://worldmonitor.app/api/customer-portal?t=v1.user_x.1.sig'));
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard');
+});
+
+it('GET relay call carries a User-Agent', async () => {
+  let ua: string | null = null;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (new URL(url).origin === 'https://portal-redis.test') {
+      const commands = JSON.parse(String(init?.body));
+      return Response.json(commands.map(() => ({ result: [9, 10] })));
+    }
+    ua = new Headers(init?.headers).get('User-Agent');
+    return Response.json({ portal_url: 'https://customer.dodopayments.com/session/abc' });
+  };
+  await handler(new Request('https://worldmonitor.app/api/customer-portal?t=v1.user_x.1.sig'));
+  assert.match(String(ua), /^worldmonitor-customer-portal-edge\//);
 });
