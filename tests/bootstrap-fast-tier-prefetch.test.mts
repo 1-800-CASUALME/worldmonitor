@@ -13,6 +13,7 @@ import { build } from 'esbuild';
 type HydrationState = { tiers: { fast: { source: string } } };
 type Harness = {
   primeBootstrapFastTier: () => void;
+  primedBootstrapTierBudgetUsedMs: () => number;
   fetchBootstrapData: () => Promise<void>;
   getBootstrapHydrationState: () => HydrationState;
   bootstrapTesting: { resetBootstrapForTests: () => void };
@@ -31,7 +32,7 @@ before(async () => {
   const result = await build({
     stdin: {
       contents: [
-        "export { primeBootstrapFastTier } from './src/services/bootstrap-prefetch.ts';",
+        "export { primeBootstrapFastTier, primedBootstrapTierBudgetUsedMs } from './src/services/bootstrap-prefetch.ts';",
         "export { fetchBootstrapData, getBootstrapHydrationState, __testing__ as bootstrapTesting } from './src/services/bootstrap.ts';",
       ].join('\n'),
       loader: 'ts',
@@ -138,6 +139,56 @@ describe('fast bootstrap tier prefetch', () => {
     const waited = Date.now() - started;
     assert.ok(primedSignal?.aborted, 'the primed request must be aborted at the deadline');
     assert.ok(waited < 700, `boot waited ${waited} ms; the budget must count the time already spent in flight`);
+  });
+
+  it('keeps a primed response that already arrived even when App loads after the budget', async () => {
+    // Slow devices (and the Vite dev server in CI) can take longer than the
+    // 1.2 s budget to load App. A response that arrived in the meantime is
+    // complete data; aborting its body read would discard it and refetch.
+    const urls: string[] = [];
+    // Headers arrive at once; the body streams in over a later task and dies
+    // with the request's signal, the way a large browser response does.
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      urls.push(String(input));
+      const signal = init?.signal;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const timer = setTimeout(() => {
+            controller.enqueue(new TextEncoder().encode(JSON.stringify({ data: { probe: { ok: true } }, missing: [] })));
+            controller.close();
+          }, 20);
+          signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            controller.error(new DOMException('aborted', 'AbortError'));
+          }, { once: true });
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    harness.primeBootstrapFastTier();
+    await new Promise((r) => setTimeout(r, 1_300));
+    await harness.fetchBootstrapData();
+    assert.equal(harness.getBootstrapHydrationState().tiers.fast.source, 'live');
+    assert.equal(urls.filter((u) => u.includes('tier=fast')).length, 1);
+  });
+
+  it('charges the budget only while the primed request still awaits a response', async () => {
+    // Node reads a buffered body within microtasks, so the test above cannot lose
+    // the abort race the way Chrome's task-hopping body read does. Pin the
+    // accounting directly: an answered request has used none of the budget.
+    globalThis.fetch = (async () => tierResponse()) as typeof fetch;
+    harness.primeBootstrapFastTier();
+    await new Promise((r) => setTimeout(r, 60));
+    assert.equal(harness.primedBootstrapTierBudgetUsedMs(), 0);
+    harness.bootstrapTesting.resetBootstrapForTests();
+
+    globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+    })) as typeof fetch;
+    harness.primeBootstrapFastTier();
+    await new Promise((r) => setTimeout(r, 120));
+    assert.ok(harness.primedBootstrapTierBudgetUsedMs() >= 100, 'a pending request is charged for its time in flight');
   });
 
   it('is started by the dashboard entry before the App chunk import', () => {

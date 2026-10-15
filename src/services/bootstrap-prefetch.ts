@@ -14,6 +14,8 @@ const FAST_TIER_PATH = '/api/bootstrap?tier=fast&public=1';
 interface PrimedTier {
   url: string;
   startedAt: number;
+  /** Set once response headers arrive; the request has then delivered. */
+  respondedAt: number | null;
   response: Promise<Response>;
   controller: AbortController;
 }
@@ -35,17 +37,22 @@ export function primeBootstrapFastTier(): void {
   const response = fetch(url, { signal: controller.signal, credentials: 'omit' });
   // The adopter observes the rejection; this branch only keeps an unadopted
   // failure from surfacing as an unhandled rejection.
-  response.catch(() => undefined);
-  primed = { url, startedAt, response, controller };
+  const entry: PrimedTier = { url, startedAt, respondedAt: null, response, controller };
+  response.then(() => { entry.respondedAt = performance.now(); }, () => undefined);
+  primed = entry;
 }
 
 /**
- * `performance.now()` at which the pending primed request started, or null.
- * The fast-tier abort budget counts from here, so boot never waits longer for
- * the tier than it did before the request moved to the entry script.
+ * How much of the fast-tier abort budget the primed request has already used.
+ * While it is still waiting for a response, that is the time since it started,
+ * so boot never waits longer for the tier than it did before the request moved
+ * to the entry script. Once headers have arrived the request has delivered;
+ * its body read gets the whole budget, because aborting it would throw away a
+ * response that is already here (App can load after the budget on slow devices).
  */
-export function primedBootstrapTierStartedAt(): number | null {
-  return primed?.startedAt ?? null;
+export function primedBootstrapTierBudgetUsedMs(): number {
+  if (!primed || primed.respondedAt !== null) return 0;
+  return performance.now() - primed.startedAt;
 }
 
 /**
