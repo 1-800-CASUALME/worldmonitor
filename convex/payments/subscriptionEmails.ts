@@ -566,11 +566,6 @@ const DAY_MS = 86_400_000;
 export const DUNNING_DAY0_RETRY_MIN_AGE_MS = 60 * 60 * 1000;
 export const DUNNING_DAY3_AGE_MS = 3 * DAY_MS;
 export const DUNNING_DAY7_AGE_MS = 7 * DAY_MS;
-// Automatic dunning is only for holds that started inside this window.
-// Older on_hold rows are left for a manual decision (existing customers
-// from before this cutoff are not backfilled). Day-7 is still due inside
-// the window, so a hold between 7 and 10 days gets the final notice.
-export const DUNNING_NO_BACKFILL_AGE_MS = 10 * DAY_MS;
 // Winback window bounds, measured from currentPeriodEnd (access end).
 export const WINBACK_MIN_AGE_MS = 30 * DAY_MS;
 export const WINBACK_MAX_AGE_MS = 60 * DAY_MS;
@@ -964,8 +959,7 @@ type DunningSkipReason =
   | "recovered"
   | "no_email"
   | "suppressed"
-  | "already_sent"
-  | "too_old";
+  | "already_sent";
 
 function logDunningSkip(fields: {
   dodoSubscriptionId: string;
@@ -1022,11 +1016,14 @@ function evaluateDunningEligibility(
   }
   // Dunning only while THIS episode is still open — a recovery or a
   // newer episode (different anchor) invalidates the scheduled send.
-  // Failed-renewal holds keep the paid-through currentPeriodEnd, so
-  // coverage is not a send gate. Age is measured from the hold anchor.
+  // Prod: 110 of 111 on_hold rows already receive dunning. not_covering
+  // is not the common failed-renewal path. The one hold whose period
+  // ended at or before the hold start stays eligible.
   if (sub.status !== "on_hold") return { ok: false, reason: "recovered" };
   if (sub.episodeAnchor !== episodeAt) return { ok: false, reason: "stale_episode" };
-  if (now - episodeAt >= DUNNING_NO_BACKFILL_AGE_MS) return { ok: false, reason: "too_old" };
+  if (sub.currentPeriodEnd <= now && sub.currentPeriodEnd > episodeAt) {
+    return { ok: false, reason: "not_covering" };
+  }
   return { ok: true };
 }
 
@@ -1150,11 +1147,9 @@ export const sendDunningEmail = internalAction({
 /**
  * Daily cron: schedule every due, unsent dunning/winback step.
  *
- * At most ONE step per subscription per tick (the latest due one). A hold
- * older than 7 days still gets day-7, but holds older than
- * DUNNING_NO_BACKFILL_AGE_MS are not emailed automatically. Existing
- * on_hold customers outside that window are a manual decision. Rows
- * without `onHoldAt` anchor on `updatedAt`.
+ * At most ONE step per subscription per tick (the latest due one). A
+ * hold older than 7 days still gets day-7. This scan does not invent
+ * extra backfill. Rows without `onHoldAt` anchor on `updatedAt`.
  */
 export const runDunningScan = internalMutation({
   args: {},
@@ -1169,15 +1164,6 @@ export const runDunningScan = internalMutation({
     for (const sub of onHold) {
       const episodeAt = sub.onHoldAt ?? sub.updatedAt;
       const age = now - episodeAt;
-      if (age >= DUNNING_NO_BACKFILL_AGE_MS) {
-        logDunningSkip({
-          dodoSubscriptionId: sub.dodoSubscriptionId,
-          step: "dunning_day7",
-          episodeAt,
-          reason: "too_old",
-        });
-        continue;
-      }
       // Day-0 is first enqueued by the on_hold webhook, but a send that throws
       // (Resend error, exhausted slot OCC, RESEND_API_KEY missing at webhook
       // time) leaves no ledger row and is never auto-retried. Retry it here
