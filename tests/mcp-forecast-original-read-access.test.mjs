@@ -134,6 +134,40 @@ describe('original forecast readers: access matrix', () => {
     });
   }
 
+  for (const [label, makeDeps, headers] of apiCallers) {
+    it(`API allowance via ${label} applies the advertised jmespath projection to both readers`, async t => {
+      const f = fixture(t);
+      const { deps, pipe } = makeDeps();
+      const detail = await call(deps, 'get_forecast_case', { ...caseArgs, jmespath: 'data.forecastCase.forecast.id' }, headers);
+      assert.equal(detail.body.error, undefined, JSON.stringify(detail.body));
+      assert.deepEqual(detail.body.result.structuredContent, { projection: forecast.id });
+      const reply = await call(deps, 'get_forecast_theaters', { jmespath: 'data.forecastTheaters.status' }, headers);
+      assert.equal(reply.body.error, undefined, JSON.stringify(reply.body));
+      assert.deepEqual(reply.body.result.structuredContent, { projection: 'ready' });
+      assert.equal(pipe.count, weight('get_forecast_case') + weight('get_forecast_theaters'));
+      assert.equal(f.sourceReads.filter(read => read.startsWith('/api/')).length, 1);
+    });
+  }
+
+  it('Pro dedicated panels apply jmespath to signed reads without poisoning the cached original', async t => {
+    const f = fixture(t);
+    const { deps, pipe } = makeProDeps();
+    const opening = await call(deps, 'get_forecast_predictions', {});
+    const panel_request = opening.body.result.structuredContent.panelRequest.token;
+    const detail = await call(deps, 'get_forecast_case', { ...caseArgs, panel_request, jmespath: 'data.forecastCase.forecast.id' });
+    assert.equal(detail.body.error, undefined, JSON.stringify(detail.body));
+    assert.deepEqual(detail.body.result.structuredContent, { projection: forecast.id });
+    const replay = await call(deps, 'get_forecast_case', { ...caseArgs, panel_request });
+    assert.deepEqual(replay.body.result.structuredContent.data.forecastCase.forecast, forecast);
+    const theaterReply = await call(deps, 'get_forecast_theaters', { panel_request, jmespath: 'data.forecastTheaters.status' });
+    assert.equal(theaterReply.body.error, undefined, JSON.stringify(theaterReply.body));
+    assert.deepEqual(theaterReply.body.result.structuredContent, { projection: 'ready' });
+    const theaterReplay = await call(deps, 'get_forecast_theaters', { panel_request });
+    assert.deepEqual(theaterReplay.body.result.structuredContent.data.forecastTheaters, { ...theaters, status: 'ready' });
+    assert.equal(f.sourceReads.filter(read => read.startsWith('/api/')).length, 1, 'the projected read cached the original for replay');
+    assert.equal(pipe.count, 1);
+  });
+
   it('Pro dedicated panels still need the signed panel_request and read inside one allocation', async t => {
     const f = fixture(t);
     const { deps, pipe } = makeProDeps();
