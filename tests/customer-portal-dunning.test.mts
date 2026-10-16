@@ -33,6 +33,8 @@ it('GET with a portal token 302s to the minted Dodo URL', async () => {
   const res = await handler(new Request('https://worldmonitor.app/api/customer-portal?t=v1.user_x.1.sig&next=https://evil.example'));
   assert.equal(res.status, 302);
   assert.equal(res.headers.get('Location'), 'https://customer.dodopayments.com/session/abc');
+  assert.equal(res.headers.get('Cache-Control'), 'no-store');
+  assert.equal(res.headers.get('Referrer-Policy'), 'no-referrer');
   assert.deepEqual(relayBody, { portalToken: 'v1.user_x.1.sig' });
 });
 

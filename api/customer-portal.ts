@@ -31,6 +31,8 @@ function redirect(location: string): Response {
     headers: {
       Location: location,
       'Cache-Control': 'no-store',
+      // The request URL carries the ?t= bearer token.
+      'Referrer-Policy': 'no-referrer',
     },
   });
 }

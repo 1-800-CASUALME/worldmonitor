@@ -17,10 +17,18 @@ import {
   RESEND_SLOT_OCC_MAX_ATTEMPTS,
   buildDunningEmail,
 } from "../payments/subscriptionEmails";
+import { verifyDunningPortalToken } from "../lib/identitySigning";
 
 const modules = import.meta.glob("../**/*.ts");
 
 const DAY_MS = 86_400_000;
+
+/** The ?t= token in an email's CTA, decoded. */
+function ctaPortalToken(html: string): string {
+  const match = html.match(/\/api\/customer-portal\?t=([^"&]+)/);
+  if (!match) throw new Error("no portal token CTA in email html");
+  return decodeURIComponent(match[1]!);
+}
 const SUB_ID = "sub_dunning_test_1";
 const USER_ID = "user_dunning_1";
 const EMAIL = "holdout@example.com";
@@ -223,6 +231,7 @@ describe("sendDunningEmail guards", () => {
     expect(sends).toHaveLength(1);
     expect(sends[0]!.subject).toContain("restore access");
     expect(sends[0]!.html).toContain("/api/customer-portal?t=");
+    expect(await verifyDunningPortalToken(ctaPortalToken(sends[0]!.html), Date.now())).toBe(USER_ID);
     expect(sends[0]!.html).not.toContain("access continues for now");
     expect(sends[0]!.html).toContain("Paid access has already ended");
     expect(await ledgerRows(t)).toHaveLength(1);

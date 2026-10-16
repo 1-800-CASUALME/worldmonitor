@@ -497,7 +497,9 @@ export async function verifyDunningPortalToken(
   if (version !== DUNNING_PORTAL_TOKEN_VERSION || extra.length > 0) return null;
   if (!userId || !DUNNING_PORTAL_USER_ID_RE.test(userId)) return null;
   if (typeof expiresAtRaw !== "string" || typeof signature !== "string") return null;
-  if (!/^\d+$/.test(expiresAtRaw) || !signature) return null;
+  // Canonical digits only: a leading-zero variant would re-verify the same
+  // signature under a different string, i.e. a fresh edge rate-limit bucket.
+  if (!/^[1-9]\d*$/.test(expiresAtRaw) || !signature) return null;
   const expiresAt = Number(expiresAtRaw);
   if (!Number.isSafeInteger(expiresAt)) return null;
   try {

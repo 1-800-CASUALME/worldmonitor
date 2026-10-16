@@ -412,6 +412,30 @@ describe("dunning portal token signing/verification", () => {
     expect(await verifyDunningPortalToken(parts.join("."), NOW)).toBeNull();
   });
 
+  test("rejects a leading-zero expiry, so one link has one textual form", async () => {
+    // Number("0123") === 123 would re-verify the same signature, and each
+    // variant would get its own per-token rate-limit bucket at the edge.
+    const token = await signDunningPortalToken(USER, NOW);
+    const parts = token.split(".");
+    parts[2] = `0${parts[2]}`;
+    expect(await verifyDunningPortalToken(parts.join("."), NOW)).toBeNull();
+  });
+
+  test("binds the userId to the signature", async () => {
+    const token = await signDunningPortalToken(USER, NOW);
+    const parts = token.split(".");
+    parts[1] = "user_someoneelse";
+    expect(await verifyDunningPortalToken(parts.join("."), NOW)).toBeNull();
+  });
+
+  test("rejects an extra segment and a non-numeric expiry", async () => {
+    const token = await signDunningPortalToken(USER, NOW);
+    expect(await verifyDunningPortalToken(`${token}.x`, NOW)).toBeNull();
+    const parts = token.split(".");
+    parts[2] = "1e15";
+    expect(await verifyDunningPortalToken(parts.join("."), NOW)).toBeNull();
+  });
+
   test("rejects a business-invite token as a foreign purpose", async () => {
     const invite = await signBusinessInviteToken("k57c5e0m1234567890abcdef12345678");
     expect(await verifyDunningPortalToken(invite, NOW)).toBeNull();
