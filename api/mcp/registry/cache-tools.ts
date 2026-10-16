@@ -3507,7 +3507,7 @@ export const CACHE_TOOLS: ToolDef[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        domain: { type: 'string', description: 'Filter to one forecast domain (exact, case-insensitive — e.g. "shipping", "energy", "macro").' },
+        domain: { type: 'string', description: 'Filter to one forecast domain (exact, case-insensitive): conflict, market, supply_chain, political, military, cyber, infrastructure.' },
         region: { type: 'string', description: 'Filter to one region/theater (case-insensitive substring).' },
         limit: { type: 'number', description: 'Paid interactive panel: integers 1–30, default 30. Ordinary API readers may use 0 for no cap.' },
         refresh: { type: 'boolean', description: 'Request a new paid panel snapshot; requires a fresh request_id.' },
