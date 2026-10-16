@@ -1229,7 +1229,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `verify_claim`
 
-针对一条说法或标题的证据卡。在实时摘要中找出报道同一事件的话题簇（一个事件常分布在多个簇中），并基于匹配簇给出 WorldMonitor 的覆盖判定。当簇中某条标题包含说法中至少一半的实义词且至少两个时即视为匹配；最多保留匹配度最高的 8 个簇。判定由 `assessCorroboration` 对所有匹配标题计算，因此同一发布方的转载源只计一次。
+针对一条说法或标题的证据卡。在最新标题中找出报道同一事件的话题簇（一个事件常分布在多个簇中），并基于匹配簇给出 WorldMonitor 的覆盖判定。`variant: full`（默认）检索 WorldMonitor 信息源缓存中的所有最新标题（每个信息源最多 30 条），而不只是仪表板摘要提供的标题；与说法共享实义词最多的 100 条标题参与聚类。`tech` 变体检索其摘要。当簇中某条标题包含说法中至少一半的实义词且至少两个时即视为匹配；最多保留匹配度最高的 8 个簇。判定由 `assessCorroboration` 对所有匹配标题计算，因此同一发布方的转载源只计一次。
 
 返回 `found`、`state`（覆盖判定；已检索摘要但没有任何报道时为 `not-found`；摘要为空或不可用、未进行检索时为 `unknown` 且 `found: false`）、`corroboration`（`single-publisher`、`tier4-only`、`corroborated`、`unknown`）、带声明层级的 `publishers` 名单、最多 10 条带来源溯源信息的匹配 `headlines`、最佳匹配的 `credibilityScore`、`firstSeen` / `lastUpdated`，以及 `figures`：用简报溯源规则核对说法中的数字和日期是否出现在匹配标题中。`figures.ungrounded` 列出没有任何匹配标题提及的数字，并不表示该数字错误。`found: false` 表示没有匹配：`state` 为 `not-found` 时，该说法不在 WorldMonitor 当前的来源中；为 `unknown` 时，表示未进行检索。它绝不表示该说法为假。每个响应都带有相同的 `caveat`：衡量的是覆盖情况，而非准确性。
 
@@ -1250,9 +1250,9 @@ curl -s https://worldmonitor.app/mcp \
 | `claim` | string | 要核查的说法或标题，最多 300 个字符。必填。 |
 | `variant` | `string: full / tech` | 要搜索的标题摘要变体。默认为 full。 |
 
-- **API 端点：** `GET /api/news/v1/list-feed-digest`、`GET /api/news/v1/search-fact-checks`
+- **API 端点：** `GET /api/news/v1/list-feed-digest`、`GET /api/news/v1/search-fact-checks`、`GET /api/news/v1/search-claim-headlines`
 - **访问：** `subscription` — 需要 Pro 订阅。
-- **类型：** 基于实时摘要窗口的确定性本地计算，并非历史索引。不使用 LLM。
+- **类型：** 基于最新标题窗口（最近 96 小时）的确定性本地计算，并非历史索引。不使用 LLM。
 - **配额：** 标准 — 每次调用都会消耗 MCP 每日配额。
 
 <CodeGroup>
