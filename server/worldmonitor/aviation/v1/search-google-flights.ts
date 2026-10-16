@@ -7,7 +7,7 @@ import { ApiError } from '../../../../src/generated/server/worldmonitor/aviation
 import { IATA_RE } from './_shared';
 // @ts-expect-error — JS module, no declaration file
 import { sha256Hex } from '../../../../api/_crypto.js';
-import { getRelayBaseUrl, getRelayHeaders } from '../../../_shared/relay';
+import { getRelayBaseUrl, getRelayHeaders, relayFailureMessage } from '../../../_shared/relay';
 import { parseStringArray } from '../../../_shared/parse-string-array';
 import { normalizePassengerCount } from '../../../_shared/passenger-count';
 import { cachedFetchJsonWithMeta } from '../../../_shared/redis';
@@ -92,7 +92,7 @@ export async function searchGoogleFlights(
           headers: getRelayHeaders(),
           signal: AbortSignal.timeout(20_000),
         });
-        if (!resp.ok) throw new Error(`relay returned ${resp.status}`);
+        if (!resp.ok) throw new Error(await relayFailureMessage(resp));
         const json = (await resp.json()) as { flights?: unknown[]; cooldown?: boolean; error?: string };
         if (!Array.isArray(json.flights)) throw new Error(json.error ?? 'no results');
         if (json.cooldown === true) throw new Error('provider cooldown');

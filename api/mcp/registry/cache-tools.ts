@@ -668,8 +668,8 @@ const FORECAST_SCORECARD_DESCRIPTION = 'Forecast resolution scorecard with calib
 export function forecastScorecardDescription(configured?: ForecastAccuracyAudit | null): string {
   const override = accuracyAuditOverride(configured);
   const lead = override
-    ? `Forecast resolution scorecard, under audit since ${override.since} (issue ${override.issue}): do not quote its scores.`
-    : 'Forecast resolution scorecard (Brier, calibration, funnel); check underAudit before quoting scores.';
+    ? `Forecast resolution scorecard, under audit since ${override.since} (issue ${override.issue}): its scores are unverified.`
+    : 'Forecast resolution scorecard (Brier, calibration, funnel); underAudit marks scores still under audit.';
   return `${lead} ${FORECAST_SCORECARD_DESCRIPTION}`;
 }
 
@@ -2806,7 +2806,7 @@ export const CACHE_TOOLS: ToolDef[] = [
     description:
       'Bounded India Meteorological Department sea-area and coastal marine bulletins from the public mausam.imd.gov.in pages: storm warnings, port signals, storm-surge/tidal warnings, wind, visibility, and sea state per area with each bulletin validity window. ' +
       'Not merged into weather:alerts:v1. IMD cyclone track, wind radii, and cone products are API-only and disabled (GDACS tropical cyclones cover the North Indian Ocean in natural events); port warning and fishermen warning PDFs are not parsed. ' +
-      'Read coverageState on every call: degraded means some bulletin pages failed and their last-good records were carried, unavailable means no page was readable, and ok is live. Per-page status is under products.<id>.pages. ' +
+      'coverageState reports bulletin coverage: degraded means some bulletin pages failed and their last-good records were carried, unavailable means no page was readable, and ok is live. Per-page status is under products.<id>.pages. ' +
       'Empty lists with degraded or unavailable coverage are not an India all-clear. ' +
       'An oversized response trims lists from the end, repeated and alert-shaped copies first, and reports each trimmed list in transportCoverage.',
     inputSchema: {
@@ -3032,7 +3032,7 @@ export const CACHE_TOOLS: ToolDef[] = [
     name: 'get_tariff_trends',
     title: 'Tariff and trade price trends',
     _outputBudgetBytes: 131072,
-    description: 'Global trade and pricing indicators: US MFN applied tariff trend (all-products average; for another reporter, a partner or a product group use get_tariff_averages), Big Mac index, FAO Food Price Index, and per-country national debt levels.',
+    description: 'Global trade and pricing indicators: US MFN applied tariff trend (all-products average), Big Mac index, FAO Food Price Index, and per-country national debt levels.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3503,7 +3503,7 @@ export const CACHE_TOOLS: ToolDef[] = [
     title: 'Interactive forecasts',
     _uiResourceUri: FORECASTS_UI_URI,
     _outputBudgetBytes: 131072,
-    description: 'Open WorldMonitor’s interactive forecasts with local domain/region filters and original case analysis. Paid ChatGPT openings return the compact list and a signed panelRequest; expand Analysis to read an original case using get_forecast_case under the same allocation. Repeated openings reuse the five-minute admission; explicit refresh requires a fresh request_id. API callers retain the full published forecast result. AI assessments are not guarantees.',
+    description: 'Open WorldMonitor’s interactive forecasts with local domain/region filters and original case analysis. Paid ChatGPT openings return the compact list and a signed panelRequest; expanding Analysis reads one original case under the same allocation. Repeated openings reuse the five-minute admission; explicit refresh requires a fresh request_id. API callers retain the full published forecast result. AI assessments are not guarantees.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3586,15 +3586,15 @@ export const CACHE_TOOLS: ToolDef[] = [
     title: 'Forecast case analysis',
     _subscriptionOnly: true,
     _outputBudgetBytes: 131072,
-    description: 'Read exactly one original published forecast case after expanding Analysis in the interactive forecasts panel. Requires its signed panel_request and exact list generated_at; no additional daily allocation. Changed generation requires reopening the forecast list. A single case exceeding the fixed response budget remains explicitly unavailable.',
+    description: 'Read exactly one original published forecast case, including its full case file, by forecast ID and the exact generatedAt of the forecast list it came from. Returns generation_changed with no forecast when the published list has been regenerated since, and missing when the ID is not in the current generation. Dedicated MCP plans read it inside an open forecasts panel with its signed panel_request and no additional daily allocation; API plans read it without panel_request at the normal per-call charge. A single case exceeding the fixed response budget remains explicitly unavailable.',
     inputSchema: {
       type: 'object',
       properties: {
-        forecast_id: { type: 'string', minLength: 1, maxLength: 160, description: 'Exact original forecast ID from the loaded list.' },
-        generated_at: { type: 'string', minLength: 1, maxLength: 64, description: 'Exact String(generatedAt) from the loaded list.' },
-        panel_request: { type: 'string', minLength: 1, maxLength: 160, description: 'Signed forecast panel receipt.' },
+        forecast_id: { type: 'string', minLength: 1, maxLength: 160, description: 'Exact original forecast ID from the forecast list.' },
+        generated_at: { type: 'string', minLength: 1, maxLength: 64, description: 'Exact String(generatedAt) of the forecast list the ID came from.' },
+        panel_request: { type: 'string', minLength: 1, maxLength: 160, description: 'Signed forecasts panel receipt. Required on dedicated MCP plans; not accepted on API plans.' },
       },
-      required: ['forecast_id', 'generated_at', 'panel_request'],
+      required: ['forecast_id', 'generated_at'],
     },
     outputSchema: cacheEnvelope({ forecastCase: { type: 'object', properties: {
       status: { type: 'string', enum: ['ready', 'missing', 'unavailable', 'generation_changed'] },
@@ -3603,7 +3603,7 @@ export const CACHE_TOOLS: ToolDef[] = [
     }, required: ['status', 'generatedAt', 'forecast'] } }),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     _postFilter: (data, params, execution) => {
-      if (execution?.panelScope !== 'forecasts') throw new RpcValidationError('get_forecast_case', [{ field: 'panel_request', description: 'A verified forecast panel admission is required.' }]);
+      if (execution?.panelScope !== 'forecasts' && execution?.perToolForecastRead !== true) throw new RpcValidationError('get_forecast_case', [{ field: 'panel_request', description: 'A verified forecast panel admission is required.' }]);
       const parsed = forecastCaseReadSchema.safeParse(params);
       if (!parsed.success) throw new RpcValidationError('get_forecast_case', [{ field: 'forecast_id', description: 'Provide an exact forecast ID and list generation.' }]);
       const source = data.predictions;

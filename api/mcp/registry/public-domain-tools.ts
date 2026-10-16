@@ -20,7 +20,7 @@ const INTERNET_PATHS = {
 export const PUBLIC_DOMAIN_TOOLS: ToolDef[] = [{
   name: 'get_gold_intelligence',
   title: 'Gold market intelligence',
-  description: 'Read seeded gold intelligence: precious-metal futures quotes, cross-currency gold prices, COT positioning, session/returns/range, drivers, ETF holdings and central-bank reserves when available. Prices are USD per troy ounce unless a cross-currency row states its currency; returns/changes are percentages. Preserve unavailable: true and missing enrichment; placeholder zero prices are not confirmed zero observations. COT counts are decimal strings, ETF holdings tonnes/AUM USD, central-bank reserves tonnes. Each enrichment has its own observation date; updatedAt does not establish freshness of all sources. No trade or research snapshot is created.',
+  description: 'Read seeded gold intelligence: precious-metal futures quotes, cross-currency gold prices, COT positioning, session/returns/range, drivers, ETF holdings and central-bank reserves when available. Prices are USD per troy ounce unless a cross-currency row states its currency; returns/changes are percentages. unavailable: true and missing enrichment mark absent data; placeholder zero prices are not confirmed zero observations. COT counts are decimal strings, ETF holdings tonnes/AUM USD, central-bank reserves tonnes. Each enrichment has its own observation date; updatedAt does not establish freshness of all sources. No trade or research snapshot is created.',
   _outputBudgetBytes: 131072,
   inputSchema: { type: 'object', properties: {}, required: [] },
   outputSchema: { type: 'object', required: ['unavailable'], properties: {

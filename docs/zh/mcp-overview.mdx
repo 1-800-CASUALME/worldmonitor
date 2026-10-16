@@ -342,8 +342,8 @@ npx @modelcontextprotocol/inspector https://worldmonitor.app/mcp
 | `analyze_situation` | 基于查询 + 上下文的临时地缘推断推理。返回置信度 + 支撑信号。 | LLM |
 | `generate_forecasts` | 新鲜概率估计（绕过缓存）。 | LLM |
 | `get_forecast_predictions` | 缓存预测；付费交互面板返回紧凑列表和签名的案例读取授权。 | 缓存 |
-| `get_forecast_case` | 使用预测面板授权读取指定 ID 和版本的原始案例。 | 缓存 |
-| `get_forecast_theaters` | 通过同一预测准入读取最新原始模拟战区，保留独立来源时间和部分覆盖状态。 | RPC |
+| `get_forecast_case` | 读取指定 ID 和版本的原始案例；专用 MCP 套餐使用预测面板授权，API 套餐按次计费。 | 缓存 |
+| `get_forecast_theaters` | 读取最新原始模拟战区（专用 MCP 套餐通过同一预测准入，API 套餐按次计费），保留独立来源时间和部分覆盖状态。 | RPC |
 | `get_forecast_scorecard` | 缓存的预测结算校准与记分卡。 | 缓存 |
 
 ## API 覆盖
