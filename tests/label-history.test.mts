@@ -384,7 +384,7 @@ describe("today's label counts (#9093 /trust)", () => {
       { source: 'BBC World', title: 'A', link: 'https://www.bbc.co.uk/a', importanceScore: 1, credibilityScore: 70, corroborationCount: 2, titleHash: HASH_A },
       { source: 'Reuters World', title: 'B', link: 'https://www.reuters.com/b', importanceScore: 1, credibilityScore: 70, corroborationCount: 1, titleHash: HASH_B },
     ];
-    const { labelCounts } = __testing__.storyLabelChanges(items as never, new Map(), NOW);
+    const { labelCounts } = __testing__.storyLabelChanges(items as never, items as never, new Map(), NOW);
     assert.deepEqual(labelCounts, { at: NOW, stories: 2, corroborated: 1, singlePublisher: 1, tier4Only: 0, unknown: 0 });
   });
 
