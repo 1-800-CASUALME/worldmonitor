@@ -16,6 +16,16 @@
  */
 import { publisherFamilyFor } from '../../shared/publisher-families.js';
 import {
+  CALIBRATION_EVENTS_MAX,
+  CALIBRATION_EVENTS_TTL_S,
+  CALIBRATION_OTHER,
+  calibrationEventsKey,
+  calibrationStateOf,
+  encodeCalibrationEvent,
+  utcDay,
+  type CalibrationEvent,
+} from '../../shared/label-calibration.js';
+import {
   assessCorroboration,
   evidenceFromCluster,
   publisherRoster,
@@ -228,6 +238,10 @@ export function labelChangeCommands(change: LabelChange): RedisPipelineCommand[]
     ['LTRIM', LABEL_CHANGES_KEY, 0, LABEL_CHANGES_MAX - 1],
     ['EXPIRE', LABEL_CHANGES_KEY, RETENTION_S],
   ];
+  // #9097 calibration: the same change, in the day's calibration event log.
+  if (change.field === 'corroboration' && change.trigger === 'digest' && isLabelHistoryState(change.next)) {
+    commands.push(...calibrationEventCommands([{ kind: 's', storyId: change.storyId, state: change.next, at: change.at }]));
+  }
   if (change.storyId) {
     const storyKey = STORY_LABEL_HISTORY_KEY(change.storyId);
     commands.push(
@@ -237,6 +251,79 @@ export function labelChangeCommands(change: LabelChange): RedisPipelineCommand[]
     );
   }
   return commands;
+}
+
+/**
+ * #9097: append calibration events to their UTC day's list. RPUSH then LTRIM
+ * keeps a day's first CALIBRATION_EVENTS_MAX events; the seeder treats a list
+ * that reached the cap as incomplete rather than counting from part of it.
+ */
+export function calibrationEventCommands(events: readonly CalibrationEvent[]): RedisPipelineCommand[] {
+  const membersByKey = new Map<string, string[]>();
+  for (const event of events) {
+    const member = encodeCalibrationEvent(event);
+    if (!member) continue;
+    const key = calibrationEventsKey(utcDay(event.at));
+    const members = membersByKey.get(key) ?? [];
+    members.push(member);
+    membersByKey.set(key, members);
+  }
+  return [...membersByKey].flatMap(([key, members]): RedisPipelineCommand[] => [
+    ['RPUSH', key, ...members],
+    ['LTRIM', key, 0, CALIBRATION_EVENTS_MAX - 1],
+    ['EXPIRE', key, CALIBRATION_EVENTS_TTL_S],
+  ]);
+}
+
+/**
+ * #9097: the calibration event this cycle's label adds, beyond the public
+ * change log: the first label of a new story (no track row yet), or a move
+ * into or out of tier4-only/unknown. A move between the two tracked states is
+ * logged with its change entry (labelChangeCommands), and a track row with no
+ * recorded label (written before labels were recorded) starts nothing.
+ */
+export function calibrationEventFor(
+  storyId: string,
+  track: { readonly label?: string } | undefined,
+  current: StoryLabel,
+  at: number,
+): CalibrationEvent | null {
+  const tracked = isLabelHistoryState(current.state) && current.publishers !== null;
+  if (!track) return tracked ? { kind: 'f', storyId, state: current.state as LabelHistoryState, at } : null;
+  const previous = calibrationStateOf(track.label, UNTRACKED_LABEL);
+  const next = tracked ? (current.state as LabelHistoryState) : CALIBRATION_OTHER;
+  if (previous === null || previous === next) return null;
+  if (previous !== CALIBRATION_OTHER && next !== CALIBRATION_OTHER) return null;
+  return { kind: 's', storyId, state: next, at };
+}
+
+/**
+ * Append first-label and untracked-move calibration events. Returns whether
+ * the write was confirmed. Never throws.
+ */
+export async function recordCalibrationEvents(events: readonly CalibrationEvent[], deadlineAt = Number.POSITIVE_INFINITY): Promise<boolean> {
+  const commands = calibrationEventCommands(events);
+  if (commands.length === 0) return true;
+  const remainingMs = deadlineAt - Date.now();
+  if (!(remainingMs > 0)) return false;
+  try {
+    const results = await runRedisPipeline(commands, false, Number.isFinite(remainingMs) ? remainingMs : undefined);
+    return results.length === commands.length && results.every((result) => !result.error);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * After a failed calibration write, drop the new label of every story whose
+ * move was not logged, so the move is detected and logged again next cycle.
+ * A lost first label is not retried: the story is then missing from its
+ * cohort, which undercounts n but never misstates an outcome.
+ */
+export function keepUnloggedMoves(labelByHash: Map<string, string>, events: readonly CalibrationEvent[]): void {
+  for (const event of events) {
+    if (event.kind === 's') labelByHash.delete(event.storyId);
+  }
 }
 
 /** The log entry for an accepted reader report: the operator's public note, never the reader's text. */
