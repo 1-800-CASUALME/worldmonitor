@@ -43,8 +43,8 @@ describe('World Monitor brand-identity page', () => {
     // The digest email footer linked x.com/worldmonitorapp, an unregistered handle,
     // while every sameAs list names x.com/worldmonitorai.
     const digest = read('scripts/seed-digest-notifications.mjs');
-    assert.ok(!digest.includes('x.com/worldmonitorapp'), 'digest footer must not link the unregistered X handle');
-    assert.ok(digest.includes('https://x.com/worldmonitorai'), 'digest footer must link the official X account');
+    assert.doesNotMatch(digest, /x\.com\/worldmonitorapp\b/, 'digest footer must not link the unregistered X handle');
+    assert.match(digest, /href="https:\/\/x\.com\/worldmonitorai"/, 'digest footer must link the official X account');
     assert.doesNotMatch(body, /streetAddress|tel:|\bfaxNumber\b|\+\d{8,}/);
     assert.doesNotMatch(body, /\|\s*Telephone\s*\|/i);
     assert.doesNotMatch(body, /\|\s*Street\s*\|/i);
