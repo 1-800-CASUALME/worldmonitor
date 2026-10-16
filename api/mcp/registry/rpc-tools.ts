@@ -55,6 +55,7 @@ import { COUNTRY_BRIEF_UI_URI, COUNTRY_RISK_UI_URI, WORLD_BRIEF_UI_URI } from '.
 import { ANALYSIS_TOOLS } from './analysis-tools';
 import { buildPublicTool, TOOL_REGISTRY } from './index';
 import { COMPANY_INTEL_TOOL } from './company-intel-tools';
+import { tradeCountryCode } from './tariff-tools';
 
 type McpBriefSource = {
   title: string;
@@ -429,7 +430,6 @@ const PROCUREMENT_TOOL_MAX_PAGE_SIZE = 25;
 export const TRADE_FLOWS_DEFAULT_REPORTER = '840';
 export const TRADE_FLOWS_DEFAULT_YEARS = 10;
 export const TRADE_FLOWS_MAX_YEARS = 30;
-const TRADE_FLOWS_M49_CODE = /^[0-9]{3}$/;
 
 // Response vocabulary for `unavailableReason` — the closed enum emitted by the
 // RPC (TradeFlowUnavailableReason). The distinction agents depend on is
@@ -491,7 +491,14 @@ type NormalizedTradeFlowRequest = {
 
 function normalizeTradeFlowRequest(params: Record<string, unknown>): NormalizedTradeFlowRequest | null {
   const rawReporter = argStr(params.reporter);
-  if (rawReporter && !TRADE_FLOWS_M49_CODE.test(rawReporter)) return null;
+  let reporter = TRADE_FLOWS_DEFAULT_REPORTER;
+  if (rawReporter) {
+    try {
+      reporter = tradeCountryCode(rawReporter, 'get-trade-flows', 'reporter');
+    } catch {
+      return null;
+    }
+  }
 
   let years = TRADE_FLOWS_DEFAULT_YEARS;
   if (params.years !== undefined && params.years !== null) {
@@ -500,10 +507,7 @@ function normalizeTradeFlowRequest(params: Record<string, unknown>): NormalizedT
     years = rawYears;
   }
 
-  return {
-    reporter: rawReporter || TRADE_FLOWS_DEFAULT_REPORTER,
-    years,
-  };
+  return { reporter, years };
 }
 
 function unavailableTradeFlowResult(reason: typeof TRADE_FLOW_REASON.invalidRequest) {
@@ -1300,8 +1304,7 @@ export const RPC_TOOLS: ToolDef[] = [
       properties: {
         reporter: {
           type: 'string',
-          pattern: '^[0-9]{3}$',
-          description: 'WTO reporting country as a 3-digit UN M49 code (e.g. "840" = United States). Defaults to "840". The only partner served is the World ("000"); any other partner answers not_covered.',
+          description: 'Reporting country as an ISO 3166-1 alpha-2 code ("US") or a 3-digit UN M49 code ("840"); ISO2 is mapped to M49. Defaults to "840" (United States). The only partner served is the World ("000"); any other partner answers not_covered.',
         },
         years: {
           type: 'integer',
@@ -2887,9 +2890,8 @@ export const RPC_TOOLS: ToolDef[] = [
     title: 'Forecast simulation theaters',
     _subscriptionOnly: true,
     _outputBudgetBytes: 131072,
-    description: 'Read the latest original forecast simulation theater summaries using a signed forecasts panel_request. Shares the panel allocation and its 64 uncached-read limit. Preserves original paths, actors and optional roles, reactions, stabilizers, invalidators, source run/time and completion counts. No run selector or simulation trigger. Partial, unknown and unavailable results can be retried manually; source time is separate from forecast generation and does not establish freshness.',
-    inputSchema: { type: 'object', properties: { panel_request: { type: 'string', maxLength: 160, description: 'Signed receipt from get_forecast_predictions.' } }, required: ['panel_request'],
-      oneOf: [{ type: 'object', properties: { panel_request: { type: 'string', maxLength: 160 } }, required: ['panel_request'], additionalProperties: false }] },
+    description: 'Read the latest original forecast simulation theater summaries. Preserves original paths, actors and optional roles, reactions, stabilizers, invalidators, source run/time and completion counts. No run selector or simulation trigger. Dedicated MCP plans read it inside an open forecasts panel with its signed panel_request, sharing that panel allocation and its 64 uncached-read limit; API plans read it without panel_request at the normal per-call charge. Partial, unknown and unavailable results can be retried manually; source time is separate from forecast generation and does not establish freshness.',
+    inputSchema: { type: 'object', properties: { panel_request: { type: 'string', maxLength: 160, description: 'Signed forecasts panel receipt. Required on dedicated MCP plans; not accepted on API plans.' } }, required: [] },
     outputSchema: { type: 'object', required: ['data'], properties: { data: { type: 'object', required: ['forecastTheaters'], properties: { forecastTheaters: {
       type: 'object', required: ['status', 'found', 'runId', 'schemaVersion', 'theaterCount', 'generatedAt', 'note', 'error', 'theaterSummariesJson', 'processing', 'eligibleTheaterCount', 'failedTheaterCount', 'allTheatersFailed', 'completionStatus'],
       properties: { status: { type: 'string', enum: [...FORECAST_THEATER_STATUSES] }, found: { type: 'boolean' }, runId: { type: 'string' }, schemaVersion: { type: 'string' },
@@ -2898,7 +2900,7 @@ export const RPC_TOOLS: ToolDef[] = [
     } } } } },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     _execute: async (params, base, context, execution) => {
-      if (execution?.panelScope !== 'forecasts' || !forecastTheaterReadSchema.safeParse(params).success) throw new RpcValidationError('get-forecast-theaters', [{ field: 'panel_request', description: 'A signed forecasts panel request is required.' }]);
+      if ((execution?.panelScope !== 'forecasts' && execution?.perToolForecastRead !== true) || !forecastTheaterReadSchema.safeParse(params).success) throw new RpcValidationError('get-forecast-theaters', [{ field: 'panel_request', description: 'A signed forecasts panel request is required.' }]);
       const url = `${base}/api/forecast/v1/get-simulation-outcome`;
       const auth = await buildAuthHeaders(context, 'GET', url, undefined);
       const res = await fetchMcpDownstream(url, { method: 'GET', headers: { ...auth, 'User-Agent': 'worldmonitor-mcp-edge/1.0' }, signal: AbortSignal.timeout(15_000) }, execution);

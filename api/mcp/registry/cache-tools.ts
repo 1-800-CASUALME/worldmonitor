@@ -3533,15 +3533,15 @@ export const CACHE_TOOLS: ToolDef[] = [
     title: 'Forecast case analysis',
     _subscriptionOnly: true,
     _outputBudgetBytes: 131072,
-    description: 'Read exactly one original published forecast case after expanding Analysis in the interactive forecasts panel. Requires its signed panel_request and exact list generated_at; no additional daily allocation. Changed generation requires reopening the forecast list. A single case exceeding the fixed response budget remains explicitly unavailable.',
+    description: 'Read exactly one original published forecast case, including its full case file, by forecast ID and the exact generatedAt of the forecast list it came from. Returns generation_changed with no forecast when the published list has been regenerated since, and missing when the ID is not in the current generation. Dedicated MCP plans read it inside an open forecasts panel with its signed panel_request and no additional daily allocation; API plans read it without panel_request at the normal per-call charge. A single case exceeding the fixed response budget remains explicitly unavailable.',
     inputSchema: {
       type: 'object',
       properties: {
-        forecast_id: { type: 'string', minLength: 1, maxLength: 160, description: 'Exact original forecast ID from the loaded list.' },
-        generated_at: { type: 'string', minLength: 1, maxLength: 64, description: 'Exact String(generatedAt) from the loaded list.' },
-        panel_request: { type: 'string', minLength: 1, maxLength: 160, description: 'Signed forecast panel receipt.' },
+        forecast_id: { type: 'string', minLength: 1, maxLength: 160, description: 'Exact original forecast ID from the forecast list.' },
+        generated_at: { type: 'string', minLength: 1, maxLength: 64, description: 'Exact String(generatedAt) of the forecast list the ID came from.' },
+        panel_request: { type: 'string', minLength: 1, maxLength: 160, description: 'Signed forecasts panel receipt. Required on dedicated MCP plans; not accepted on API plans.' },
       },
-      required: ['forecast_id', 'generated_at', 'panel_request'],
+      required: ['forecast_id', 'generated_at'],
     },
     outputSchema: cacheEnvelope({ forecastCase: { type: 'object', properties: {
       status: { type: 'string', enum: ['ready', 'missing', 'unavailable', 'generation_changed'] },
@@ -3550,7 +3550,7 @@ export const CACHE_TOOLS: ToolDef[] = [
     }, required: ['status', 'generatedAt', 'forecast'] } }),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     _postFilter: (data, params, execution) => {
-      if (execution?.panelScope !== 'forecasts') throw new RpcValidationError('get_forecast_case', [{ field: 'panel_request', description: 'A verified forecast panel admission is required.' }]);
+      if (execution?.panelScope !== 'forecasts' && execution?.perToolForecastRead !== true) throw new RpcValidationError('get_forecast_case', [{ field: 'panel_request', description: 'A verified forecast panel admission is required.' }]);
       const parsed = forecastCaseReadSchema.safeParse(params);
       if (!parsed.success) throw new RpcValidationError('get_forecast_case', [{ field: 'forecast_id', description: 'Provide an exact forecast ID and list generation.' }]);
       const source = data.predictions;

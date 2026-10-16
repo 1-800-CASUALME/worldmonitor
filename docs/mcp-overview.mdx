@@ -360,8 +360,8 @@ Every record's `title`, `summary` and `sourceUrl` are verbatim third-party feed 
 | `analyze_situation` | Ad-hoc geopolitical deduction from a query + context. Returns confidence + supporting signals. | LLM |
 | `generate_forecasts` | Fresh probability estimates (bypasses cache). | LLM |
 | `get_forecast_predictions` | Cached forecasts; paid interactive openings return a compact list and signed case admission. | Cache |
-| `get_forecast_case` | One original case for an exact loaded ID and generation under the forecast admission. | Cache |
-| `get_forecast_theaters` | Latest original simulation theaters under the same forecast admission; source run/time and partial coverage remain explicit. | RPC |
+| `get_forecast_case` | One original case for an exact ID and list generation, under the forecast admission on dedicated MCP plans or per call on API plans. | Cache |
+| `get_forecast_theaters` | Latest original simulation theaters, under the same forecast admission on dedicated MCP plans or per call on API plans; source run/time and partial coverage remain explicit. | RPC |
 | `get_forecast_scorecard` | Cached forecast-resolution calibration and scorecard. | Cache |
 
 ### Meta
