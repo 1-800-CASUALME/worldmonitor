@@ -4,6 +4,8 @@
  * verify_claim calls it in-process rather than through the public endpoint,
  * so an agent's check is not a second billed downstream request.
  */
+// @ts-expect-error — JS module, no declaration file
+import { captureSilentError } from '../../api/_sentry-edge.js';
 import { cachedFetchJson } from './redis';
 import { sha256Hex } from './hash';
 import { CLAIM_MAX_CHARS } from './claim-match';
@@ -68,6 +70,11 @@ export async function lookupFactChecks(rawClaim: string): Promise<FactCheckLooku
     });
   } catch (err) {
     console.warn('[fact-checks] search failed:', err instanceof Error ? err.message : String(err));
+    captureSilentError(err, {
+      tags: { surface: 'server', component: 'fact-checks', stage: 'search' },
+      fingerprint: ['fact-checks', 'search'],
+      level: 'warning',
+    });
     cached = null;
   }
   if (!cached) return { state: 'unavailable', factChecks: [] };
