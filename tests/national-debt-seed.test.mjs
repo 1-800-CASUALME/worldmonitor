@@ -238,6 +238,7 @@ describe('IMF SDMX dollar contract', () => {
       { CHN: { '2027': -5 }, USA: { '2027': -5 } },
       null,
     );
+    assert.deepEqual(entries.map(entry => entry.iso3).sort(), ['CHN', 'USA']);
     for (const entry of entries) {
       const expectedGdp = gdp[entry.iso3]['2027'];
       assert.equal(entry.gdpUsd, expectedGdp);
