@@ -443,3 +443,17 @@ test('a Google RPC rejection surfaces its reason through the relay instead of a 
   assert.match(result.error, /^relay returned 502: Google Flights returned RPC error 13/);
   assert.equal([...redis.redis.keys()].filter(key => key.startsWith('aviation:gf-dates:')).length, 0);
 });
+
+test('a chunked search whose every chunk is rejected keeps the rejection reason', async () => {
+  let count = 0;
+  installCalendarRelay((async () => {
+    count++;
+    return new Response(')]}\'\n\n[["wrb.fr",null,null,null,null,[13]],["di",34],["af.httprm",34,"8506576470587309570",112]]');
+  }) as typeof fetch);
+  const result = await read(yearGrid);
+  assert.equal(count, 6);
+  assert.equal(result.degraded, true);
+  assert.deepEqual(result.dates, []);
+  assert.match(result.error, /^relay returned 502: Google Flights returned RPC error 13/);
+  assert.equal([...redis.redis.keys()].filter(key => key.startsWith('aviation:gf-dates:')).length, 0);
+});

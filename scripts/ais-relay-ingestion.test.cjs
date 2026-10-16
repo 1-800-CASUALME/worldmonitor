@@ -1401,3 +1401,31 @@ test('Google Flights RPC rejections fail the relay call instead of reading as ze
     await stop(child);
   }
 });
+
+test('Google Flights payloads or rows in an unexpected shape fail instead of reading as results', async () => {
+  const wrap = (inner) => `)]}'\n\n${JSON.stringify([['wrb.fr', null, inner]])}`;
+  const { child, ready } = spawnRelay({
+    RELAY_GOOGLE_FLIGHTS_RATE_LIMIT_MAX: '1000',
+    RELAY_TEST_GOOGLE_STATUS_SEQUENCE: '200,200,200',
+    RELAY_TEST_GOOGLE_BODY_SEQUENCE: JSON.stringify([
+      wrap('null'),
+      wrap('{}'),
+      googleShoppingBody([[[[], []]]]),
+    ]),
+  });
+
+  try {
+    const { port } = await ready;
+    for (const [day, reason] of [
+      ['15', /Google Flights returned an unrecognized payload/],
+      ['16', /Google Flights returned an unrecognized payload/],
+      ['17', /Google Flights returned flight rows in an unrecognized shape/],
+    ]) {
+      const response = await get(port, `/google-flights/search?origin=JFK&destination=LHR&departure_date=2026-11-${day}`);
+      assert.equal(response.status, 502, `departure 2026-11-${day} must not read as a successful search`);
+      assert.match(JSON.parse(response.body).error, reason);
+    }
+  } finally {
+    await stop(child);
+  }
+});
