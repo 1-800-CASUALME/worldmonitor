@@ -656,6 +656,7 @@ describe('crawlable content corpus deployment contracts', () => {
       'docs/docs.json',
       'scripts/build-comparison-pages.mjs',
       'scripts/comparison-page-narratives.mjs',
+      'scripts/comparison-shortlist.mjs',
       'scripts/unranked-country-inventory.mjs',
       'scripts/build-use-cases.mjs',
       'scripts/build-accuracy-page.mjs',
@@ -665,6 +666,9 @@ describe('crawlable content corpus deployment contracts', () => {
       'scripts/generate-inventory-facts.mjs',
       'scripts/docs-stats.mjs',
       'scripts/source-attribution.mjs',
+      'scripts/country-related-links.mjs',
+      'scripts/data/country-centroids.json',
+      'scripts/related-reading.mjs',
     ]) {
       assert.equal(vercelIgnoreSource.split(`'${path}'`).length - 1, 2, `${path} must trigger main and preview builds`);
     }
@@ -690,6 +694,7 @@ describe('crawlable content corpus deployment contracts', () => {
         'docs/docs.json',
         'scripts/build-comparison-pages.mjs',
       'scripts/comparison-page-narratives.mjs',
+      'scripts/comparison-shortlist.mjs',
         'scripts/unranked-country-inventory.mjs',
         'scripts/build-use-cases.mjs',
         'scripts/build-accuracy-page.mjs',
@@ -699,6 +704,9 @@ describe('crawlable content corpus deployment contracts', () => {
         'scripts/generate-inventory-facts.mjs',
         'scripts/docs-stats.mjs',
         'scripts/source-attribution.mjs',
+        'scripts/country-related-links.mjs',
+        'scripts/data/country-centroids.json',
+        'scripts/related-reading.mjs',
       ]) {
         const previous = git('rev-parse', 'HEAD').trim();
         mkdirSync(dirname(join(fixture, path)), { recursive: true });
