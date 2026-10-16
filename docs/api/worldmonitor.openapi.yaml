@@ -25643,6 +25643,423 @@ paths:
                                 oneOf:
                                     - $ref: '#/components/schemas/Error'
                                     - $ref: '#/components/schemas/GatewayError'
+    /api/news/v1/submit-error-report:
+        post:
+            parameters:
+                - name: Idempotency-Key
+                  in: header
+                  description: Optional client-generated idempotency key. Retrying a POST with the same key and an identical request body replays the original response (only the status, body, and Content-Type are reproduced) instead of re-executing; reusing the key with a different body is rejected with 422. For mutations this avoids duplicating the side effect, while for batch-read POSTs it replays a cached snapshot that can be up to 24 hours stale. Keys are scoped per authenticated caller (falling back to the source IP for unauthenticated endpoints) and retained for 24 hours.
+                  required: false
+                  example: "4f8b9c2e-1a3d-4b6f-8e0a-2c5d7f9b1e34"
+                  schema:
+                    type: string
+                    minLength: 1
+                    maxLength: 255
+                    pattern: "^[\\x21-\\x7E]{1,255}$"
+            tags:
+                - NewsService
+            summary: SubmitErrorReport
+            description: SubmitErrorReport stores a reader's report that a label or story is wrong, for an operator to review. No account required; rate-limited; never applied automatically.
+            operationId: SubmitErrorReport
+            requestBody:
+                content:
+                    application/json:
+                        example:
+                            "contact": "example"
+                            "message": "Example WorldMonitor observation."
+                            "storyId": "example-id"
+                            "url": "https://example.com/worldmonitor"
+                        schema:
+                            $ref: '#/components/schemas/worldmonitor_news_v1_SubmitErrorReportRequest'
+                required: true
+            responses:
+                "200":
+                    description: Successful response
+                    headers:
+                        Idempotency-Key:
+                            schema:
+                                type: string
+                            description: The idempotency key echoed from the request. Present only when the client opted into idempotency.
+                        Idempotent-Replayed:
+                            schema:
+                                type: boolean
+                            description: true when this response was replayed from an earlier request with the same key, false on the first (original) request. Present only when the client opted into idempotency.
+                    content:
+                        application/json:
+                            example:
+                                "reportId": "example-id"
+                                "status": "example"
+                            schema:
+                                $ref: '#/components/schemas/worldmonitor_news_v1_SubmitErrorReportResponse'
+                "400":
+                    description: Validation error, invalid Idempotency-Key header, or malformed JSON request body
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/ValidationError'
+                                    - type: object
+                                      required:
+                                        - error
+                                        - message
+                                      properties:
+                                        error:
+                                            type: string
+                                        message:
+                                            type: string
+                                    - $ref: '#/components/schemas/InvalidRequestBodyError'
+                "409":
+                    description: A request with this Idempotency-Key is still being processed
+                    headers:
+                        Idempotency-Key:
+                            schema:
+                                type: string
+                            description: The idempotency key supplied by the client.
+                        Retry-After:
+                            schema:
+                                type: string
+                            description: Seconds to wait before retrying the in-flight request.
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                required:
+                                    - error
+                                    - message
+                                properties:
+                                    error:
+                                        type: string
+                                    message:
+                                        type: string
+                "422":
+                    description: The Idempotency-Key was already used with a different request body
+                    headers:
+                        Idempotency-Key:
+                            schema:
+                                type: string
+                            description: The idempotency key supplied by the client.
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                required:
+                                    - error
+                                    - message
+                                properties:
+                                    error:
+                                        type: string
+                                    message:
+                                        type: string
+                "401":
+                    description: Missing or invalid API key.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/UnauthorizedError'
+                "403":
+                    description: API access requires an active subscription (the API key's subscription is inactive or expired).
+                    headers:
+                        X-Billing-Verification:
+                            description: Present when the 403 is a billing-provider-confirmed subscription lapse (value subscription_lapsed, matching the body `code`).
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ForbiddenError'
+                "429":
+                    description: Rate limit exceeded.
+                    headers:
+                        X-RateLimit-Limit:
+                            description: Maximum requests allowed in the active rate-limit window.
+                            schema:
+                                type: string
+                        X-RateLimit-Remaining:
+                            description: Requests remaining in the active rate-limit window.
+                            schema:
+                                type: string
+                        X-RateLimit-Reset:
+                            description: Unix epoch milliseconds when the active rate-limit window resets.
+                            schema:
+                                type: string
+                        Retry-After:
+                            description: Seconds to wait before retrying the request.
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/Error'
+                                    - $ref: '#/components/schemas/RateLimitError'
+                "503":
+                    description: Service unavailable. Billing-verification responses include code and X-Billing-Verification; other gateway infrastructure failures use the generic GatewayError shape.
+                    headers:
+                        Retry-After:
+                            description: Seconds to wait before retrying (1-60).
+                            schema:
+                                type: string
+                        X-Billing-Verification:
+                            description: Billing-verification state that produced this response (matches the body `code`).
+                            schema:
+                                type: string
+                        X-Validation-Mode:
+                            description: Present with value degraded when user API-key validation is temporarily unavailable.
+                            schema:
+                                type: string
+                        X-RateLimit-Mode:
+                            description: Present with value degraded when a fail-closed rate-limit dependency is unavailable.
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/BillingVerificationError'
+                                    - $ref: '#/components/schemas/GatewayError'
+                default:
+                    description: Gateway or handler error response.
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/Error'
+                                    - $ref: '#/components/schemas/GatewayError'
+    /api/news/v1/list-error-reports:
+        get:
+            tags:
+                - NewsService
+            summary: ListErrorReports
+            description: ListErrorReports lists stored reports for review. Operators only.
+            operationId: ListErrorReports
+            parameters:
+                - name: status
+                  in: query
+                  description: pending (default) | reviewed.
+                  required: false
+                  example: "example"
+                  schema:
+                    type: string
+                - name: jmespath
+                  in: query
+                  description: |-
+                    Optional JMESPath expression applied server-side to project or reduce the JSON response before it is returned (mirrors the MCP jmespath argument). Invalid expressions, expressions larger than 1024 UTF-8 bytes, or projections that exceed the 256 KB output cap return HTTP 400 with a {_jmespath_error, original_keys} envelope. Grammar and worked examples: https://www.worldmonitor.app/docs/mcp-jmespath.
+                  required: false
+                  example: "keys(@)"
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            example:
+                                "reports":
+                                    - "contact": "example"
+                                      "createdAt": 1717200000000
+                                      "id": "example-id"
+                                      "message": "Example WorldMonitor observation."
+                                      "publicNote": "example"
+                                "state": "example"
+                            schema:
+                                $ref: '#/components/schemas/worldmonitor_news_v1_ListErrorReportsResponse'
+                "400":
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/ValidationError'
+                                    - $ref: '#/components/schemas/JmespathProjectionError'
+                "401":
+                    description: Missing or invalid API key.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/UnauthorizedError'
+                "403":
+                    description: API access requires an active subscription (the API key's subscription is inactive or expired).
+                    headers:
+                        X-Billing-Verification:
+                            description: Present when the 403 is a billing-provider-confirmed subscription lapse (value subscription_lapsed, matching the body `code`).
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ForbiddenError'
+                "429":
+                    description: Rate limit exceeded.
+                    headers:
+                        X-RateLimit-Limit:
+                            description: Maximum requests allowed in the active rate-limit window.
+                            schema:
+                                type: string
+                        X-RateLimit-Remaining:
+                            description: Requests remaining in the active rate-limit window.
+                            schema:
+                                type: string
+                        X-RateLimit-Reset:
+                            description: Unix epoch milliseconds when the active rate-limit window resets.
+                            schema:
+                                type: string
+                        Retry-After:
+                            description: Seconds to wait before retrying the request.
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/Error'
+                                    - $ref: '#/components/schemas/RateLimitError'
+                "503":
+                    description: Service unavailable. Billing-verification responses include code and X-Billing-Verification; other gateway infrastructure failures use the generic GatewayError shape.
+                    headers:
+                        Retry-After:
+                            description: Seconds to wait before retrying (1-60).
+                            schema:
+                                type: string
+                        X-Billing-Verification:
+                            description: Billing-verification state that produced this response (matches the body `code`).
+                            schema:
+                                type: string
+                        X-Validation-Mode:
+                            description: Present with value degraded when user API-key validation is temporarily unavailable.
+                            schema:
+                                type: string
+                        X-RateLimit-Mode:
+                            description: Present with value degraded when a fail-closed rate-limit dependency is unavailable.
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/BillingVerificationError'
+                                    - $ref: '#/components/schemas/GatewayError'
+                default:
+                    description: Gateway or handler error response.
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/Error'
+                                    - $ref: '#/components/schemas/GatewayError'
+    /api/news/v1/review-error-report:
+        post:
+            tags:
+                - NewsService
+            summary: ReviewErrorReport
+            description: ReviewErrorReport accepts or rejects a report. An accepted report's public note is added to the label log. Operators only.
+            operationId: ReviewErrorReport
+            requestBody:
+                content:
+                    application/json:
+                        example:
+                            "decision": "example"
+                            "publicNote": "example"
+                            "reportId": "example-id"
+                        schema:
+                            $ref: '#/components/schemas/worldmonitor_news_v1_ReviewErrorReportRequest'
+                required: true
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            example:
+                                "report":
+                                    "contact": "example"
+                                    "createdAt": 1717200000000
+                                    "id": "example-id"
+                                    "message": "Example WorldMonitor observation."
+                                    "publicNote": "example"
+                            schema:
+                                $ref: '#/components/schemas/worldmonitor_news_v1_ReviewErrorReportResponse'
+                "400":
+                    description: Validation error or malformed JSON request body
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/ValidationError'
+                                    - $ref: '#/components/schemas/InvalidRequestBodyError'
+                "401":
+                    description: Missing or invalid API key.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/UnauthorizedError'
+                "403":
+                    description: API access requires an active subscription (the API key's subscription is inactive or expired).
+                    headers:
+                        X-Billing-Verification:
+                            description: Present when the 403 is a billing-provider-confirmed subscription lapse (value subscription_lapsed, matching the body `code`).
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ForbiddenError'
+                "429":
+                    description: Rate limit exceeded.
+                    headers:
+                        X-RateLimit-Limit:
+                            description: Maximum requests allowed in the active rate-limit window.
+                            schema:
+                                type: string
+                        X-RateLimit-Remaining:
+                            description: Requests remaining in the active rate-limit window.
+                            schema:
+                                type: string
+                        X-RateLimit-Reset:
+                            description: Unix epoch milliseconds when the active rate-limit window resets.
+                            schema:
+                                type: string
+                        Retry-After:
+                            description: Seconds to wait before retrying the request.
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/Error'
+                                    - $ref: '#/components/schemas/RateLimitError'
+                "503":
+                    description: Service unavailable. Billing-verification responses include code and X-Billing-Verification; other gateway infrastructure failures use the generic GatewayError shape.
+                    headers:
+                        Retry-After:
+                            description: Seconds to wait before retrying (1-60).
+                            schema:
+                                type: string
+                        X-Billing-Verification:
+                            description: Billing-verification state that produced this response (matches the body `code`).
+                            schema:
+                                type: string
+                        X-Validation-Mode:
+                            description: Present with value degraded when user API-key validation is temporarily unavailable.
+                            schema:
+                                type: string
+                        X-RateLimit-Mode:
+                            description: Present with value degraded when a fail-closed rate-limit dependency is unavailable.
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/BillingVerificationError'
+                                    - $ref: '#/components/schemas/GatewayError'
+                default:
+                    description: Gateway or handler error response.
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/Error'
+                                    - $ref: '#/components/schemas/GatewayError'
     /api/positive-events/v1/list-positive-geo-events:
         get:
             tags:
@@ -53607,24 +54024,24 @@ components:
             properties:
                 storyId:
                     type: string
-                    description: Story identity hash.
+                    description: Story identity hash; empty for a correction that names no story.
                 field:
                     type: string
-                    description: Label that changed. Always "corroboration".
+                    description: corroboration (a label moved) | correction (an accepted reader report).
                 previous:
                     type: string
-                    description: 'Previous state: single-publisher | corroborated.'
+                    description: 'Previous state: single-publisher | corroborated; empty for a correction.'
                 next:
                     type: string
-                    description: 'New state: single-publisher | corroborated.'
+                    description: 'New state: single-publisher | corroborated; empty for a correction.'
                 previousPublishers:
                     type: integer
                     format: int32
-                    description: Publisher families behind the previous label.
+                    description: Publisher families behind the previous label; 0 for a correction.
                 nextPublishers:
                     type: integer
                     format: int32
-                    description: Publisher families behind the new label.
+                    description: Publisher families behind the new label; 0 for a correction.
                 at:
                     type: integer
                     format: int64
@@ -53652,7 +54069,9 @@ components:
                     type: integer
                     format: int32
                     description: Story CRED score 0-100 when the change was recorded; -1 when unknown.
-            description: LabelChange records one story moving between single-publisher and corroborated coverage.
+            description: |-
+                LabelChange records one story moving between single-publisher and corroborated
+                 coverage, or one correction a reviewer accepted from a reader report.
         worldmonitor_news_v1_LabelChangePublisher:
             type: object
             properties:
@@ -53664,6 +54083,115 @@ components:
                     format: int32
                     description: Declared source tier 1-4; 0 when no feed label declares one.
             description: LabelChangePublisher is one publisher family behind the new label.
+        worldmonitor_news_v1_SubmitErrorReportRequest:
+            type: object
+            properties:
+                message:
+                    type: string
+                    maxLength: 2000
+                    minLength: 10
+                    description: What is wrong, in the reader's words.
+                storyId:
+                    type: string
+                    maxLength: 64
+                    description: Story identity hash the report concerns, when known (64 hex characters).
+                url:
+                    type: string
+                    maxLength: 2048
+                    description: Article or WorldMonitor URL the report concerns, when known.
+                contact:
+                    type: string
+                    maxLength: 320
+                    description: Optional email for a reply. Never published.
+                website:
+                    type: string
+                    description: 'Honeypot. Leave empty: a filled value is accepted and discarded.'
+            description: SubmitErrorReportRequest is a reader's report that a WorldMonitor label or story is wrong. Stored for review; never applied automatically.
+        worldmonitor_news_v1_SubmitErrorReportResponse:
+            type: object
+            properties:
+                status:
+                    type: string
+                    description: received | queue-full.
+                reportId:
+                    type: string
+                    description: Report id, empty unless received.
+            description: SubmitErrorReportResponse acknowledges a stored report.
+        worldmonitor_news_v1_ListErrorReportsRequest:
+            type: object
+            properties:
+                status:
+                    type: string
+                    maxLength: 16
+                    description: pending (default) | reviewed.
+            description: ListErrorReportsRequest selects reports for review. Requires the X-Trust-Review-Key header.
+        worldmonitor_news_v1_ListErrorReportsResponse:
+            type: object
+            properties:
+                reports:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/worldmonitor_news_v1_ErrorReport'
+                state:
+                    type: string
+                    description: ok | unavailable.
+            description: ListErrorReportsResponse lists reports, oldest pending first or newest reviewed first.
+        worldmonitor_news_v1_ErrorReport:
+            type: object
+            properties:
+                id:
+                    type: string
+                    description: Report id.
+                status:
+                    type: string
+                    description: pending | accepted | rejected.
+                message:
+                    type: string
+                    description: Reader's message.
+                storyId:
+                    type: string
+                    description: Story identity hash, if given.
+                url:
+                    type: string
+                    description: URL, if given.
+                contact:
+                    type: string
+                    description: Reply email, if given.
+                createdAt:
+                    type: integer
+                    format: int64
+                    description: 'Submission time, Unix epoch milliseconds.. Warning: Values > 2^53 may lose precision in JavaScript'
+                reviewedAt:
+                    type: integer
+                    format: int64
+                    description: 'Review time, Unix epoch milliseconds; 0 while pending.. Warning: Values > 2^53 may lose precision in JavaScript'
+                publicNote:
+                    type: string
+                    description: Operator's public note, published with an accepted report.
+            description: ErrorReport is one stored report as an operator sees it.
+        worldmonitor_news_v1_ReviewErrorReportRequest:
+            type: object
+            properties:
+                reportId:
+                    type: string
+                    maxLength: 64
+                    minLength: 1
+                    description: Report id.
+                decision:
+                    type: string
+                    maxLength: 16
+                    description: accept | reject.
+                publicNote:
+                    type: string
+                    maxLength: 500
+                    description: 'Public note. Required to accept: it is what the label log publishes.'
+            description: ReviewErrorReportRequest accepts or rejects one report. Requires the X-Trust-Review-Key header.
+        worldmonitor_news_v1_ReviewErrorReportResponse:
+            type: object
+            properties:
+                report:
+                    $ref: '#/components/schemas/worldmonitor_news_v1_ErrorReport'
+            description: ReviewErrorReportResponse returns the reviewed report.
         worldmonitor_positive_events_v1_ListPositiveGeoEventsRequest:
             type: object
         worldmonitor_positive_events_v1_ListPositiveGeoEventsResponse:
