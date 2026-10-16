@@ -24,7 +24,7 @@ This guide is published by World Monitor. We compare public product documentatio
 | Main workflow | Cross-domain monitoring and alerts | Regional mapped conflict reporting |
 | Coverage | Conflict, protests, shipping, aviation, outages, hazards, cyber and markets | Conflict reports first, with protests and other topics |
 | Alerts | Rules by event type, severity and country to Slack, Discord, Telegram, email, browser push or signed webhook | Not described in the sources we checked |
-| Sources | [Public source inventory](https://www.worldmonitor.app/docs/data-sources) with editorial tiers and propaganda-risk bands | Follow each report's original link |
+| Sources | Tier, propaganda-risk and state-affiliation badges on news items; any outlet's labels via the free `get_sources` MCP tool | Follow each report's original link |
 | Developer access | REST API (API plan), Python, Go and Ruby SDKs, npm CLI, MCP with Pro | Paid API |
 | Price | Free map; [published paid prices](https://www.worldmonitor.app/pro#pricing) | Free map; the lowest paid prices in this set |
 | Best fit | Analysts, teams and developers with a wide brief | Readers following one conflict |
@@ -41,7 +41,7 @@ Liveuamap is a news and information service built around geolocated reports. Its
 
 World Monitor is better when the map is one part of a wider job. The [free map](https://www.worldmonitor.app/dashboard) needs no account and shows conflict alongside protests, shipping, aviation, infrastructure outages, hazards, cyber and markets. The [chokepoints page](https://www.worldmonitor.app/chokepoints) shows live ship transit counts at 13 maritime chokepoints, 7 of them measured against an EIA flow baseline.
 
-On the Pro plan, alert rules filter by event type, severity (all, high or critical) and country and deliver to Slack, Discord, Telegram, email, browser push, or a webhook signed with HMAC-SHA256. Delivery is real time or a daily, twice-daily or weekly digest. Real-time alerts link to the original report, and email digests link every item ([notifications reference](https://www.worldmonitor.app/docs/api-notifications)). Developers get a REST API on a separate API plan, Python, Go and Ruby SDKs, an npm CLI, and an MCP server with Pro. Each outlet in the public source inventory carries an editorial tier and a propaganda-risk band, and state-affiliated outlets are labelled. The code is open source under [AGPL-3.0](https://github.com/koala73/worldmonitor).
+On the Pro plan, alert rules filter by event type, severity (all, high or critical) and country and deliver to Slack, Discord, Telegram, email, browser push, or a webhook signed with HMAC-SHA256. Delivery is real time or a daily, twice-daily or weekly digest. Real-time alerts link to the original report, and email digests link every item ([notifications reference](https://www.worldmonitor.app/docs/api-notifications)). Developers get a REST API on a separate API plan, Python, Go and Ruby SDKs, an npm CLI, and an MCP server with Pro. Each outlet has an editorial tier and a propaganda-risk band: the News panel shows them as badges, the free `get_sources` MCP tool returns them for any outlet, and the [data sources page](https://www.worldmonitor.app/docs/data-sources) explains the scheme. The code is open source under [AGPL-3.0](https://github.com/koala73/worldmonitor).
 
 ## The limits that matter
 
@@ -53,7 +53,7 @@ Neither map is a verified inventory of every incident. World Monitor aggregates 
 - **You need to be told when something happens.** Alert rules by country, event type and severity deliver to Slack, Discord, Telegram, email or browser push.
 - **You track shipping disruption.** Live transit counts at 13 maritime chokepoints sit on the same map.
 - **You build on the data.** The REST API, SDKs, npm CLI and MCP server expose the same feeds.
-- **You want to judge each outlet.** The public source inventory lists editorial tiers and propaganda-risk bands.
+- **You want to judge each outlet.** News items carry tier, propaganda-risk and state-affiliation badges where they apply, and the free `get_sources` MCP tool returns any outlet's labels.
 
 ## Our pick
 

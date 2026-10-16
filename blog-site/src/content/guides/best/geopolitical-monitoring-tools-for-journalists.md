@@ -21,7 +21,7 @@ This guide is published by World Monitor. We compare public product documentatio
 
 | Tool | Best fit | Access | Main limit |
 | --- | --- | --- | --- |
-| Liveuamap | Focused regional conflict reporting | Lowest paid prices in this set; confirm current package | Narrower scope than a cross-domain map |
+| Liveuamap | Focused regional conflict reporting | Lowest published paid prices in this set; confirm current package | Narrower scope than a cross-domain map |
 | World Monitor | A daily international brief with source labels | Free core map; alerts on Pro; published prices | Labels coverage, does not verify events |
 | ACLED | Stories about patterns of violence | myACLED level controls granularity, timing and API access | Not a breaking-news feed |
 | Factal | Human-verified incident alerts for a newsroom | Flat team fee, unlimited users; prices not published | Sales conversation for pricing |
@@ -48,7 +48,7 @@ You need consistent event definitions and a defined time period. A count of visi
 
 **Best for focused regional reporting.**
 
-Liveuamap is a focused, editor-curated conflict news map with regional maps and the lowest paid prices in this set. For an assignment concentrated on one conflict, it is a sensible first stop. Keep a source ledger beside the map. Neither it nor any other map establishes independent confirmation.
+Liveuamap is a focused, editor-curated conflict news map with regional maps and the lowest published paid prices in this set. For an assignment concentrated on one conflict, it is a sensible first stop. Keep a source ledger beside the map. Neither it nor any other map establishes independent confirmation.
 
 [Official Liveuamap documentation](https://dc.liveuamap.com/about).
 
@@ -56,7 +56,7 @@ Liveuamap is a focused, editor-curated conflict news map with regional maps and 
 
 **Best for a daily international brief with source labels.**
 
-World Monitor puts conflict, protests, shipping, aviation, infrastructure outages, hazards, cyber and markets on one map, free with no account at [worldmonitor.app/dashboard](https://www.worldmonitor.app/dashboard). Its aids for judging sources are public. The [data sources page](https://www.worldmonitor.app/docs/data-sources) lists the inventory; each outlet carries an editorial tier from 1 (wire or official) to 4 (aggregator or blog) and a propaganda-risk band, and state-affiliated outlets are labelled. The [trust page](https://www.worldmonitor.app/trust/) shows how widely a story is covered, for example corroborated or single publisher.
+World Monitor puts conflict, protests, shipping, aviation, infrastructure outages, hazards, cyber and markets on one map, free with no account at [worldmonitor.app/dashboard](https://www.worldmonitor.app/dashboard). Its aids for judging sources are public. Each outlet has an editorial tier from 1 (wire or official) to 4 (aggregator or blog), a propaganda-risk band and, where it applies, a state-affiliation label: the News panel shows them as badges, the free `get_sources` MCP tool returns them for any outlet, and the [data sources page](https://www.worldmonitor.app/docs/data-sources) explains the scheme. The [trust page](https://www.worldmonitor.app/trust/) shows how widely a story is covered, for example corroborated or single publisher.
 
 Those labels describe coverage, never whether a story is true. World Monitor aggregates published reports, has no human editors checking each item, and does not verify events on the ground. On the paid Pro plan, alert rules by country, event type and severity reach Slack, Discord, Telegram, email or a signed webhook. Real-time alerts link to the original report, and email digests link every item ([notifications reference](https://www.worldmonitor.app/docs/api-notifications)).
 
@@ -80,7 +80,7 @@ Factal sends incident alerts verified by a 24/7 editorial team, sold for a flat 
 
 ## Pick World Monitor when
 
-- **You need to size up an unfamiliar outlet fast.** Editorial tiers, propaganda-risk bands and state-affiliated labels sit on every source.
+- **You need to size up an unfamiliar outlet fast.** News items carry tier, propaganda-risk and state-affiliation badges where they apply, and the free `get_sources` MCP tool returns any outlet's labels.
 - **You want to know if anyone else has the story.** The trust page marks a story as corroborated or single publisher.
 - **The story crosses domains.** Conflict, shipping, aviation, outages and markets share one map, so a strike near a port shows its traffic too.
 - **You want a morning digest with links.** Email digests, daily or twice daily, link every item to the original report.

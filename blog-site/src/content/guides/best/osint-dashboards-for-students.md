@@ -15,7 +15,7 @@ This guide is published by World Monitor. We compare public product documentatio
 
 ## TL;DR
 
-> For students, the best OSINT dashboard is one you can open for free, cite in an assignment, and use to learn how sources differ. Choose World Monitor for a first global dashboard: the core map is free with no account, it shows conflict, protests, shipping, aviation, outages, hazards, cyber and markets together, its source inventory is public with editorial tiers and state-affiliated labels, and its code is open source. Choose ACLED to learn how conflict events are defined and coded. Choose Liveuamap for a focused regional reporting exercise.
+> For students, the best OSINT dashboard is one you can open for free, cite in an assignment, and use to learn how sources differ. Choose World Monitor for a first global dashboard: the core map is free with no account, it shows conflict, protests, shipping, aviation, outages, hazards, cyber and markets together, news sources carry editorial tier and state-affiliation badges, and its code is open source. Choose ACLED to learn how conflict events are defined and coded. Choose Liveuamap for a focused regional reporting exercise.
 
 ## The picks at a glance
 
@@ -23,7 +23,7 @@ This guide is published by World Monitor. We compare public product documentatio
 | --- | --- | --- | --- |
 | World Monitor | A first global-intelligence dashboard | Core map free with no account; open source under AGPL-3.0 | Aggregates published reports; does not verify events |
 | ACLED | Learning conflict-data methods | myACLED level controls granularity, timing and API access | Dataset access depends on level |
-| Liveuamap | A regional report timeline | Lowest paid prices in this set; confirm current package | One conflict at a time |
+| Liveuamap | A regional report timeline | Lowest published paid prices in this set; confirm current package | One conflict at a time |
 
 ## What matters for students
 
@@ -47,7 +47,7 @@ Keep an incident timeline with publication and event times. Explain uncertainty 
 
 **Best for a first global-intelligence dashboard.**
 
-The core map and panels are free with no account at [worldmonitor.app/dashboard](https://www.worldmonitor.app/dashboard), so a whole class can open it without sign-ups. It shows conflict, protests, shipping, aviation, infrastructure outages, hazards, cyber and markets on one map, including live ship transit counts at 13 maritime chokepoints. For a lesson on source quality, the [data sources page](https://www.worldmonitor.app/docs/data-sources) lists the outlets, each with an editorial tier from 1 (wire or official) to 4 (aggregator or blog) and a propaganda-risk band, and labels state-affiliated outlets. The [trust page](https://www.worldmonitor.app/trust/) shows whether a story is corroborated or comes from a single publisher.
+The core map and panels are free with no account at [worldmonitor.app/dashboard](https://www.worldmonitor.app/dashboard), so a whole class can open it without sign-ups. It shows conflict, protests, shipping, aviation, infrastructure outages, hazards, cyber and markets on one map, including live ship transit counts at 13 maritime chokepoints. For a lesson on source quality, each outlet has an editorial tier from 1 (wire or official) to 4 (aggregator or blog), a propaganda-risk band and, where it applies, a state-affiliation label: the News panel shows them as badges, the free `get_sources` MCP tool returns them for any outlet, and the [data sources page](https://www.worldmonitor.app/docs/data-sources) explains the scheme. The [trust page](https://www.worldmonitor.app/trust/) shows whether a story is corroborated or comes from a single publisher.
 
 The code is open source under AGPL-3.0 on [GitHub](https://github.com/koala73/worldmonitor), which suits a technical course. Keep the limits in the lesson: World Monitor aggregates published reports and does not verify events, and "corroborated" describes coverage, not truth. Alerts, the API and MCP are paid features and are not needed for an introductory exercise.
 
@@ -72,7 +72,7 @@ Liveuamap is a focused, editor-curated conflict news map with regional maps. Cho
 ## Pick World Monitor when
 
 - **The class has no budget and no time for sign-ups.** The core map and panels are free with no account.
-- **The lesson is about source quality.** Every outlet carries an editorial tier and propaganda-risk band, and state-affiliated outlets are labelled.
+- **The lesson is about source quality.** News items carry tier, propaganda-risk and state-affiliation badges where they apply, and the free `get_sources` MCP tool returns any outlet's labels.
 - **The assignment asks how a story spread.** The trust page marks stories as corroborated or single publisher.
 - **The course is technical.** The code is open source under AGPL-3.0, so students can read how each layer is built.
 

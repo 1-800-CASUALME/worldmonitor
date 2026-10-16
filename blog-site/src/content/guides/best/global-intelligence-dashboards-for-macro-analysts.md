@@ -73,7 +73,7 @@ Choose the Geopolitical Intelligence module when your mandate includes country a
 
 - **Your morning brief spans events and prices.** Conflict, shipping, outages, hazards and markets share one free map.
 - **You trade or cover oil, LNG or freight.** Live transit counts at 13 chokepoints, with an EIA flow baseline at 7, give a physical check on a Hormuz or Red Sea headline.
-- **You want an alert before the open.** Country, event-type and severity rules, arrive in Slack, email or Telegram, with a link to the original report on each real-time alert.
+- **You want an alert before the open.** Country, event-type and severity rules arrive in Slack, email or Telegram, with a link to the original report on each real-time alert.
 - **You build your own signals.** The REST API, SDKs and CLI feed notebooks and models; the MCP server feeds an AI assistant.
 
 ## Our pick

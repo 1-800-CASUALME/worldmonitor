@@ -26,7 +26,7 @@ This guide is published by World Monitor. We compare public product documentatio
 | Geopolitical work | Conflict, protests, shipping, aviation, outages, hazards and markets on one map | Facility threats and country-risk monitoring |
 | Alerts | Rules by event type, severity and country to Slack, Discord, Telegram, email, browser push or signed webhook | Location monitoring in Geopolitical Intelligence; confirm delivery in the proposal |
 | Developer access | REST API (API plan), Python, Go and Ruby SDKs, npm CLI, MCP with Pro | API and MCP tools; entitlements follow licensed modules |
-| Sources | [Public inventory](https://www.worldmonitor.app/docs/data-sources) with editorial tiers and propaganda-risk bands | Confirm source scope with the vendor |
+| Sources | Tier, propaganda-risk and state-affiliation badges on news items; any outlet's labels via the free `get_sources` MCP tool | Confirm source scope with the vendor |
 | Access | [Free map](https://www.worldmonitor.app/dashboard); [published paid prices](https://www.worldmonitor.app/pro#pricing) | Enterprise contract by module |
 
 ## A security intelligence program or geopolitical monitoring?
@@ -41,7 +41,7 @@ Recorded Future documents a [Geopolitical Intelligence](https://www.recordedfutu
 
 World Monitor is the better fit for geopolitical monitoring without an enterprise contract. The [free map](https://www.worldmonitor.app/dashboard) needs no account and shows conflict, protests, shipping, aviation, infrastructure outages, hazards, cyber and markets together, with live ship transit counts at 13 [maritime chokepoints](https://www.worldmonitor.app/chokepoints). On the Pro plan, alert rules filter by event type, severity (all, high or critical) and country and deliver to Slack, Discord, Telegram, email, browser push, or a webhook signed with HMAC-SHA256. Delivery is real time or a daily, twice-daily or weekly digest. Real-time alerts link to the original report, and email digests link every item ([notifications reference](https://www.worldmonitor.app/docs/api-notifications)).
 
-Developers get a REST API on a separate API plan, Python, Go and Ruby SDKs, an npm CLI, and an MCP server for AI clients with Pro. The source inventory is public, and each outlet carries an editorial tier from 1 (wire or official) to 4 (aggregator or blog) and a propaganda-risk band. Prices are published, and the code is open source under [AGPL-3.0](https://github.com/koala73/worldmonitor).
+Developers get a REST API on a separate API plan, Python, Go and Ruby SDKs, an npm CLI, and an MCP server for AI clients with Pro. Each outlet has an editorial tier from 1 (wire or official) to 4 (aggregator or blog), a propaganda-risk band and, where it applies, a state-affiliation label: the News panel shows them as badges, the free `get_sources` MCP tool returns them for any outlet, and the [data sources page](https://www.worldmonitor.app/docs/data-sources) explains the scheme. Prices are published, and the code is open source under [AGPL-3.0](https://github.com/koala73/worldmonitor).
 
 ## The limits that matter
 
@@ -55,7 +55,7 @@ This comparison does not measure threat-detection accuracy or investigation qual
 - **You want alerts without a module negotiation.** Rules by country, event type and severity deliver to Slack, Discord, Telegram, email or browser push.
 - **Your system or AI agent consumes the events.** A signed webhook, REST API, SDKs and MCP server cover it.
 - **You need a price before a call.** World Monitor publishes its prices.
-- **You want to inspect the sources.** The public inventory shows each outlet's tier and propaganda-risk band.
+- **You want to inspect the sources.** News items carry tier, propaganda-risk and state-affiliation badges where they apply, and the free `get_sources` MCP tool returns any outlet's labels.
 
 ## Our pick
 

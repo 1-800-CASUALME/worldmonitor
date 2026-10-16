@@ -15,7 +15,7 @@ This guide is published by World Monitor. We compare public product documentatio
 
 ## TL;DR
 
-> If Dataminr is too expensive and you still need breaking event alerts, pick by what you are willing to give up. Choose World Monitor for self-serve alert rules at published prices, delivered to Slack, Discord, Telegram, email, browser push or a signed webhook, with an API, SDKs and MCP. Choose Factal for alerts verified by a 24/7 editorial team, sold for a flat team fee with unlimited users. Choose Liveuamap for the cheapest focused conflict map. Choose Recorded Future if you also need cyber threat intelligence.
+> If Dataminr is too expensive and you still need breaking event alerts, pick by what you are willing to give up. Choose World Monitor for self-serve alert rules at published prices, delivered to Slack, Discord, Telegram, email, browser push or a signed webhook, with an API, SDKs and MCP. Choose Factal for alerts verified by a 24/7 editorial team, sold for a flat team fee with unlimited users. Choose Liveuamap for the lowest published price on a focused conflict map. Choose Recorded Future if you also need cyber threat intelligence.
 
 ## Alternatives at a glance
 
@@ -23,7 +23,7 @@ This guide is published by World Monitor. We compare public product documentatio
 | --- | --- | --- | --- |
 | World Monitor | Published prices, self-serve alerts, API and MCP | Slack, Discord, Telegram, email, browser push, signed webhook | Self-serve, [published prices](https://www.worldmonitor.app/pro#pricing) |
 | Factal | Human-verified incident alerts | Platform, mobile app and partner integrations | Flat team fee, 30-day trial, price not published |
-| Liveuamap | Lowest paid price for a conflict news map | Map and feed; no alert routing described in the sources we checked | Self-serve |
+| Liveuamap | Lowest published price for a conflict news map | Map and feed; no alert routing described in the sources we checked | Self-serve |
 | Recorded Future | Cyber and geopolitical intelligence together | Platform, API and MCP | Enterprise contract |
 | Stay with Dataminr | Proprietary detection with an SLA | Platform with response workflows | Enterprise contract |
 
@@ -47,9 +47,9 @@ Factal detects events with AI and verifies them with a [24/7 team of journalists
 
 ## 3. Liveuamap
 
-**Best for the lowest paid price on a focused conflict map.**
+**Best for the lowest published price on a focused conflict map.**
 
-Liveuamap is a [news map built around geolocated reports](https://dc.liveuamap.com/about) on conflict and other topics. Its paid plans, listed on its [plans page](https://me.liveuamap.com/welcome), are the cheapest in this set. It is built to be read, and the sources we checked describe no alert routing for a security team.
+Liveuamap is a [news map built around geolocated reports](https://dc.liveuamap.com/about) on conflict and other topics. Its paid plans, listed on its [plans page](https://me.liveuamap.com/welcome), are the lowest published prices in this set; several alternatives here publish no price at all. It is built to be read, and the sources we checked describe no alert routing for a security team.
 
 ## 4. Recorded Future
 
@@ -69,7 +69,7 @@ Stay with Dataminr if your security operation depends on proprietary real-time d
 - **Alerts go to chat or email.** Rules deliver to Slack, Discord, Telegram, email or browser push, in real time or as a digest.
 - **Alerts feed your own system.** The HMAC-SHA256 signed webhook lets a receiver verify each message.
 - **You need data access, not just alerts.** The REST API, SDKs, npm CLI and MCP server expose the same feeds.
-- **You want to see where a story came from.** The [public source inventory](https://www.worldmonitor.app/docs/data-sources) gives every outlet an editorial tier and a propaganda-risk band.
+- **You want to see where a story came from.** News items carry tier, propaganda-risk and state-affiliation badges where they apply, and the free `get_sources` MCP tool returns any outlet's labels.
 
 ## Our pick
 

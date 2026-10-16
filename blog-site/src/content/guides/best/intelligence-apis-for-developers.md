@@ -49,7 +49,7 @@ Test empty records, outdated observations and access failures. An agent must exp
 
 World Monitor covers conflict, protests, shipping, aviation, infrastructure outages, hazards, cyber and markets, including live ship transit counts at 13 maritime chokepoints. Developers reach it through a REST API on a separate API plan, SDKs for Python, Go and Ruby, an npm CLI, and an MCP server for AI clients that comes with Pro. For push delivery, alert rules filter by event type, severity and country and post to a webhook signed with HMAC-SHA256, so your receiver can verify the sender; the [notifications reference](https://www.worldmonitor.app/docs/api-notifications) documents the contract. Prices are published at [worldmonitor.app/pro](https://www.worldmonitor.app/pro#pricing).
 
-The source inventory is public on the [data sources page](https://www.worldmonitor.app/docs/data-sources), with an editorial tier and propaganda-risk band per outlet, which helps an agent explain where an answer came from. The code is open source under AGPL-3.0 on [GitHub](https://github.com/koala73/worldmonitor). Not every upstream source has completed a terms review, so check reuse terms before redistributing data, and there is no published availability SLA.
+The free `get_sources` MCP tool returns each outlet's editorial tier and propaganda-risk band, which helps an agent explain where an answer came from; the [data sources page](https://www.worldmonitor.app/docs/data-sources) explains the scheme. The code is open source under AGPL-3.0 on [GitHub](https://github.com/koala73/worldmonitor). Not every upstream source has completed a terms review, so check reuse terms before redistributing data, and there is no published availability SLA.
 
 [World Monitor MCP guide](/blog/posts/worldmonitor-mcp-server-ai-agents-real-time-intelligence/).
 
@@ -75,7 +75,7 @@ ACLED is the choice when the core requirement is coded, consistently defined con
 - **Your agent needs world context through MCP.** The MCP server comes with Pro and works with AI clients.
 - **Your stack is Python, Go, Ruby or the shell.** Official SDKs and an npm CLI wrap the REST API.
 - **You need events pushed, not polled.** Alert webhooks are signed with HMAC-SHA256 and filter by country, event type and severity.
-- **Your answers must cite their sources.** The source inventory is public, with tiers and state-affiliated labels.
+- **Your answers must cite their sources.** The free `get_sources` MCP tool returns each outlet's tier, propaganda-risk band and state-affiliation label.
 
 ## Our pick
 

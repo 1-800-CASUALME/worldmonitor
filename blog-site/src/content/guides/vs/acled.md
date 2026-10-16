@@ -41,7 +41,7 @@ ACLED publishes a conflict-event methodology and an access framework for its dat
 
 World Monitor is built for watching, not coding. The [free map](https://www.worldmonitor.app/dashboard) needs no account and shows conflict alongside protests, shipping, aviation, infrastructure outages, hazards, cyber and markets. On the Pro plan, alert rules filter by event type, severity (all, high or critical) and country, and deliver to Slack, Discord, Telegram, email, browser push, or a webhook signed with HMAC-SHA256, in real time or as a daily, twice-daily or weekly digest. Real-time alerts link to the original report, and email digests link every item. The [notifications reference](https://www.worldmonitor.app/docs/api-notifications) documents the channels.
 
-Developers get a REST API on a separate API plan, Python, Go and Ruby SDKs, an npm CLI, and an MCP server with Pro. The [source inventory is public](https://www.worldmonitor.app/docs/data-sources): each outlet carries an editorial tier from 1 (wire or official) to 4 (aggregator or blog) and a propaganda-risk band, and state-affiliated outlets are labelled. Prices are on the [plans page](https://www.worldmonitor.app/pro#pricing).
+Developers get a REST API on a separate API plan, Python, Go and Ruby SDKs, an npm CLI, and an MCP server with Pro. Each outlet has an editorial tier from 1 (wire or official) to 4 (aggregator or blog), a propaganda-risk band and, where it applies, a state-affiliation label: the News panel shows them as badges, the free `get_sources` MCP tool returns them for any outlet, and the [data sources page](https://www.worldmonitor.app/docs/data-sources) explains the scheme. Prices are on the [plans page](https://www.worldmonitor.app/pro#pricing).
 
 ## The limits that matter
 

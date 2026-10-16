@@ -40,7 +40,7 @@ Every claim a guide makes about World Monitor must appear here with its proof. T
 | Real-time alerts link to the original report, and email digests link every item | `formatEventLinkForText` in `scripts/notification-relay.cjs` renders `payload.link` on text channels; `formatDigestHtml` in `scripts/seed-digest-notifications.mjs` renders each title as a link to `s.link`. Chat digests (`formatDigest`) name each item's sources without a link, so guides must not say chat digests link items. |
 | Alerts and digests need a paid plan | "Scheduled AI digest + alert rules engine" in the Pro plan in product facts; PRO gate in the notifications reference |
 | REST API, Python, Go, and Ruby SDKs, an npm CLI, and an MCP server | `sdk/python` (`worldmonitor-sdk`), `sdk/go`, `sdk/ruby` (`worldmonitor`), `cli/package.json` (`worldmonitor`); live MCP `get_sources` call on October 16, 2026 |
-| The source inventory is public, and outlets carry an editorial tier and a propaganda-risk band | Live MCP `get_sources` summary on October 16, 2026 (`providerCount`, `outletCount`, `outletsByTier` 1 to 4, `outletsByRisk`); [data sources](/data-sources); `/trust/` |
+| Outlets carry an editorial tier, a propaganda-risk band and, where it applies, a state-affiliation label. Readers see them as News panel badges and can look up any outlet with the free `get_sources` MCP tool. [Data sources](/data-sources) explains the scheme but does not list each outlet's labels. | `getPrimarySourceProvenanceBadges` in `src/components/news/source-provenance.ts` (tier badge for tiers 1 and 2, risk badge, provenance facts); live MCP `get_sources` on October 16, 2026 (`outletsByTier` 1 to 4, `outletsByRisk`; the `outlets` view lists each outlet) |
 | Live transit counts at every registry chokepoint, with the energy subset measured against an EIA flow baseline | [chokepoint methodology](/methodology/chokepoints); live MCP `get_chokepoint_status` for Hormuz on October 16, 2026 |
 | Open source under AGPL-3.0 | `LICENSE` |
 | Published self-serve prices | `shared/product-facts.generated.json` plans; guides link to `/pro#pricing` instead of repeating a figure |
@@ -50,6 +50,7 @@ Limits that guides must state and must not contradict:
 | Limit | Proof |
 | --- | --- |
 | Alerts are scoped by country, not by a radius around an address | `countries` (ISO alpha-2) is the only location scope on alert rules in `convex/schema.ts` |
+| Alerts do not carry World Monitor's chokepoint transit or disruption model. Guides must not promise chokepoint warnings. | The only maritime events are `corridor_risk` (a third-party corridor score of 50 or more for Hormuz, Bab el-Mandeb, Suez, Taiwan Strait and Bosporus, with no Panama mapping) and `shipping_stress` in `scripts/ais-relay.cjs`. Both carry no country, so country-scoped rules drop them (`scripts/notification-relay.cjs`). |
 | No Microsoft Teams channel; reaching Teams needs a relay that reposts the signed webhook | Channel list in `convex/schema.ts` |
 | No published availability SLA, analyst service, or travel assistance | Not offered in product facts or plans |
 | Most providers have not completed a terms review, so guides must not call the sources licensed | Live MCP `get_sources` summary, `providersByStatus` |

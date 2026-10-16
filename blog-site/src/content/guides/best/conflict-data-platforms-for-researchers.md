@@ -15,7 +15,7 @@ This guide is published by World Monitor. We compare public product documentatio
 
 ## TL;DR
 
-> For conflict researchers, the best data platform is the one whose event definitions you can defend in a methods section. Choose ACLED for research that depends on coded, consistently defined conflict events. Choose World Monitor when you need current cross-domain context to frame a question: conflict, protests, shipping, outages, hazards and markets on one free map, a public source inventory with editorial tiers and state-affiliated labels, and a REST API and SDKs for pulling context into your own pipeline. Choose Liveuamap to discover reported incidents for qualitative case work.
+> For conflict researchers, the best data platform is the one whose event definitions you can defend in a methods section. Choose ACLED for research that depends on coded, consistently defined conflict events. Choose World Monitor when you need current cross-domain context to frame a question: conflict, protests, shipping, outages, hazards and markets on one free map, editorial tier and state-affiliation badges on news sources, and a REST API and SDKs for pulling context into your own pipeline. Choose Liveuamap to discover reported incidents for qualitative case work.
 
 ## The picks at a glance
 
@@ -55,7 +55,7 @@ ACLED is the choice for research needing coded, consistently defined conflict-ev
 
 **Best for current context and question framing.**
 
-World Monitor puts conflict, protests, shipping, aviation, infrastructure outages, hazards, cyber and markets on one map, free with no account at [worldmonitor.app/dashboard](https://www.worldmonitor.app/dashboard). Its source inventory is public on the [data sources page](https://www.worldmonitor.app/docs/data-sources): each outlet carries an editorial tier from 1 (wire or official) to 4 (aggregator or blog) and a propaganda-risk band, and state-affiliated outlets are labelled. That makes it easier to describe the media environment around a case.
+World Monitor puts conflict, protests, shipping, aviation, infrastructure outages, hazards, cyber and markets on one map, free with no account at [worldmonitor.app/dashboard](https://www.worldmonitor.app/dashboard). Each outlet has an editorial tier from 1 (wire or official) to 4 (aggregator or blog), a propaganda-risk band and, where it applies, a state-affiliation label: the News panel shows them as badges, the free `get_sources` MCP tool returns them for any outlet, and the [data sources page](https://www.worldmonitor.app/docs/data-sources) explains the scheme. That makes it easier to describe the media environment around a case.
 
 For pipelines, there is a REST API on a separate API plan, Python, Go and Ruby SDKs, and an npm CLI. The code is open source under AGPL-3.0 on [GitHub](https://github.com/koala73/worldmonitor), so you can read how a layer is built. World Monitor aggregates published reports and does not verify events on the ground. Not every upstream source has completed a terms review, so check reuse terms before republishing data. Move statistical analysis to the original source dataset.
 
@@ -72,7 +72,7 @@ Liveuamap is a focused, editor-curated conflict news map with regional maps. Use
 ## Pick World Monitor when
 
 - **You are framing a question, not testing one.** Conflict, protests, outages, shipping and markets on one free map show what else changed around a case.
-- **Your study concerns the media environment.** Outlets carry editorial tiers and propaganda-risk bands, and state-affiliated outlets are labelled.
+- **Your study concerns the media environment.** News items carry tier, propaganda-risk and state-affiliation badges where they apply, and the free `get_sources` MCP tool returns any outlet's labels.
 - **You want context in a notebook.** The REST API, Python, Go and Ruby SDKs and CLI pull the same data into your pipeline.
 - **You need to inspect the method.** The code is open source under AGPL-3.0.
 

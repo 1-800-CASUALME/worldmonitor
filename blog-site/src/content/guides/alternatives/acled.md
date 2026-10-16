@@ -34,7 +34,7 @@ Most people who look for an ACLED alternative are not unhappy with the methodolo
 
 **Best when you need live monitoring, alerts and an API rather than a coded dataset.**
 
-The [free map](https://www.worldmonitor.app/dashboard) needs no account and shows conflict alongside protests, shipping, aviation, infrastructure outages, hazards, cyber and markets. On the Pro plan, alert rules filter by event type, severity (all, high or critical) and country, and deliver to Slack, Discord, Telegram, email, browser push, or a webhook signed with HMAC-SHA256. Delivery is real time or a daily, twice-daily or weekly digest. Real-time alerts link to the original report, and email digests link every item ([notifications reference](https://www.worldmonitor.app/docs/api-notifications)). Developers get a REST API on a separate API plan, Python, Go and Ruby SDKs, an npm CLI, and an MCP server with Pro. The [source inventory is public](https://www.worldmonitor.app/docs/data-sources), with an editorial tier and propaganda-risk band for each outlet.
+The [free map](https://www.worldmonitor.app/dashboard) needs no account and shows conflict alongside protests, shipping, aviation, infrastructure outages, hazards, cyber and markets. On the Pro plan, alert rules filter by event type, severity (all, high or critical) and country, and deliver to Slack, Discord, Telegram, email, browser push, or a webhook signed with HMAC-SHA256. Delivery is real time or a daily, twice-daily or weekly digest. Real-time alerts link to the original report, and email digests link every item ([notifications reference](https://www.worldmonitor.app/docs/api-notifications)). Developers get a REST API on a separate API plan, Python, Go and Ruby SDKs, an npm CLI, and an MCP server with Pro. Each outlet has an editorial tier and a propaganda-risk band: the News panel shows them as badges, the free `get_sources` MCP tool returns them for any outlet, and the [data sources page](https://www.worldmonitor.app/docs/data-sources) explains the scheme.
 
 The tradeoff: World Monitor aggregates published reports and does not verify events on the ground. It is not a coded research dataset, so do not use map marker counts in place of ACLED event counts.
 
@@ -42,7 +42,7 @@ The tradeoff: World Monitor aggregates published reports and does not verify eve
 
 **Best for a low-cost map of regional conflict reports.**
 
-Liveuamap is a [news map built around geolocated reports](https://dc.liveuamap.com/about) on conflict, protests and other topics. Its paid plans, listed on its [plans page](https://me.liveuamap.com/welcome), are the cheapest in this set. A mapped news feed supports incident discovery and timeline work, but it is not an interchangeable statistical dataset. Preserve source links and use your own verification process.
+Liveuamap is a [news map built around geolocated reports](https://dc.liveuamap.com/about) on conflict, protests and other topics. Its paid plans, listed on its [plans page](https://me.liveuamap.com/welcome), are the lowest published prices in this set; several alternatives here publish no price at all. A mapped news feed supports incident discovery and timeline work, but it is not an interchangeable statistical dataset. Preserve source links and use your own verification process.
 
 ## 3. Recorded Future
 
@@ -60,7 +60,7 @@ Stay with ACLED if your work is event-level research, reproducible analysis, or 
 - **Conflict is one part of the brief.** One map adds shipping, aviation, outages, hazards, cyber and markets.
 - **You want to start without an access application.** The map is free with no account, and paid prices are published.
 - **You are building on current events.** The REST API, SDKs, npm CLI and MCP server expose the same feeds.
-- **You need to judge the source.** The public source inventory shows each outlet's editorial tier and propaganda-risk band.
+- **You need to judge the source.** News items carry tier, propaganda-risk and state-affiliation badges where they apply, and the free `get_sources` MCP tool returns any outlet's labels.
 
 ## Our pick
 

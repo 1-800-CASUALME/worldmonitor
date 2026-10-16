@@ -14,7 +14,7 @@ This guide is published by World Monitor. We compare public product documentatio
 
 ## TL;DR
 
-> The right Factal alternative depends on why you are leaving: price you cannot see, alerts you want to configure yourself, or a different scale of operation. Choose World Monitor for self-serve breaking event alerts at published prices, routed to Slack, Discord, Telegram, email, browser push or an HMAC-signed webhook, with a REST API, SDKs and MCP. Choose Dataminr for proprietary detection under an enterprise contract with an SLA. Choose Liveuamap for the cheapest conflict news map. Stay with Factal if human verification of every alert is the requirement.
+> The right Factal alternative depends on why you are leaving: price you cannot see, alerts you want to configure yourself, or a different scale of operation. Choose World Monitor for self-serve breaking event alerts at published prices, routed to Slack, Discord, Telegram, email, browser push or an HMAC-signed webhook, with a REST API, SDKs and MCP. Choose Dataminr for proprietary detection under an enterprise contract with an SLA. Choose Liveuamap for the lowest published price on a conflict news map. Stay with Factal if human verification of every alert is the requirement.
 
 ## Alternatives at a glance
 
@@ -22,7 +22,7 @@ This guide is published by World Monitor. We compare public product documentatio
 | --- | --- | --- | --- |
 | World Monitor | Published prices, self-serve alert rules, API and MCP | Slack, Discord, Telegram, email, browser push, signed webhook | Self-serve, [published prices](https://www.worldmonitor.app/pro#pricing) |
 | Dataminr | Proprietary detection with a contractual SLA | Platform with response workflows | Enterprise contract |
-| Liveuamap | Lowest paid price for a conflict news map | Map and feed; no alert routing described in the sources we checked | Self-serve |
+| Liveuamap | Lowest published price for a conflict news map | Map and feed; no alert routing described in the sources we checked | Self-serve |
 | Stay with Factal | Alerts verified by a 24/7 editorial team | Platform, mobile app, partner integrations | Flat team fee, price not published |
 
 ## Why teams leave Factal
@@ -35,7 +35,7 @@ Factal does not publish its team fee, so a small team cannot see the cost before
 
 World Monitor publishes its prices on the [plans page](https://www.worldmonitor.app/pro#pricing), and you sign up without a sales call. Alert rules filter by event type, severity (all, high or critical) and country. They deliver to Slack, Discord, Telegram, email, browser push, or a webhook signed with HMAC-SHA256, in real time or as a daily, twice-daily or weekly digest. Real-time alerts link to the original report, and email digests link every item. The [notifications reference](https://www.worldmonitor.app/docs/api-notifications) documents each channel. Alerts and digests need the Pro plan.
 
-The [free map](https://www.worldmonitor.app/dashboard) covers conflict, protests, shipping, aviation, infrastructure outages, hazards, cyber and markets, with live ship transit counts at 13 [maritime chokepoints](https://www.worldmonitor.app/chokepoints). Developers get a REST API on a separate API plan, Python, Go and Ruby SDKs, an npm CLI, and an MCP server with Pro. The [source inventory is public](https://www.worldmonitor.app/docs/data-sources), with an editorial tier and a propaganda-risk band for every outlet.
+The [free map](https://www.worldmonitor.app/dashboard) covers conflict, protests, shipping, aviation, infrastructure outages, hazards, cyber and markets, with live ship transit counts at 13 [maritime chokepoints](https://www.worldmonitor.app/chokepoints). Developers get a REST API on a separate API plan, Python, Go and Ruby SDKs, an npm CLI, and an MCP server with Pro. Each outlet has an editorial tier and a propaganda-risk band: the News panel shows them as badges, the free `get_sources` MCP tool returns them for any outlet, and the [data sources page](https://www.worldmonitor.app/docs/data-sources) explains the scheme.
 
 The tradeoff is verification. World Monitor aggregates published reports and does not verify events on the ground, and no editor checks each item. Alerts are scoped by country, not by a radius around your offices or travelers. There is no published SLA and no Microsoft Teams channel. Reaching Teams takes your own relay that receives the signed webhook and reposts it.
 
@@ -47,9 +47,9 @@ Dataminr sells proprietary real-time detection on public and social data. Its en
 
 ## 3. Liveuamap
 
-**Best for the lowest paid price on a conflict news map.**
+**Best for the lowest published price on a conflict news map.**
 
-Liveuamap is a [news map built around geolocated reports](https://dc.liveuamap.com/about) on conflict, protests and other topics. Its paid plans, listed on its [plans page](https://me.liveuamap.com/welcome), are the cheapest in this set. It suits a reader following one conflict, and the sources we checked describe no alert routing for a security team.
+Liveuamap is a [news map built around geolocated reports](https://dc.liveuamap.com/about) on conflict, protests and other topics. Its paid plans, listed on its [plans page](https://me.liveuamap.com/welcome), are the lowest published prices in this set; several alternatives here publish no price at all. It suits a reader following one conflict, and the sources we checked describe no alert routing for a security team.
 
 ## Stay with Factal if
 

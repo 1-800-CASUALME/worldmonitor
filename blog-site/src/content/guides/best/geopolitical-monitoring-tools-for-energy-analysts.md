@@ -93,7 +93,7 @@ For chokepoint traffic and an energy-security briefing, pick World Monitor. For 
 
 No. It shows live transit counts at 13 chokepoints and measures 7 of them against an EIA flow baseline. For the other six, use the transit count as a traffic signal, not a flow estimate.
 
-**Does a chokepoint alert prove an energy shortage?**
+**Does a high chokepoint disruption score prove an energy shortage?**
 
 No. It identifies a condition to investigate. Actual supply effects depend on routes, timing, inventories and operations. Verify those inputs before drawing a conclusion.
 

@@ -41,7 +41,7 @@ Crisis24 Horizon's documentation describes risk intelligence, travel risk manage
 
 World Monitor is the better fit for monitoring at a published price. The [free map](https://www.worldmonitor.app/dashboard) needs no account and shows conflict, protests, shipping, aviation, infrastructure outages, hazards, cyber and markets together. On the Pro plan, alert rules filter by event type, severity (all, high or critical) and country and deliver to Slack, Discord, Telegram, email, browser push, or a webhook signed with HMAC-SHA256. Delivery is real time or a daily, twice-daily or weekly digest. Real-time alerts link to the original report, and email digests link every item ([notifications reference](https://www.worldmonitor.app/docs/api-notifications)).
 
-Developers get a REST API on a separate API plan, Python, Go and Ruby SDKs, an npm CLI, and an MCP server with Pro. The [source inventory is public](https://www.worldmonitor.app/docs/data-sources): each outlet carries an editorial tier and a propaganda-risk band, and state-affiliated outlets are labelled. Prices are on the [plans page](https://www.worldmonitor.app/pro#pricing).
+Developers get a REST API on a separate API plan, Python, Go and Ruby SDKs, an npm CLI, and an MCP server with Pro. Each outlet has an editorial tier and a propaganda-risk band: the News panel shows them as badges, the free `get_sources` MCP tool returns them for any outlet, and the [data sources page](https://www.worldmonitor.app/docs/data-sources) explains the scheme. Prices are on the [plans page](https://www.worldmonitor.app/pro#pricing).
 
 ## The limits that matter
 

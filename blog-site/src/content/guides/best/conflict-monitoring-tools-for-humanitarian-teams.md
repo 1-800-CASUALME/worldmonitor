@@ -64,7 +64,7 @@ Choose Crisis24 Horizon if your organization needs traveler and staff visibility
 
 **Best for a shared external briefing with country alerts.**
 
-World Monitor puts conflict, protests, shipping, aviation, infrastructure outages, hazards, cyber and markets on one map. The core map is free with no account at [worldmonitor.app/dashboard](https://www.worldmonitor.app/dashboard), which suits teams without a budget line. On the paid Pro plan, alert rules filter by country, event type and severity (all, high or critical) and deliver to Slack, Discord, Telegram, email, browser push or an HMAC-SHA256 signed webhook. Real-time alerts link to the original report, and email digests link every item ([notifications reference](https://www.worldmonitor.app/docs/api-notifications)). Each outlet in the public [source inventory](https://www.worldmonitor.app/docs/data-sources) carries an editorial tier, and state-affiliated outlets are labelled.
+World Monitor puts conflict, protests, shipping, aviation, infrastructure outages, hazards, cyber and markets on one map. The core map is free with no account at [worldmonitor.app/dashboard](https://www.worldmonitor.app/dashboard), which suits teams without a budget line. On the paid Pro plan, alert rules filter by country, event type and severity (all, high or critical) and deliver to Slack, Discord, Telegram, email, browser push or an HMAC-SHA256 signed webhook. Real-time alerts link to the original report, and email digests link every item ([notifications reference](https://www.worldmonitor.app/docs/api-notifications)). Each outlet has an editorial tier and a propaganda-risk band: the News panel shows them as badges, the free `get_sources` MCP tool returns them for any outlet, and the [data sources page](https://www.worldmonitor.app/docs/data-sources) explains the scheme.
 
 Alerts are scoped by country, not by a radius around a compound or route. World Monitor aggregates published reports, does not verify events on the ground, and offers no SLA, analyst desk or evacuation assistance. Do not treat an absent report as evidence that an area is safe.
 
@@ -83,7 +83,7 @@ Factal sends incident alerts verified by a 24/7 editorial team, for a flat team 
 - **You operate in several countries and need notice when one flares up.** Country, event-type and severity rules reach the channel your team already uses, including Telegram and email.
 - **Your situation report crosses domains.** Conflict, hazards, outages, aviation and shipping share one map.
 - **You need a morning digest with sources.** Email digests, daily or twice daily, link every item to the original report.
-- **You want to weigh unfamiliar local outlets.** Editorial tiers and state-affiliated labels sit on every source.
+- **You want to weigh unfamiliar local outlets.** News items carry tier, propaganda-risk and state-affiliation badges where they apply, and the free `get_sources` MCP tool returns any outlet's labels.
 - **You have no budget yet.** The core map is free with no account.
 
 ## Our pick
