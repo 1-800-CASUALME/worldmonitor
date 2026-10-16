@@ -1,6 +1,7 @@
 // POST: signed-in dashboard (Clerk bearer) gets the portal URL as JSON.
 // GET: dunning-email CTA (?t= HMAC token, verified in Convex) or a Clerk
-// bearer; 302s only to an https *.dodopayments.com session, else to sign-in.
+// bearer; 302s only to an https *.dodopayments.com session, else to the
+// dashboard, which opens the portal after sign-in.
 export const config = { runtime: 'edge' };
 
 // @ts-expect-error — JS module, no declaration file
@@ -22,7 +23,8 @@ const CONVEX_SITE_URL =
   process.env.CONVEX_SITE_URL ??
   (process.env.CONVEX_URL ?? '').replace('.convex.cloud', '.convex.site');
 const CONVEX_TENANT_RELAY_SECRET = process.env.CONVEX_TENANT_RELAY_SECRET ?? '';
-const SIGN_IN_URL = 'https://www.worldmonitor.app/dashboard';
+// The dashboard opens the billing portal after sign-in (billing-portal-intent).
+const PORTAL_FALLBACK_URL = 'https://www.worldmonitor.app/dashboard?billing=portal';
 const PORTAL_RELAY_USER_AGENT = 'worldmonitor-customer-portal-edge/1.0';
 
 function redirect(location: string): Response {
@@ -187,7 +189,7 @@ async function handlePortalGet(
   const portalToken = new URL(req.url).searchParams.get('t') ?? '';
   const authHeader = req.headers.get('Authorization') ?? '';
   const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  if (!portalToken && !bearer) return redirect(SIGN_IN_URL);
+  if (!portalToken && !bearer) return redirect(PORTAL_FALLBACK_URL);
 
   const limited = await checkRateLimit(req, cors, {
     scope: 'customer-portal-get',
@@ -196,7 +198,7 @@ async function handlePortalGet(
     failClosed: true,
     ctx,
   });
-  if (limited) return redirect(SIGN_IN_URL);
+  if (limited) return redirect(PORTAL_FALLBACK_URL);
 
   // Per-credential cap: a leaked link replayed from many IPs still mints at
   // most a handful of sessions a minute.
@@ -209,7 +211,7 @@ async function handlePortalGet(
       identifier: await tokenRateLimitKey(portalToken),
       ctx,
     });
-    if (tokenLimited) return redirect(SIGN_IN_URL);
+    if (tokenLimited) return redirect(PORTAL_FALLBACK_URL);
   }
 
   try {
@@ -218,7 +220,7 @@ async function handlePortalGet(
       minted = await mintPortalUrl({ portalToken });
     } else {
       const session = await validateBearerToken(bearer);
-      if (!session.valid || !session.userId) return redirect(SIGN_IN_URL);
+      if (!session.valid || !session.userId) return redirect(PORTAL_FALLBACK_URL);
       minted = await mintPortalUrl({ userId: session.userId });
     }
     if (minted.ok) return redirect(minted.portalUrl);
@@ -238,5 +240,5 @@ async function handlePortalGet(
       ctx,
     });
   }
-  return redirect(SIGN_IN_URL);
+  return redirect(PORTAL_FALLBACK_URL);
 }

@@ -1102,9 +1102,9 @@ export const sendDunningEmail = internalAction({
         const token = await signDunningPortalToken(first.sub.userId, Date.now());
         ctaUrl = `${APP_ORIGIN}${DUNNING_PORTAL_PATH}?t=${encodeURIComponent(token)}`;
       } catch (err) {
-        // Degrade, never drop the send: the tokenless route 302s to the
-        // dashboard. A covered hold sees the payment banner there; an
-        // ended-period hold derives lapsed and gets no banner. console.log, not warn:
+        // Degrade, never drop the send: the tokenless route 302s to
+        // /dashboard?billing=portal, which opens the portal after sign-in.
+        // console.log, not warn:
         // Convex has no silent-capture helper for the Sentry-coverage gate.
         console.log(
           `[dunning] portal token sign failed for ${args.dodoSubscriptionId} (${err instanceof Error ? err.message : String(err)}) — falling back to sign-in portal route`,

@@ -42,7 +42,7 @@ it('GET with an invalid portal token sends the user to sign-in, not a query redi
   mockInfra(() => Response.json({ error: 'INVALID_PORTAL_TOKEN' }, { status: 401 }));
   const res = await handler(new Request('https://worldmonitor.app/api/customer-portal?t=forged&redirect=https://evil.example'));
   assert.equal(res.status, 302);
-  assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard');
+  assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard?billing=portal');
 });
 
 it('GET without a token or session requires sign-in and does not call the relay', async () => {
@@ -53,7 +53,7 @@ it('GET without a token or session requires sign-in and does not call the relay'
   });
   const res = await handler(new Request('https://worldmonitor.app/api/customer-portal?next=https://evil.example'));
   assert.equal(res.status, 302);
-  assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard');
+  assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard?billing=portal');
   assert.equal(relayCalls, 0);
 });
 
@@ -61,7 +61,7 @@ it('GET refuses to redirect to a non-Dodo portal_url and falls back to the dashb
   mockInfra(() => Response.json({ portal_url: 'https://evil.example/phish' }));
   const res = await handler(new Request('https://worldmonitor.app/api/customer-portal?t=v1.user_x.1.sig'));
   assert.equal(res.status, 302);
-  assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard');
+  assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard?billing=portal');
 });
 
 for (const [label, status, body, loggedReason] of [
@@ -78,7 +78,7 @@ for (const [label, status, body, loggedReason] of [
     try {
       const res = await handler(new Request('https://worldmonitor.app/api/customer-portal?t=v1.user_x.1.sig'));
       assert.equal(res.status, 302);
-      assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard');
+      assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard?billing=portal');
     } finally {
       console.error = originalError;
     }
@@ -91,7 +91,7 @@ it('GET email click when the relay fetch throws lands on the dashboard', async (
   mockInfra(() => { throw new TypeError('network down'); });
   const res = await handler(new Request('https://worldmonitor.app/api/customer-portal?t=v1.user_x.1.sig'));
   assert.equal(res.status, 302);
-  assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard');
+  assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard?billing=portal');
 });
 
 async function signedBearer(sub: string) {
@@ -135,7 +135,7 @@ it('GET with an invalid Clerk bearer goes to sign-in without calling the relay',
     headers: { Authorization: 'Bearer not-a-jwt' },
   }));
   assert.equal(res.status, 302);
-  assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard');
+  assert.equal(res.headers.get('Location'), 'https://www.worldmonitor.app/dashboard?billing=portal');
   assert.equal(relayCalls, 0);
 });
 
@@ -169,8 +169,8 @@ it('GET caps one token replayed from many IPs, then lands on sign-in without the
   }
   assert.equal(relayCalls, 5);
   assert.deepEqual(locations.slice(5), [
-    'https://www.worldmonitor.app/dashboard',
-    'https://www.worldmonitor.app/dashboard',
+    'https://www.worldmonitor.app/dashboard?billing=portal',
+    'https://www.worldmonitor.app/dashboard?billing=portal',
   ]);
 });
 
