@@ -2,6 +2,7 @@
 // its track row each cycle; a move between single-publisher and corroborated is
 // appended, once, to a bounded seven-day log that /trust and the API read.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import {
@@ -386,6 +387,15 @@ describe("today's label counts (#9093 /trust)", () => {
     ];
     const { labelCounts } = __testing__.storyLabelChanges(items as never, items as never, new Map(), NOW);
     assert.deepEqual(labelCounts, { at: NOW, stories: 2, corroborated: 1, singlePublisher: 1, tier4Only: 0, unknown: 0 });
+  });
+
+  it('the OpenAPI example shows counts whose parts add up', () => {
+    const spec = JSON.parse(readFileSync(new URL('../docs/api/NewsService.openapi.json', import.meta.url), 'utf8'));
+    const example = spec.paths['/api/news/v1/list-label-changes'].get.responses['200'].content['application/json'].example;
+    assert.equal(example.state, 'ok');
+    const { at, ...counts } = example.counts;
+    assert.deepEqual(parseLabelCounts(JSON.stringify(example.counts), at), { at, ...counts });
+    assert.equal(example.changes[0].field, 'corroboration');
   });
 
   it('ListLabelChanges serves the counts beside the changes', async () => {
