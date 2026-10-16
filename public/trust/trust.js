@@ -247,6 +247,9 @@
         } else if (body.status === 'queue-full') {
           status.textContent = 'The review queue is full right now, so your report was not stored. Please try again later.';
           status.className = 'error';
+        } else if (body.status !== 'received') {
+          status.textContent = 'The report could not be sent. Please try again later.';
+          status.className = 'error';
         } else {
           status.textContent = 'Thank you. A person will review your report; nothing changes automatically.';
           status.className = '';

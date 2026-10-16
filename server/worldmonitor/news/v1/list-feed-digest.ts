@@ -2248,6 +2248,7 @@ export async function listFeedDigest(
                 'unavailable',
               );
               if (publication === 'unavailable') deferDigestAttempt(digestCacheKey, 30);
+              if (publication === 'accepted') await publishAcceptedLabelCounts(result, responseDeadlineAt);
             } else {
               deferDigestAttempt(digestCacheKey, 30);
               console.warn(
@@ -3432,16 +3433,6 @@ async function buildDigest(
     ).catch((err: unknown) =>
       console.warn('[digest] story tracking write failed:', err),
     );
-    // #9093: today's stories by label, for /trust. One command per full/en build.
-    // An empty build is rejected for the last-good digest, so it must not
-    // overwrite the counts that describe that digest.
-    if (labelCounts && labelCounts.stories > 0) {
-      const timeoutMs = redisTimeoutForDeadline(storyTrackingDeadlineAt);
-      if (timeoutMs !== undefined) {
-        await runRedisPipeline([labelCountsCommand(labelCounts)], false, timeoutMs)
-          .catch((err: unknown) => console.warn('[digest] label counts write failed:', err));
-      }
-    }
 
     for (const [category, sliced] of slicedByCategory) {
       categories[category] = {
@@ -3513,15 +3504,40 @@ async function buildDigest(
       buildStartMs: buildStart,
     });
 
-    return {
+    const response: ListFeedDigestResponse = {
       categories,
       feedStatuses,
       generatedAt: new Date().toISOString(),
       coverage,
     };
+    if (labelCounts) rememberLabelCounts(response, labelCounts);
+    return response;
   } finally {
     clearTimeout(deadlineTimeout);
   }
+}
+
+// #9093: today's stories by label, for /trust, keyed by the build they describe.
+// They are written only after the acceptance gate takes that build.
+const pendingLabelCounts = new WeakMap<ListFeedDigestResponse, LabelCounts>();
+
+function rememberLabelCounts(response: ListFeedDigestResponse, counts: LabelCounts): void {
+  // An empty build is never accepted, so it must not replace the served counts.
+  if (counts.stories > 0) pendingLabelCounts.set(response, counts);
+}
+
+/**
+ * Write the counts of a build the gate accepted. A rejected or unpublished
+ * build leaves /trust describing the digest that is still served.
+ */
+async function publishAcceptedLabelCounts(response: ListFeedDigestResponse, deadlineAt: number): Promise<void> {
+  const counts = pendingLabelCounts.get(response);
+  if (!counts) return;
+  pendingLabelCounts.delete(response);
+  const timeoutMs = redisTimeoutForDeadline(deadlineAt);
+  if (timeoutMs === undefined) return;
+  await runRedisPipeline([labelCountsCommand(counts)], false, timeoutMs)
+    .catch((err: unknown) => console.warn('[digest] label counts write failed:', err));
 }
 
 /** Internal exports for unit tests only — do not import in production code. */
@@ -3530,6 +3546,7 @@ export const __testing__ = {
   // than asserted against this file's own source text — a grep for
   // `serveLastGood(...)` passes whether or not the function behaves.
   publishAcceptedSnapshot,
+  rememberLabelCounts,
   serveLastGood,
   readRevokedUrlSet,
   suppressRevoked,

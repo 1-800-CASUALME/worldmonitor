@@ -183,4 +183,18 @@ describe('/trust page', () => {
     await flush();
     expect(text('report-status')).toContain('queue is full');
   });
+
+  it('does not thank the reader for a success response it does not recognize', async () => {
+    mount({
+      '/api/news/v1/list-label-changes': [{ body: { state: 'ok', changes: [] } }],
+      '/api/news/v1/submit-error-report': [{ body: {} }],
+    });
+    await flush();
+    const form = document.getElementById('report-form') as HTMLFormElement;
+    (document.getElementById('report-message') as HTMLTextAreaElement).value = 'The label on the quake story is wrong.';
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    await flush();
+    expect(text('report-status')).toContain('could not be sent');
+    expect(text('report-status')).not.toContain('Thank you');
+  });
 });
