@@ -391,6 +391,9 @@ export function resilienceCoveragePhrase({ ranked, universe }) {
   return `structural resilience ranked for ${ranked} of ${universe} countries`;
 }
 
+/** Matches every statement written by resilienceCoveragePhrase, whatever its numbers. */
+export const RESILIENCE_COVERAGE_PATTERN = /structural resilience ranked for \d+ of \d+ countries/g;
+
 /**
  * The single definition of resilience coverage. A snapshot lists every
  * country in the rankable universe as either a ranked item or a greyed-out

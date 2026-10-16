@@ -18,12 +18,12 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { publishedRankedCountries, resilienceCoveragePhrase } from './build-crawlable-corpus.mjs';
+import { RESILIENCE_COVERAGE_PATTERN, publishedRankedCountries, resilienceCoveragePhrase } from './build-crawlable-corpus.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const standardPhrase = {
-  pattern: /structural resilience ranked for \d+ of \d+ countries/g,
+  pattern: RESILIENCE_COVERAGE_PATTERN,
   render: resilienceCoveragePhrase,
 };
 

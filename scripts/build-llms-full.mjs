@@ -24,6 +24,7 @@ import { getRootlessDocsDestination } from '../src/config/docs-root-redirects.ts
 import { COMPARISON_MATRIX_COLUMNS, comparisonDiscoveryEntries } from './build-comparison-pages.mjs';
 import { renderAccuracyLlmsSection } from './build-accuracy-page.mjs';
 import {
+  RESILIENCE_COVERAGE_PATTERN,
   publishedRankedCountries,
   resilienceCoveragePhrase,
   resolveLatestLivePulseSnapshotPath,
@@ -306,8 +307,6 @@ function renderSourceDirectory(rootDir) {
   ].join('\n');
 }
 
-const RESILIENCE_COVERAGE_RE = /structural resilience ranked for \d+(?: of \d+ countries)?/g;
-
 /**
  * Restate resilience coverage in the agent briefs from the newest published
  * snapshot: "{ranked} of {universe} countries". Both numbers are read from the
@@ -316,10 +315,10 @@ const RESILIENCE_COVERAGE_RE = /structural resilience ranked for \d+(?: of \d+ c
  */
 export function withResilienceCoverage(text, coverage) {
   const source = String(text);
-  if (!source.match(RESILIENCE_COVERAGE_RE)) {
+  if (!source.match(RESILIENCE_COVERAGE_PATTERN)) {
     throw new Error('expected "structural resilience ranked for <n> of <m> countries" in the llms brief');
   }
-  return source.replace(RESILIENCE_COVERAGE_RE, resilienceCoveragePhrase(coverage));
+  return source.replace(RESILIENCE_COVERAGE_PATTERN, resilienceCoveragePhrase(coverage));
 }
 
 /**

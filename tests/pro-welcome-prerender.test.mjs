@@ -475,3 +475,14 @@ test('built welcome lastmod tracks the teaser strip snapshot (#7654)', { skip },
     'served homepage lastmod must be the snapshot capture date behind the strip',
   );
 });
+
+test('built homepage markdown twin states each hero line once', { skip }, () => {
+  const markdown = readFileSync(new URL('../public/pro/home.md', import.meta.url), 'utf8');
+  const { sub, whatIsBestFor } = enLocale().welcome.hero;
+  // The twin is the rendered page plus the curated public/home.md, and both
+  // carry the slogan and the audience line; the splice must keep only one.
+  for (const line of [sub, whatIsBestFor]) {
+    const count = markdown.split('\n').filter((row) => row.trim() === line).length;
+    assert.equal(count, 1, `public/pro/home.md must state "${line}" exactly once, found ${count}`);
+  }
+});

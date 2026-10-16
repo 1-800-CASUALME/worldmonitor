@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 import { comparisonDiscoveryEntries } from '../scripts/build-comparison-pages.mjs';
 import { COMPARISONS_HEADING, buildLlmsFullText, redactInternalApiOrigins, withComparisonsSection, withCorpusNavigation, withResilienceCoverage } from '../scripts/build-llms-full.mjs';
-import { buildCorpus, resilienceCoverageOf, resolveLatestLivePulseSnapshotPath } from '../scripts/build-crawlable-corpus.mjs';
+import { RESILIENCE_COVERAGE_PATTERN, buildCorpus, resilienceCoverageOf, resilienceCoveragePhrase, resolveLatestLivePulseSnapshotPath } from '../scripts/build-crawlable-corpus.mjs';
 import { parseSitemapDocument } from '../scripts/verify-sitemaps.mjs';
 import { accuracyStateAudit, classifyAccuracyState } from '../scripts/build-accuracy-page.mjs';
 import { RANKABLE_UNIVERSE_SIZE } from '../scripts/shared/rankable-universe.mjs';
@@ -359,15 +359,17 @@ describe('GEO residue #7616 (U1 agent surfaces)', () => {
 
   it('states coverage with the two-part definition pinned to the live snapshot', () => {
     const { ranked, universe } = latestResilienceCoverage();
-    const phrase = `structural resilience ranked for ${ranked} of ${universe} countries`;
+    const phrase = resilienceCoveragePhrase({ ranked, universe });
     const standard = new RegExp(`live in 190\\+ countries[^.]*${phrase}`);
     for (const file of COVERAGE_FILES) {
       const body = read(file);
       assert.match(body, standard, `${file} must carry the standard coverage definition`);
-      // Every statement of the ranked count must carry the exact snapshot
-      // pair, so a bare "ranked for N" or a stale pair fails here.
-      const statements = body.match(/structural resilience ranked for [^,.;—"']*/g) ?? [];
+      // Every mention must use the shared wording and carry the exact
+      // snapshot pair, so a bare "ranked for N" or a stale pair fails here.
+      const mentions = body.split('structural resilience ranked for').length - 1;
+      const statements = body.match(RESILIENCE_COVERAGE_PATTERN) ?? [];
       assert.ok(statements.length > 0, `${file} must state resilience coverage`);
+      assert.equal(statements.length, mentions, `${file} must state every resilience mention as "${phrase}"`);
       for (const statement of statements) {
         assert.equal(statement.trim(), phrase, `${file} must state exactly "${phrase}"`);
       }
@@ -377,9 +379,10 @@ describe('GEO residue #7616 (U1 agent surfaces)', () => {
       standard,
       'generated llms-full must derive the coverage pair from the newest snapshot',
     );
-    assert.equal(
-      withResilienceCoverage('live in 190+ countries, with structural resilience ranked for 1.', { ranked, universe }),
-      `live in 190+ countries, with ${phrase}.`,
+    assert.throws(
+      () => withResilienceCoverage('live in 190+ countries, with structural resilience ranked for 1.', { ranked, universe }),
+      /expected "structural resilience ranked for/,
+      'a bare ranked count without its universe is not the shared wording',
     );
     assert.equal(
       withResilienceCoverage('ranked: structural resilience ranked for 9 of 9 countries.', { ranked, universe }),
@@ -467,7 +470,7 @@ describe('GEO residue #7616 (U1 agent surfaces)', () => {
   // a committed file: every "N of M countries" there must be the snapshot pair.
   it('states resilience coverage on the generated country pages as the snapshot pair', async () => {
     const { ranked, universe } = latestResilienceCoverage();
-    const phrase = `structural resilience ranked for ${ranked} of ${universe} countries`;
+    const phrase = resilienceCoveragePhrase({ ranked, universe });
     const outDir = mkdtempSync(join(tmpdir(), 'wm-coverage-'));
     try {
       await buildCorpus({ rootDir: repoRoot, outDir, baseUrl: 'https://www.worldmonitor.app' });
