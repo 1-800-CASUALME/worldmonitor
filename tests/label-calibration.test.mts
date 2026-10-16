@@ -26,6 +26,7 @@ import {
   type CalibrationEvent,
 } from '../shared/label-calibration.js';
 import {
+  UNCONFIRMED_LABEL,
   UNTRACKED_LABEL,
   calibrationEventCommands,
   calibrationEventFor,
@@ -241,11 +242,17 @@ describe('digest wiring', () => {
     ]);
   });
 
-  it('a move that was not written keeps the previous label so the next cycle logs it', () => {
+  it('a move whose write was not confirmed is logged again from the current state next cycle', () => {
     const labels = new Map([[id(1), UNTRACKED_LABEL], [id(2), 'single-publisher|1']]);
     keepUnloggedMoves(labels, [s(1, 'other', T0), f(2, 'single-publisher', T0)]);
-    assert.equal(labels.has(id(1)), false);
+    assert.equal(labels.get(id(1)), UNCONFIRMED_LABEL);
     assert.equal(labels.get(id(2)), 'single-publisher|1', 'a first label is persisted regardless');
+    // The append may have landed with its reply lost, and the story may be
+    // back where it started: the next cycle still logs where it is now.
+    assert.deepEqual(calibrationEventFor(id(1), { label: UNCONFIRMED_LABEL }, single, T0 + HOUR), s(1, 'single-publisher', T0 + HOUR));
+    assert.deepEqual(calibrationEventFor(id(1), { label: UNCONFIRMED_LABEL }, tier4, T0 + HOUR), s(1, 'other', T0 + HOUR));
+    const day = buildCohortDay(DAY_1, [f(1, 'single-publisher', T0), s(1, 'other', T0 + 1), s(1, 'single-publisher', T0 + HOUR)]);
+    assert.equal(day.cohorts['single-publisher']['24h'].same, 1, 'the returned label is the outcome, not the lost-reply move');
   });
 
   it('storyLabelChanges returns the events of this cycle', () => {
@@ -356,7 +363,10 @@ describe('ListLabelChanges serves the calibration table', () => {
     });
     try {
       const response = await listLabelChanges(ctx(), { storyId: '', limit: 0 });
-      assert.deepEqual(response.calibration, table);
+      assert.deepEqual(response.calibration, {
+        ...table,
+        months: table.months.map((month) => ({ ...month, rows: month.rows.map(({ n, ...row }) => ({ ...row, stories: n })) })),
+      }, 'the API names the sample size `stories`');
       const before = redis.commands.length;
       const one = await listLabelChanges(ctx(), { storyId: id(1), limit: 0 });
       assert.equal(one.calibration, undefined);
@@ -386,7 +396,15 @@ describe('ListLabelChanges serves the calibration table', () => {
   it('the OpenAPI example rows add up', () => {
     const spec = JSON.parse(readFileSync(new URL('../docs/api/NewsService.openapi.json', import.meta.url), 'utf8'));
     const example = spec.paths['/api/news/v1/list-label-changes'].get.responses['200'].content['application/json'].example;
-    assert.ok(parseCalibrationTable(example.calibration), 'the curated example passes the reader');
+    const stored = {
+      ...example.calibration,
+      months: example.calibration.months.map((month: { rows: Array<{ stories: number }> }) => ({
+        ...month,
+        rows: month.rows.map(({ stories, ...row }) => ({ ...row, n: stories })),
+      })),
+    };
+    assert.ok(parseCalibrationTable(stored), 'the curated example passes the reader');
+    assert.deepEqual(Object.keys(spec.components.schemas.LabelCalibrationRow.properties).sort(), ['changed', 'horizon', 'other', 'same', 'state', 'stories']);
   });
 });
 

@@ -25566,28 +25566,28 @@ paths:
                                           "rows":
                                               - "changed": 96
                                                 "horizon": "24h"
-                                                "n": 410
                                                 "other": 12
                                                 "same": 302
                                                 "state": "single-publisher"
+                                                "stories": 410
                                               - "changed": 115
                                                 "horizon": "7d"
-                                                "n": 410
                                                 "other": 14
                                                 "same": 281
                                                 "state": "single-publisher"
+                                                "stories": 410
                                               - "changed": 3
                                                 "horizon": "24h"
-                                                "n": 22
                                                 "other": 0
                                                 "same": 19
                                                 "state": "corroborated"
+                                                "stories": 22
                                               - "changed": 4
                                                 "horizon": "7d"
-                                                "n": 22
                                                 "other": 0
                                                 "same": 18
                                                 "state": "corroborated"
+                                                "stories": 22
                                 "changes":
                                     - "at": 1767182400000
                                       "credibilityScore": 72
@@ -54176,10 +54176,12 @@ components:
                 horizon:
                     type: string
                     description: 'Checkpoint after the first label: 24h | 7d.'
-                n:
+                stories:
                     type: integer
                     format: int32
-                    description: Stories first seen with this label in the month.
+                    description: |-
+                        Stories first seen with this label in the month: the row's sample size (n).
+                         Named `stories`, not `n`: YAML 1.1 reads a bare `n` key as the boolean false.
                 same:
                     type: integer
                     format: int32
@@ -54194,7 +54196,7 @@ components:
                     type: integer
                     format: int32
                     description: Stories labelled tier-4 only or not enough evidence at the checkpoint.
-            description: LabelCalibrationRow is one first label at one checkpoint. same + changed + other = n.
+            description: LabelCalibrationRow is one first label at one checkpoint. same + changed + other = stories.
         worldmonitor_news_v1_SubmitErrorReportRequest:
             type: object
             properties:

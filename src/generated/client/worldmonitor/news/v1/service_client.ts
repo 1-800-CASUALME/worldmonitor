@@ -186,7 +186,7 @@ export interface LabelCalibrationMonth {
 export interface LabelCalibrationRow {
   state: string;
   horizon: string;
-  n: number;
+  stories: number;
   same: number;
   changed: number;
   other: number;

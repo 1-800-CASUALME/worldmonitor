@@ -100,7 +100,12 @@ async function readCalibration(): Promise<{ table: LabelCalibration | null; fail
       generatedAt: table.generatedAt,
       definitionsVersion: table.definitionsVersion,
       lowNThreshold: table.lowNThreshold,
-      months: table.months,
+      // The stored table counts n; the API names it `stories` (a bare `n` key
+      // is read as false by YAML 1.1 tooling).
+      months: table.months.map((month) => ({
+        ...month,
+        rows: month.rows.map(({ n, ...row }) => ({ ...row, stories: n })),
+      })),
       factCheckStatus: table.factCheckStatus,
       factCheckNote: table.factCheckNote,
     },

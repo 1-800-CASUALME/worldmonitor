@@ -31,8 +31,8 @@ These are version 1 of the definitions (`definitionsVersion: 1` in the API).
 | **Same label** | The label at the checkpoint equals the first label. A story that changed and changed back by the checkpoint counts as same. |
 | **Label changed** | The label at the checkpoint is the other tracked label. From single publisher: carried by two or more publisher families. From corroborated: carried by only one. |
 | **Other label** | The label at the checkpoint is tier 4 only or not enough evidence. |
-| **n** | The number of stories with that first label in the month's counted cohort days. For every row, same + changed + other = n. |
-| **Low n** | n below 30. The row shows its counts ("9 of 12") without a percentage, and is marked "low n". A row with n = 0 shows a dash. Nothing is hidden, merged or extrapolated. |
+| **n** | The number of stories with that first label in the month's counted cohort days (`stories` in the API). For every row, same + changed + other = n. |
+| **Low n** | n below 30. The row shows its counts ("9 of 12") without a percentage, and is marked "low n". A row with n = 0 shows a dash and is marked low n too. Nothing is hidden, merged or extrapolated. |
 | **Month** | The UTC calendar month of the cohort day. The table covers the current month and the 12 before it. |
 
 Percentages are rounded to whole numbers, so a row's three percentages may not

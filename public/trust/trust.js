@@ -92,18 +92,18 @@
     table.appendChild(head);
     var body = el('tbody');
     (Array.isArray(month.rows) ? month.rows : []).forEach(function (row) {
-      var low = row.n < lowN;
+      var low = row.stories < lowN;
       var tr = el('tr', low ? 'low-n' : '');
       var state = el('th', '', STATE_TEXT[row.state] || row.state);
       state.scope = 'row';
       tr.appendChild(state);
       tr.appendChild(el('td', '', HORIZON_TEXT[row.horizon] || row.horizon));
-      var n = el('td', 'n', String(row.n));
-      if (low && row.n > 0) n.appendChild(el('span', 'low-n-badge', 'low n'));
+      var n = el('td', 'n', String(row.stories));
+      if (low) n.appendChild(el('span', 'low-n-badge', 'low n'));
       tr.appendChild(n);
-      tr.appendChild(el('td', '', share(row.same, row.n, low)));
-      tr.appendChild(el('td', '', share(row.changed, row.n, low)));
-      tr.appendChild(el('td', '', share(row.other, row.n, low)));
+      tr.appendChild(el('td', '', share(row.same, row.stories, low)));
+      tr.appendChild(el('td', '', share(row.changed, row.stories, low)));
+      tr.appendChild(el('td', '', share(row.other, row.stories, low)));
       tr.appendChild(el('td', 'not-measured', factCheck));
       body.appendChild(tr);
     });

@@ -216,10 +216,10 @@ describe('/trust calibration table', () => {
       firstDay: '2026-09-01',
       lastDay: '2026-09-12',
       rows: [
-        { state: 'single-publisher', horizon: '24h', n: 400, same: 300, changed: 88, other: 12 },
-        { state: 'single-publisher', horizon: '7d', n: 400, same: 280, changed: 100, other: 20 },
-        { state: 'corroborated', horizon: '24h', n: 12, same: 9, changed: 3, other: 0 },
-        { state: 'corroborated', horizon: '7d', n: 0, same: 0, changed: 0, other: 0 },
+        { state: 'single-publisher', horizon: '24h', stories: 400, same: 300, changed: 88, other: 12 },
+        { state: 'single-publisher', horizon: '7d', stories: 400, same: 280, changed: 100, other: 20 },
+        { state: 'corroborated', horizon: '24h', stories: 12, same: 9, changed: 3, other: 0 },
+        { state: 'corroborated', horizon: '7d', stories: 0, same: 0, changed: 0, other: 0 },
       ],
     }],
   };
@@ -234,10 +234,10 @@ describe('/trust calibration table', () => {
       ['Single publisher', '24 hours', '400', '75% (300 of 400)', '22% (88 of 400)', '3% (12 of 400)', 'Not measured'],
       ['Single publisher', '7 days', '400', '70% (280 of 400)', '25% (100 of 400)', '5% (20 of 400)', 'Not measured'],
       ['Corroborated', '24 hours', '12low n', '9 of 12', '3 of 12', '0 of 12', 'Not measured'],
-      ['Corroborated', '7 days', '0', '–', '–', '–', 'Not measured'],
+      ['Corroborated', '7 days', '0low n', '–', '–', '–', 'Not measured'],
     ]);
     expect(table.querySelectorAll('tr.low-n')).toHaveLength(2);
-    expect(table.querySelectorAll('.low-n-badge')).toHaveLength(1);
+    expect(table.querySelectorAll('.low-n-badge')).toHaveLength(2);
     expect(document.getElementById('calibration-notes')!.hidden).toBe(false);
     expect(text('calibration-fact-check')).toBe(calibration.factCheckNote);
     expect(document.querySelector('#calibration-fact-check b')).toBeNull();

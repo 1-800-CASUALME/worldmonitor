@@ -104,6 +104,13 @@ export const STORY_LABEL_FIELD = 'corrState';
  * tier4-only, then single-publisher must not log corroborated → single-publisher.
  */
 export const UNTRACKED_LABEL = 'untracked';
+/**
+ * #9097: written after a calibration write whose outcome is unknown (an error
+ * or a lost reply may still have appended the event). The next cycle then logs
+ * the story's current state whatever it is, so the event log ends on the
+ * label the story really has, and a move that returned never freezes as moved.
+ */
+export const UNCONFIRMED_LABEL = 'unconfirmed';
 
 export interface StoryLabel {
   readonly state: Corroboration['state'];
@@ -290,8 +297,9 @@ export function calibrationEventFor(
 ): CalibrationEvent | null {
   const tracked = isLabelHistoryState(current.state) && current.publishers !== null;
   if (!track) return tracked ? { kind: 'f', storyId, state: current.state as LabelHistoryState, at } : null;
-  const previous = calibrationStateOf(track.label, UNTRACKED_LABEL);
   const next = tracked ? (current.state as LabelHistoryState) : CALIBRATION_OTHER;
+  if (track.label === UNCONFIRMED_LABEL) return { kind: 's', storyId, state: next, at };
+  const previous = calibrationStateOf(track.label, UNTRACKED_LABEL);
   if (previous === null || previous === next) return null;
   if (previous !== CALIBRATION_OTHER && next !== CALIBRATION_OTHER) return null;
   return { kind: 's', storyId, state: next, at };
@@ -315,14 +323,16 @@ export async function recordCalibrationEvents(events: readonly CalibrationEvent[
 }
 
 /**
- * After a failed calibration write, drop the new label of every story whose
- * move was not logged, so the move is detected and logged again next cycle.
- * A lost first label is not retried: the story is then missing from its
- * cohort, which undercounts n but never misstates an outcome.
+ * After a calibration write that was not confirmed, mark every story whose
+ * move may or may not have been logged as UNCONFIRMED_LABEL, so the next cycle
+ * logs its current state again. A repeated event is harmless; a missing one
+ * would freeze a wrong outcome. A lost first label is not retried: the story
+ * is then missing from its cohort, which undercounts n but never misstates an
+ * outcome.
  */
 export function keepUnloggedMoves(labelByHash: Map<string, string>, events: readonly CalibrationEvent[]): void {
   for (const event of events) {
-    if (event.kind === 's') labelByHash.delete(event.storyId);
+    if (event.kind === 's') labelByHash.set(event.storyId, UNCONFIRMED_LABEL);
   }
 }
 

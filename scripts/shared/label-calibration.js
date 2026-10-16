@@ -28,7 +28,8 @@
  * publishes the monthly table from those records. Everything here reads only
  * the logged events: no topic, person, party or country enters a figure.
  *
- * Mirrored byte-for-byte at scripts/shared/label-calibration.js.
+ * shared/label-calibration.js and scripts/shared/label-calibration.js are
+ * byte-for-byte mirrors (tests/scripts-shared-mirror.test.mjs).
  */
 
 export const CALIBRATION_STATES = ['single-publisher', 'corroborated'];

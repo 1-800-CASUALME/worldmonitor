@@ -109,14 +109,15 @@ message LabelCalibrationMonth {
   repeated LabelCalibrationRow rows = 6;
 }
 
-// LabelCalibrationRow is one first label at one checkpoint. same + changed + other = n.
+// LabelCalibrationRow is one first label at one checkpoint. same + changed + other = stories.
 message LabelCalibrationRow {
   // First label: single-publisher | corroborated.
   string state = 1;
   // Checkpoint after the first label: 24h | 7d.
   string horizon = 2;
-  // Stories first seen with this label in the month.
-  int32 n = 3;
+  // Stories first seen with this label in the month: the row's sample size (n).
+  // Named `stories`, not `n`: YAML 1.1 reads a bare `n` key as the boolean false.
+  int32 stories = 3;
   // Stories with the same label at the checkpoint.
   int32 same = 4;
   // Stories with the other tracked label at the checkpoint: from single-publisher,
