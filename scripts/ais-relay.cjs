@@ -13262,18 +13262,21 @@ function gfDepartureWindow(window) {
   return parts.length === 2 && parts.every(Number.isInteger) ? parts : null;
 }
 
-const GF_SORT_KEYS = new Map(Object.entries({
-  CHEAPEST: f => f.price, PRICE: f => f.price,
-  DEPARTURE_TIME: f => f.legs[0]?.departureDatetime, DEPARTURE: f => f.legs[0]?.departureDatetime,
-  ARRIVAL_TIME: f => f.legs.at(-1)?.arrivalDatetime, ARRIVAL: f => f.legs.at(-1)?.arrivalDatetime,
-  DURATION: f => f.durationMinutes,
-}));
+function gfSortKey(sortBy) {
+  switch ((sortBy || '').toUpperCase()) {
+    case 'CHEAPEST': case 'PRICE': return f => f.price;
+    case 'DEPARTURE_TIME': case 'DEPARTURE': return f => f.legs[0]?.departureDatetime;
+    case 'ARRIVAL_TIME': case 'ARRIVAL': return f => f.legs.at(-1)?.arrivalDatetime;
+    case 'DURATION': return f => f.durationMinutes;
+    default: return null;
+  }
+}
 
 function selectGfFlights(flights, { departureWindow, sortBy }) {
   const range = gfDepartureWindow(departureWindow);
   const hour = f => parseInt(f.legs[0]?.departureDatetime.slice(11, 13), 10);
   let rows = range ? flights.filter(f => hour(f) >= range[0] && hour(f) < range[1]) : flights.slice();
-  const key = GF_SORT_KEYS.get((sortBy || '').toUpperCase());
+  const key = gfSortKey(sortBy);
   if (key) rows = rows.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
   return rows;
 }
