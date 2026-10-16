@@ -39,7 +39,10 @@ test('returns embeddable html for valid video id', async () => {
 });
 
 test('the player script is the same for every request', async () => {
-  const scriptOf = (html) => [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  // Executable scripts only (no attributes), so the per-request JSON config block is excluded.
+  const scriptOf = (html) => [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script[^>]*>/gi)]
+    .filter((m) => m[1].trim() === '')
+    .map((m) => m[2]);
   const a = scriptOf((await render('?videoId=iEpJwprxDdk&autoplay=0&mute=1')).html);
   const b = scriptOf((await render('?videoId=gCNeDWCI0vo&autoplay=1&mute=0&vq=hd720&origin=http://127.0.0.1:46123&parentOrigin=https://tauri.localhost')).html);
   assert.equal(a.length, 1);
