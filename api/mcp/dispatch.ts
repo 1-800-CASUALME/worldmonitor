@@ -6,7 +6,7 @@ import { unwrapEnvelope } from '../_seed-envelope.js';
 import { chokepointCacheIdentity, chokepointSourcePolicy, type ChokepointPanelRead } from './_chokepoint-snapshot';
 import { newsIntelligenceFreshness, newsIntelligenceReuseUntil, type NewsIntelligencePanelRead } from './_news-intelligence-snapshot';
 import { resolveCountryFilter } from './_country-args';
-import { filterNaturalDisastersPanelData, naturalDisastersReuseUntil, presentNaturalDisastersPanel, type NaturalDisastersPanelRead } from './_natural-disasters-reuse';
+import { filterNaturalDisastersPanelData, naturalDisastersReuseUntil, type NaturalDisastersPanelRead } from './_natural-disasters-reuse';
 import { isAppOwnedRedisKey } from '../_redis-key-ownership.js';
 // @ts-expect-error — JS module, no declaration file
 import { captureSilentError } from '../_sentry-edge.js';
@@ -858,10 +858,12 @@ export async function dispatchToolsCall(
       result = presentDefaultMarketData(result as Record<string, unknown>, tool._outputBudgetBytes);
     }
     let { text: projectedText, value: projectedValue, failed } = applyJmespath(result, jmespathArg);
-    if (tool.name === 'get_natural_disasters' && dedicatedPanel && panelRead?.panel === 'disasters'
+    // A news-panel token reading Natural map data keeps its full geometry.
+    const newsMapRead = tool.name === 'get_natural_disasters' && panelRead !== undefined && panelRead.panel !== 'disasters';
+    if (tool._fitToBudget && !newsMapRead
       && result && typeof result === 'object'
       && (failed === 'projection_too_large' || utf8ByteLength(projectedText) > tool._outputBudgetBytes)) {
-      const presented = presentNaturalDisastersPanel(result as Record<string, unknown>, tool._outputBudgetBytes, argBool(callArguments.summary));
+      const presented = tool._fitToBudget(result as Record<string, unknown>, tool._outputBudgetBytes, callArguments);
       if (presented !== result) {
         result = presented;
         ({ text: projectedText, value: projectedValue, failed } = applyJmespath(result, jmespathArg));

@@ -78,7 +78,7 @@
     },
     {
       "name": "get_natural_disasters",
-      "description": "Recent M4.5+ earthquakes (USGS and Earthquakes Canada / NRCan), active wildfires (NASA FIRMS), and natural hazard events. Pro panels charge one allocation per opening; repeated views reuse the admission. Snapshot reuse is bounded by source clocks and known health, not complete provider coverage. Oversized paid panels may simplify or omit public geometry and regional detail, with explicit transportCoverage counts; API allowance reads retain full detail.",
+      "description": "Recent M4.5+ earthquakes (USGS and Earthquakes Canada / NRCan), active wildfires (NASA FIRMS), and natural hazard events. Pro panels charge one allocation per opening; repeated views reuse the admission. Snapshot reuse is bounded by source clocks and known health, not complete provider coverage. An oversized response simplifies or omits storm geometry and regional detail, with explicit transportCoverage counts; a jmespath projection that fits returns the original detail.",
       "_meta": {
         "worldmonitor/access": "free-account"
       }
@@ -190,7 +190,7 @@
     },
     {
       "name": "get_imd_cyclone_marine",
-      "description": "Bounded India Meteorological Department sea-area and coastal marine bulletins from the public mausam.imd.gov.in pages: storm warnings, port signals, storm-surge/tidal warnings, wind, visibility, and sea state per area with each bulletin validity window. Not merged into weather:alerts:v1. IMD cyclone track, wind radii, and cone products are API-only and disabled (GDACS tropical cyclones cover the North Indian Ocean in natural events); port warning and fishermen warning PDFs are not parsed. Read coverageState on every call: degraded means some bulletin pages failed and their last-good records were carried, unavailable means no page was readable, and ok is live. Per-page status is under products.<id>.pages. Empty lists with degraded or unavailable coverage are not an India all-clear.",
+      "description": "Bounded India Meteorological Department sea-area and coastal marine bulletins from the public mausam.imd.gov.in pages: storm warnings, port signals, storm-surge/tidal warnings, wind, visibility, and sea state per area with each bulletin validity window. Not merged into weather:alerts:v1. IMD cyclone track, wind radii, and cone products are API-only and disabled (GDACS tropical cyclones cover the North Indian Ocean in natural events); port warning and fishermen warning PDFs are not parsed. Read coverageState on every call: degraded means some bulletin pages failed and their last-good records were carried, unavailable means no page was readable, and ok is live. Per-page status is under products.<id>.pages. Empty lists with degraded or unavailable coverage are not an India all-clear. An oversized response trims lists from the end, repeated and alert-shaped copies first, and reports each trimmed list in transportCoverage.",
       "_meta": {
         "worldmonitor/access": "free-account"
       }
@@ -421,7 +421,7 @@
     },
     {
       "name": "generate_forecasts",
-      "description": "Generate live AI geopolitical and economic forecasts. Unlike get_forecast_predictions (pre-computed cache), this calls the forecasting model directly for fresh probability estimates. Note: slower than cache tools.",
+      "description": "Current AI geopolitical and economic forecasts with probabilities, scenarios, signals, and per-forecast case files, filterable by domain and region. An oversized response omits the case files and reports the omitted count in transportCoverage; a domain or region filter that fits returns them.",
       "_meta": {
         "worldmonitor/access": "subscription"
       }

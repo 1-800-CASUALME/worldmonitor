@@ -94,9 +94,11 @@ describe('argument-free calls fit their output budget on production-size data', 
   });
 
   it('generate_forecasts rejects a domain the forecast feed never produces', async () => {
-    const result = await invoke('generate_forecasts', { domain: 'energy' });
-    assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /conflict.*market.*supply_chain/);
+    const response = await handler(proReq('POST', callBody('generate_forecasts', { domain: 'energy' })), apiDeps().deps);
+    const { error } = await response.json();
+    assert.equal(error.code, -32602);
+    assert.equal(error.data.violations[0].field, 'domain');
+    assert.match(error.data.violations[0].description, /conflict, market, supply_chain/);
     assert.deepEqual(forecastBodies, [], 'an unknown domain must not reach the upstream as a silent empty filter');
   });
 

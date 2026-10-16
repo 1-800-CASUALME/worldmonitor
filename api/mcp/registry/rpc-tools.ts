@@ -30,6 +30,7 @@ import { McpSourceUnavailableError } from '../source-unavailable';
 import { FORECAST_THEATER_STATUSES, forecastTheaterReadSchema, parseForecastTheaterResult, unavailableForecastTheaters } from '../../../shared/forecast-theaters';
 import { readBoundedResponseBody, ResponseBodyTooLargeError } from '../bounded-body';
 import { utf8ByteLength } from '../utils';
+import filterParamContracts from '../../../shared/openapi-filter-param-contracts.json';
 import { normalizeCountry } from '../../../server/_shared/intel-history-client';
 import { normalizePassengerCount } from '../../../server/_shared/passenger-count';
 import {
@@ -107,6 +108,28 @@ type McpBriefGroundingStory = PublisherRosterJson & {
 // An oversized URL is omitted rather than truncated because a clipped URL is
 // no longer a valid citation target. The primary `sources` field remains the
 // canonical citation surface.
+const FORECAST_DOMAINS: string[] = filterParamContracts.forecastDomains;
+
+// Case files are roughly 80% of a forecast's bytes, so dropping all of them
+// fits the full published list while keeping every probability and scenario.
+export function fitForecastsToBudget(result: Record<string, unknown>, budgetBytes: number): Record<string, unknown> {
+  if (!Array.isArray(result.forecasts)) return result;
+  let omitted = 0;
+  const forecasts = result.forecasts.map((row) => {
+    if (!isRecord(row) || row.caseFile === undefined) return row;
+    omitted++;
+    const { caseFile: _caseFile, ...rest } = row;
+    return { ...rest, caseFileOmitted: true };
+  });
+  if (omitted === 0) return result;
+  const presented = {
+    ...result,
+    forecasts,
+    transportCoverage: { field: 'forecasts[].caseFile', original_count: omitted, returned_count: 0, omitted_count: omitted, omission_reason: 'output_budget' },
+  };
+  return utf8ByteLength(JSON.stringify(presented)) <= budgetBytes ? presented : result;
+}
+
 const MAX_COUNTRY_BRIEF_GROUNDING_URL_LENGTH = 2_000;
 
 const BRIEF_SOURCE_PROVENANCE_SCHEMA = {
@@ -2908,11 +2931,11 @@ export const RPC_TOOLS: ToolDef[] = [
     name: 'generate_forecasts',
     title: 'Generate geopolitical forecasts',
     _outputBudgetBytes: 65536,
-    description: 'Generate live AI geopolitical and economic forecasts. Unlike get_forecast_predictions (pre-computed cache), this calls the forecasting model directly for fresh probability estimates. Note: slower than cache tools.',
+    description: 'Current AI geopolitical and economic forecasts with probabilities, scenarios, signals, and per-forecast case files, filterable by domain and region. An oversized response omits the case files and reports the omitted count in transportCoverage; a domain or region filter that fits returns them.',
     inputSchema: {
       type: 'object',
       properties: {
-        domain: { type: 'string', description: 'Forecast domain: "geopolitical", "economic", "military", "climate", or empty for all domains' },
+        domain: { type: 'string', enum: FORECAST_DOMAINS, description: `Forecast domain: one of ${FORECAST_DOMAINS.map(domain => `"${domain}"`).join(', ')}. Omit for all domains.` },
         region: { type: 'string', description: 'Geographic region filter, e.g. "Middle East", "Europe", "Asia Pacific", or empty for global' },
       },
       required: [],
@@ -2923,17 +2946,31 @@ export const RPC_TOOLS: ToolDef[] = [
         forecasts: { type: 'array', items: { type: 'object', properties: {
           domain: { type: 'string' }, region: { type: 'string' },
           probability: { type: ['number', 'null'] }, title: { type: 'string' }, rationale: { type: 'string' },
+          caseFile: { type: 'object' },
+          caseFileOmitted: { type: 'boolean', description: 'True when this forecast\'s case file was omitted to fit the response budget.' },
         } } },
         generatedAt: { type: ['string', 'number', 'null'] },
         provider: { type: 'string' },
         model: { type: 'string' },
+        transportCoverage: { type: 'object', required: ['field', 'original_count', 'returned_count', 'omitted_count', 'omission_reason'], properties: {
+          field: { const: 'forecasts[].caseFile' },
+          original_count: { type: 'integer', minimum: 0 }, returned_count: { type: 'integer', minimum: 0 },
+          omitted_count: { type: 'integer', minimum: 0 }, omission_reason: { const: 'output_budget' },
+        } },
       },
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    _fitToBudget: fitForecastsToBudget,
     _execute: async (params, base, context, execution) => {
+      // The upstream answers an unknown domain with an empty list that looks
+      // like "no forecasts", so reject it here with the valid set.
+      const domain = String(params.domain ?? '').trim().toLowerCase();
+      if (domain && !FORECAST_DOMAINS.includes(domain)) {
+        throw new RpcValidationError('get-forecasts', [{ field: 'domain', description: `Use one of: ${FORECAST_DOMAINS.join(', ')}.` }]);
+      }
       // 25 s — stays within Vercel Edge's ~30 s hard ceiling (was 60 s, which exceeded the limit)
       const url = `${base}/api/forecast/v1/get-forecasts`;
-      const body = JSON.stringify({ domain: String(params.domain ?? ''), region: String(params.region ?? '') });
+      const body = JSON.stringify({ domain, region: String(params.region ?? '') });
       const auth = await buildAuthHeaders(context, 'POST', url, body);
       const res = await fetchMcpDownstream(url, {
         method: 'POST',

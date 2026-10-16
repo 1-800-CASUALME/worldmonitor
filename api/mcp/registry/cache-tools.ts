@@ -2,6 +2,7 @@ import ISO2_TO_ISO3 from '../../../shared/iso2-to-iso3.js';
 import { MARKET_ASSET_CLASSES } from '../../../shared/panel-admission';
 import { normalizeSocialVelocity } from '../../_social-velocity.js';
 import { projectNaturalEventsRetention } from '../../_natural-events-dashboard.js';
+import { presentNaturalDisastersPanel } from '../_natural-disasters-reuse';
 import { CHINA_MACRO_REQUIRED_SERIES } from '../../../shared/china-macro-contract.js';
 import {
   normalizeChinaMacroObservations,
@@ -523,6 +524,42 @@ export function presentDefaultMarketData(result: Record<string, unknown>, budget
     }
   }
   return presented;
+}
+
+// `records` repeats seaBulletins + coastalBulletins verbatim, and the
+// alert-shaped lists re-encode the raw product lists for the dashboard, so
+// those copies are trimmed before any original bulletin.
+const IMD_TRIM_ORDER = [
+  'records', 'marineBulletins', 'portAlerts', 'cycloneEvents',
+  'coastalBulletins', 'seaBulletins', 'portWarnings', 'cones', 'windRadii', 'cyclones',
+] as const;
+
+export function fitImdToBudget(result: Record<string, unknown>, budgetBytes: number): Record<string, unknown> {
+  const data = result.data;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return result;
+  const source = (data as Record<string, unknown>).imd_cyclone_marine;
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return result;
+  const presented = structuredClone(result);
+  const snapshot = (presented.data as Record<string, unknown>).imd_cyclone_marine as Record<string, unknown>;
+  const collections: Record<string, { original_count: number; returned_count: number; omitted_count: number; omission_reason: 'output_budget' }> = {};
+  const size = () => utf8ByteLength(JSON.stringify(presented));
+  for (const key of IMD_TRIM_ORDER) {
+    if (size() <= budgetBytes) break;
+    const rows = snapshot[key];
+    if (!Array.isArray(rows) || rows.length === 0) continue;
+    const kept: unknown[] = [];
+    snapshot[key] = kept;
+    const coverage = { original_count: rows.length, returned_count: 0, omitted_count: rows.length, omission_reason: 'output_budget' as const };
+    collections[key] = coverage;
+    presented.transportCoverage = { count_scope: 'post_filter_snapshot', collections };
+    for (const row of rows) {
+      kept.push(row);
+      if (size() > budgetBytes) { kept.pop(); break; }
+    }
+    coverage.returned_count = kept.length;
+    coverage.omitted_count = rows.length - kept.length;
+  }
+  return size() <= budgetBytes ? presented : result;
 }
 
 const FORECAST_VOID_REASONS = new Set([
@@ -1486,7 +1523,7 @@ export const CACHE_TOOLS: ToolDef[] = [
     title: 'Earthquakes, wildfires and natural hazards',
     _uiResourceUri: NATURAL_DISASTERS_UI_URI,
     _outputBudgetBytes: 131072,
-    description: 'Recent M4.5+ earthquakes (USGS and Earthquakes Canada / NRCan), active wildfires (NASA FIRMS), and natural hazard events. Pro panels charge one allocation per opening; repeated views reuse the admission. Snapshot reuse is bounded by source clocks and known health, not complete provider coverage. Oversized paid panels may simplify or omit public geometry and regional detail, with explicit transportCoverage counts; API allowance reads retain full detail.',
+    description: 'Recent M4.5+ earthquakes (USGS and Earthquakes Canada / NRCan), active wildfires (NASA FIRMS), and natural hazard events. Pro panels charge one allocation per opening; repeated views reuse the admission. Snapshot reuse is bounded by source clocks and known health, not complete provider coverage. An oversized response simplifies or omits storm geometry and regional detail, with explicit transportCoverage counts; a jmespath projection that fits returns the original detail.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1586,6 +1623,7 @@ export const CACHE_TOOLS: ToolDef[] = [
       }
       return data;
     },
+    _fitToBudget: (result, budgetBytes, args) => presentNaturalDisastersPanel(result, budgetBytes, argBool(args.summary)),
     _cacheKeys: [
       'seismology:earthquakes:v1',
       'wildfire:fires:v1',
@@ -2769,7 +2807,8 @@ export const CACHE_TOOLS: ToolDef[] = [
       'Bounded India Meteorological Department sea-area and coastal marine bulletins from the public mausam.imd.gov.in pages: storm warnings, port signals, storm-surge/tidal warnings, wind, visibility, and sea state per area with each bulletin validity window. ' +
       'Not merged into weather:alerts:v1. IMD cyclone track, wind radii, and cone products are API-only and disabled (GDACS tropical cyclones cover the North Indian Ocean in natural events); port warning and fishermen warning PDFs are not parsed. ' +
       'Read coverageState on every call: degraded means some bulletin pages failed and their last-good records were carried, unavailable means no page was readable, and ok is live. Per-page status is under products.<id>.pages. ' +
-      'Empty lists with degraded or unavailable coverage are not an India all-clear.',
+      'Empty lists with degraded or unavailable coverage are not an India all-clear. ' +
+      'An oversized response trims lists from the end, repeated and alert-shaped copies first, and reports each trimmed list in transportCoverage.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -2782,7 +2821,8 @@ export const CACHE_TOOLS: ToolDef[] = [
       },
       required: [],
     },
-    outputSchema: cacheEnvelope({
+    outputSchema: (() => {
+      const schema = cacheEnvelope({
       imd_cyclone_marine: {
         type: ['object', 'null'],
         properties: {
@@ -2812,8 +2852,21 @@ export const CACHE_TOOLS: ToolDef[] = [
         },
         required: ['coverageState'],
       },
-    }),
+      }) as { properties: Record<string, unknown> };
+      return { ...schema, properties: { ...schema.properties, transportCoverage: {
+        type: 'object', required: ['count_scope', 'collections'], properties: {
+          count_scope: { const: 'post_filter_snapshot' },
+          collections: { type: 'object', additionalProperties: { type: 'object', required: [
+            'original_count', 'returned_count', 'omitted_count', 'omission_reason',
+          ], properties: {
+            original_count: { type: 'integer', minimum: 0 }, returned_count: { type: 'integer', minimum: 0 },
+            omitted_count: { type: 'integer', minimum: 0 }, omission_reason: { const: 'output_budget' },
+          } } },
+        },
+      } } };
+    })(),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    _fitToBudget: fitImdToBudget,
     _postFilter: (data, params) => {
       let snapshot = data.imd_cyclone_marine;
       // A legacy or corrupt cache value must not look like an India all-clear.
