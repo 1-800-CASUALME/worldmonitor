@@ -97,6 +97,14 @@ describe('reported landing-page SEO metadata', () => {
     assert.equal(htmlDescription, expectedDescription);
     assert.equal(ogDescription, expectedDescription);
     assert.equal(twitterDescription, expectedDescription);
+
+    // The paragraph after the H1 is the slogan, so speakable must name the
+    // definition paragraph by class rather than by position.
+    assert.match(welcomeHtml, /"cssSelector": \["h1", "\.welcome-seo-summary"\]/);
+    assert.match(
+      source('pro-test/src/welcome/Hero.tsx'),
+      /<p className="welcome-seo-summary[^"]*">\{t\('welcome\.hero\.whatIsBody'/,
+    );
   });
 
   // Every locale serves its own welcome title and description, so the search

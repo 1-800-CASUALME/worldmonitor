@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 import { comparisonDiscoveryEntries } from '../scripts/build-comparison-pages.mjs';
 import { COMPARISONS_HEADING, buildLlmsFullText, redactInternalApiOrigins, withComparisonsSection, withCorpusNavigation, withResilienceCoverage } from '../scripts/build-llms-full.mjs';
-import { buildCorpus, resolveLatestLivePulseSnapshotPath } from '../scripts/build-crawlable-corpus.mjs';
+import { buildCorpus, resilienceCoverageOf, resolveLatestLivePulseSnapshotPath } from '../scripts/build-crawlable-corpus.mjs';
 import { parseSitemapDocument } from '../scripts/verify-sitemaps.mjs';
 import { accuracyStateAudit, classifyAccuracyState } from '../scripts/build-accuracy-page.mjs';
 import { RANKABLE_UNIVERSE_SIZE } from '../scripts/shared/rankable-universe.mjs';
@@ -319,6 +319,20 @@ describe('GEO residue #7616 (U1 agent surfaces)', () => {
     return { ranked, universe };
   }
 
+  it('fails closed when a snapshot does not cover the rankable universe', () => {
+    const rows = (n) => Array.from({ length: n }, (_, index) => ({ countryCode: `C${index}` }));
+    assert.deepEqual(
+      resilienceCoverageOf({ items: rows(RANKABLE_UNIVERSE_SIZE - 3), greyedOut: rows(3) }),
+      { ranked: RANKABLE_UNIVERSE_SIZE - 3, universe: RANKABLE_UNIVERSE_SIZE },
+    );
+    assert.throws(() => resilienceCoverageOf({ items: [], greyedOut: rows(3) }), /must contain ranked items/);
+    assert.throws(
+      () => resilienceCoverageOf({ items: rows(RANKABLE_UNIVERSE_SIZE - 3), greyedOut: rows(2) }),
+      /but the rankable universe has/,
+    );
+    assert.throws(() => resilienceCoverageOf({ items: rows(RANKABLE_UNIVERSE_SIZE - 3) }), /but the rankable universe has/);
+  });
+
   const COVERAGE_FILES = [
     'public/llms.txt',
     'public/llms-full.txt',
@@ -370,6 +384,10 @@ describe('GEO residue #7616 (U1 agent surfaces)', () => {
     assert.equal(
       withResilienceCoverage('ranked: structural resilience ranked for 9 of 9 countries.', { ranked, universe }),
       `ranked: ${phrase}.`,
+    );
+    assert.throws(
+      () => withResilienceCoverage('live in 190+ countries.', { ranked, universe }),
+      /expected "structural resilience ranked for/,
     );
     for (const file of COVERAGE_FILES) {
       assert.doesNotMatch(read(file), /across 190\+ countries/, `${file} must not use the legacy reach phrasing`);

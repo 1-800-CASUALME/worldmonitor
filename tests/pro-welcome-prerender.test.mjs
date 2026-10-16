@@ -448,6 +448,11 @@ test('homepage answers "What is World Monitor?" and carries page date metadata',
     /<h2[^>]*>What is World Monitor\?<\/h2>\s*<p[^>]*>[\s\S]*?<\/p>\s*<p[^>]*>Best for analysts, journalists, traders and builders who need live geopolitical signals\.<\/p>/,
     'the "Best for" line must follow the definition',
   );
+  assert.match(
+    html,
+    /<h2[^>]*>What is World Monitor\?<\/h2>\s*<p class="welcome-seo-summary[^"]*">World Monitor is a free/,
+    'speakable .welcome-seo-summary must select the definition paragraph',
+  );
   assert.match(html, /<meta name="lastmod" content="\d{4}-\d{2}-\d{2}"\s*\/>/);
 });
 
