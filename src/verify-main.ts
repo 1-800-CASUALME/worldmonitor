@@ -6,11 +6,12 @@
  * call and works signed out. The claim lives in `?claim=` so a result can be
  * shared as a link.
  */
-import { renderClaimCardHtml } from '@/components/claim-card';
+import { renderClaimCardHtml, renderFactChecksHtml } from '@/components/claim-card';
 import {
   CLAIM_MAX_CHARS,
   checkClaim,
   fetchClaimDigest,
+  fetchFactChecks,
   normalizeClaim,
   type ClaimDigest,
 } from '@/services/verify-claim';
@@ -67,11 +68,23 @@ async function run(claim: string, { push }: { push: boolean }): Promise<void> {
   }
   submit.disabled = true;
   submit.textContent = 'Checking…';
+  // #9094: published fact-checks load beside the digest and render below the
+  // coverage card, which never waits for them.
+  const factChecks = fetchFactChecks(text);
   try {
     const loaded = await loadDigest();
     if (runId !== latestRun) return;
     status.textContent = describeDigest(loaded);
-    setTrustedHtml(result, trustedHtml(renderClaimCardHtml(checkClaim(text, loaded)), 'claim card escapes every digest and claim string'));
+    setTrustedHtml(result, trustedHtml(
+      renderClaimCardHtml(checkClaim(text, loaded)) + '<div id="factChecks"></div>',
+      'claim card escapes every digest and claim string',
+    ));
+    const slot = document.getElementById('factChecks') as HTMLDivElement;
+    setTrustedHtml(slot, trustedHtml(renderFactChecksHtml(null), 'static loading text'));
+    void factChecks.then((found) => {
+      if (runId !== latestRun) return;
+      setTrustedHtml(slot, trustedHtml(renderFactChecksHtml(found), 'fact-check card escapes every fact-check string'));
+    });
   } catch {
     if (runId !== latestRun) return;
     result.replaceChildren();

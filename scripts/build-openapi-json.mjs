@@ -203,6 +203,7 @@ export const SCANNER_BUNDLE_EXCLUDED_OPERATIONS = Object.freeze({
   '/api/news/v1/submit-error-report': 'The /trust page "Report an error" form (#9093); documented in the NewsService spec.',
   '/api/news/v1/list-error-reports': 'Operator review queue, secret-gated (#9093).',
   '/api/news/v1/review-error-report': 'Operator review decision, secret-gated (#9093).',
+  '/api/news/v1/search-fact-checks': 'Fact-check lookup for the /verify page and verify_claim (#9094); documented in the NewsService spec.',
 });
 
 /**

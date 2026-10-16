@@ -271,6 +271,7 @@ const HOST_ORIGINS = Object.freeze({
   'feeds.news24.com': 'ZA',
   'feeds.npr.org': 'US',
   'financialpost.com': 'CA',
+  'factchecktools.googleapis.com': 'US',
   'finnhub.io': 'US',
   'foreignpolicy.com': 'US',
   'fr.africanews.com': null,
