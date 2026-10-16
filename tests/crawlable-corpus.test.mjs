@@ -101,6 +101,7 @@ import { buildSourceCatalog, sourceProviderDisplayName } from '../scripts/crawla
 import { resolveSourceOrigin, sourceOriginLabel } from '../scripts/source-origin.mjs';
 import { USE_CASES_CONTENT_VERSION } from '../scripts/build-use-cases.mjs';
 import { RELATED_READING_PATH } from '../scripts/related-reading.mjs';
+import { MAX_RELATED_COUNTRIES } from '../scripts/country-related-links.mjs';
 import { ACCURACY_CONTENT_VERSION } from '../scripts/build-accuracy-page.mjs';
 import { COMPARISONS_CONTENT_VERSION } from '../scripts/build-comparison-pages.mjs';
 import { shiftLivePulseDates } from './helpers/shift-live-pulse-dates.mjs';
@@ -108,6 +109,9 @@ import { rawCatalogProviderNames, rawManifestActiveEntries } from './helpers/raw
 import { validate as validateJsonSchema } from './helpers/json-schema-mini.mjs';
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
+// data.sources keys whose files decide the related-country links on every
+// country page (scripts/country-related-links.mjs), so they move its lastmod.
+const COUNTRY_RELATED_LINK_SOURCES = ['crisisRegistry', 'tensionPairs', 'countryCentroids', 'countryBboxes'];
 
 // Synthetic story clock for direct buildMicrostateCoverageStory /
 // renderCountryAnalysis / countryDatasetDownload calls. The assertions on
@@ -3197,11 +3201,40 @@ describe('crawlable corpus generator', () => {
         const developmentsWordCount = words(
           countryDocument.querySelector('[data-country-developments]')?.textContent,
         ).length;
-        const basePageWordCeiling = country.headlineEligible === false ? 950 : 900;
-        const pageWordCeiling = basePageWordCeiling + developmentsWordCount;
+        // The related-country links and the Pro/API link are a navigation
+        // block with their own bound (scripts/country-related-links.mjs: at
+        // most five one-line links plus one CTA sentence), so they are counted
+        // like developments rather than eating the prose budget. The bounds
+        // below keep that block from becoming a second prose section. They are
+        // per part, not one total: the total grows with the country's name
+        // (Saint Vincent and the Grenadines appears three times), so a single
+        // cap sat a word or two above the longest names and a data-only crisis
+        // or tension edit would have broken it. Data-driven lines get a
+        // per-line cap; the fixed heading, intro and Pro/API sentence get a
+        // bound of the template plus three copies of the name.
+        const relatedLinksBlock = countryDocument.querySelector('[data-country-related-links]');
+        const relatedLinksWordCount = words(relatedLinksBlock?.textContent).length;
+        const relatedLinkItems = [...(relatedLinksBlock?.querySelectorAll('[data-related-countries] li') || [])];
         assert.ok(
-          pageWordCount >= 600 && pageWordCount <= pageWordCeiling,
-          `${route} main content must contain at least 600 words and no more than ${basePageWordCeiling} base words plus ${developmentsWordCount} developments words; got ${pageWordCount}`,
+          relatedLinkItems.length >= 1 && relatedLinkItems.length <= MAX_RELATED_COUNTRIES,
+          `${route} must list 1-${MAX_RELATED_COUNTRIES} related countries, got ${relatedLinkItems.length}`,
+        );
+        const relatedLinkItemWords = relatedLinkItems.map((item) => words(item.textContent).length);
+        for (const itemWords of relatedLinkItemWords) {
+          assert.ok(itemWords <= 30, `${route} related-country lines must stay one short line, got ${itemWords} words`);
+        }
+        const relatedLinksFrameWords = relatedLinksWordCount - relatedLinkItemWords.reduce((sum, count) => sum + count, 0);
+        assert.ok(
+          relatedLinksFrameWords > 0 && relatedLinksFrameWords <= 55 + 3 * words(country.name).length,
+          `${route} related-links heading, intro and Pro/API sentence must stay short, got ${relatedLinksFrameWords} words`,
+        );
+        const basePageWordCeiling = country.headlineEligible === false ? 950 : 900;
+        const pageWordCeiling = basePageWordCeiling + developmentsWordCount + relatedLinksWordCount;
+        assert.ok(
+          // The 600-word floor is for page content, so the navigation block
+          // does not count toward it.
+          pageWordCount - relatedLinksWordCount >= 600 && pageWordCount <= pageWordCeiling,
+          `${route} main content must contain at least 600 words besides the related links and no more than ${basePageWordCeiling} base words plus ${developmentsWordCount} developments words and ${relatedLinksWordCount} related-link words; got ${pageWordCount}`,
         );
       }
 
@@ -5481,9 +5514,10 @@ describe('crawlable corpus generator', () => {
         gitFileLastmod(repoRoot, data.sources.countryRegions),
         gitFileLastmod(repoRoot, data.sources.microstateTerritories),
         gitFileLastmod(repoRoot, RELATED_READING_PATH),
+        ...COUNTRY_RELATED_LINK_SOURCES.map((key) => gitFileLastmod(repoRoot, data.sources[key])),
         COUNTRY_PAGE_CONTENT_VERSION,
       ),
-      'countries lastmod must fold snapshot, pulse, movement-claim expiry, geographic inputs, related reading and the page content version',
+      'countries lastmod must fold snapshot, pulse, movement-claim expiry, geographic inputs, related reading, related-country inputs and the page content version',
     );
     // #7518 set COUNTRY_PAGE_CONTENT_VERSION and CII_COUNTRY_PAGE_CONTENT_VERSION
     // to the same date, so the two clocks coincide by value. Pin the DERIVATION
@@ -5815,7 +5849,7 @@ describe('live-pulse snapshot injection (#7533)', () => {
         gitFileLastmod(repoRoot, data.sources.countryRegions),
         gitFileLastmod(repoRoot, data.sources.microstateTerritories),
         ...CHOKEPOINT_PAGE_LASTMOD_PATHS.map((path) => gitFileLastmod(repoRoot, path)),
-        gitFileLastmod(repoRoot, data.sources.crisisRegistry),
+        ...COUNTRY_RELATED_LINK_SOURCES.map((key) => gitFileLastmod(repoRoot, data.sources[key])),
         gitFileLastmod(repoRoot, RELATED_READING_PATH),
         COUNTRY_PAGE_CONTENT_VERSION,
         CII_COUNTRY_PAGE_CONTENT_VERSION,
@@ -5862,6 +5896,7 @@ describe('live-pulse snapshot injection (#7533)', () => {
           gitFileLastmod(repoRoot, data.sources.countryRegions),
           gitFileLastmod(repoRoot, data.sources.microstateTerritories),
           gitFileLastmod(repoRoot, RELATED_READING_PATH),
+          ...COUNTRY_RELATED_LINK_SOURCES.map((key) => gitFileLastmod(repoRoot, data.sources[key])),
           COUNTRY_PAGE_CONTENT_VERSION,
         );
         // Self-check the premise: with the escalated date the fold must land
