@@ -131,6 +131,7 @@ export interface ListLabelChangesResponse {
   changes: LabelChange[];
   state: string;
   retentionDays: number;
+  counts?: LabelCounts;
 }
 
 export interface LabelChange {
@@ -152,6 +153,15 @@ export interface LabelChange {
 export interface LabelChangePublisher {
   name: string;
   tier: number;
+}
+
+export interface LabelCounts {
+  at: number;
+  stories: number;
+  corroborated: number;
+  singlePublisher: number;
+  tier4Only: number;
+  unknown: number;
 }
 
 export interface SubmitErrorReportRequest {

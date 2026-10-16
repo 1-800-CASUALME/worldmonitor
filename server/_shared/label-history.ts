@@ -41,6 +41,51 @@ export const STORY_LABEL_HISTORY_MAX = 20;
 /** Publishers listed per entry; the count is always complete. */
 const ENTRY_PUBLISHERS_MAX = 12;
 
+export const LABEL_COUNTS_KEY = 'trust:label-counts:v1';
+/** Counts older than this are not served: the digest that wrote them has stopped. */
+export const LABEL_COUNTS_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+export interface LabelCounts {
+  /** Epoch ms of the digest build that counted. */
+  readonly at: number;
+  readonly stories: number;
+  readonly corroborated: number;
+  readonly singlePublisher: number;
+  readonly tier4Only: number;
+  readonly unknown: number;
+}
+
+export function countLabels(states: Iterable<Corroboration['state']>, at: number): LabelCounts {
+  const counts = { at, stories: 0, corroborated: 0, singlePublisher: 0, tier4Only: 0, unknown: 0 };
+  for (const state of states) {
+    counts.stories += 1;
+    if (state === 'corroborated') counts.corroborated += 1;
+    else if (state === 'single-publisher') counts.singlePublisher += 1;
+    else if (state === 'tier4-only') counts.tier4Only += 1;
+    else counts.unknown += 1;
+  }
+  return counts;
+}
+
+export function labelCountsCommand(counts: LabelCounts): RedisPipelineCommand {
+  return ['SET', LABEL_COUNTS_KEY, JSON.stringify(counts), 'EX', LABEL_COUNTS_MAX_AGE_MS / 1000];
+}
+
+export function parseLabelCounts(raw: unknown, now: number): LabelCounts | null {
+  if (typeof raw !== 'string') return null;
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    const fields = ['at', 'stories', 'corroborated', 'singlePublisher', 'tier4Only', 'unknown'] as const;
+    if (!fields.every((field) => Number.isInteger(value[field]) && (value[field] as number) >= 0)) return null;
+    const counts = value as unknown as LabelCounts;
+    if (counts.at < now - LABEL_COUNTS_MAX_AGE_MS) return null;
+    if (counts.corroborated + counts.singlePublisher + counts.tier4Only + counts.unknown !== counts.stories) return null;
+    return counts;
+  } catch {
+    return null;
+  }
+}
+
 /** Story-track hash field holding the last recorded label, as `state|publishers`, or UNTRACKED_LABEL. */
 export const STORY_LABEL_FIELD = 'corrState';
 /**
