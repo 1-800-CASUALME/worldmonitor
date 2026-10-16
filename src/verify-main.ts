@@ -7,6 +7,14 @@
  * shared as a link.
  */
 import { renderClaimCardHtml, renderFactChecksHtml } from '@/components/claim-card';
+import { renderMediaCheckHtml } from '@/components/media-card';
+import {
+  checkMediaUrl,
+  ensureSignedInState,
+  isMediaCheckInput,
+  openMediaSignIn,
+  premiumMediaFetch,
+} from '@/services/media-provenance';
 import {
   CLAIM_MAX_CHARS,
   checkClaim,
@@ -26,7 +34,14 @@ const submit = document.getElementById('verifySubmit') as HTMLButtonElement;
 const status = document.getElementById('digestStatus') as HTMLParagraphElement;
 const result = document.getElementById('result') as HTMLDivElement;
 
-input.maxLength = CLAIM_MAX_CHARS;
+const MEDIA_URL_MAX_CHARS = 2048;
+
+// A claim is at most CLAIM_MAX_CHARS; a pasted media link may be longer (#9096).
+function syncInputLimit(): void {
+  input.maxLength = /^https?:\/\//i.test(input.value.trim()) ? MEDIA_URL_MAX_CHARS : CLAIM_MAX_CHARS;
+}
+syncInputLimit();
+input.addEventListener('input', syncInputLimit);
 
 let digest: Promise<ClaimDigest> | null = null;
 // Only the latest check may touch the page: a slow first digest load must not
@@ -53,8 +68,45 @@ function resetSubmit(): void {
   submit.textContent = 'Check coverage';
 }
 
+/**
+ * #9096: a pasted image or video link gets a media check (PRO) instead of a
+ * coverage check. Sign-in loads only here, so claim checks stay signed out.
+ */
+async function runMediaCheck(url: string, runId: number): Promise<void> {
+  status.textContent = '';
+  const paint = (html: string) => {
+    if (runId === latestRun) setTrustedHtml(result, trustedHtml(html, 'media card escapes every result string'));
+  };
+  paint(renderMediaCheckHtml(null));
+  const signedIn = await ensureSignedInState().catch(() => false);
+  if (runId !== latestRun) return;
+  const outcome = signedIn
+    ? await checkMediaUrl(url, { fetch: await premiumMediaFetch() })
+    : { kind: 'needs-sign-in' as const };
+  paint(renderMediaCheckHtml(outcome));
+  result.querySelector<HTMLButtonElement>('[data-media-signin]')?.addEventListener('click', () => {
+    void openMediaSignIn();
+  });
+}
+
 async function run(claim: string, { push }: { push: boolean }): Promise<void> {
   const runId = ++latestRun;
+  const raw = String(claim || '').trim();
+  if (isMediaCheckInput(raw)) {
+    if (push) {
+      const url = new URL(location.href);
+      url.searchParams.set('claim', raw);
+      history.pushState(null, '', url);
+    }
+    submit.disabled = true;
+    submit.textContent = 'Checking…';
+    try {
+      await runMediaCheck(raw.slice(0, MEDIA_URL_MAX_CHARS), runId);
+    } finally {
+      if (runId === latestRun) resetSubmit();
+    }
+    return;
+  }
   const text = normalizeClaim(claim);
   if (!text) {
     result.replaceChildren();
@@ -112,7 +164,8 @@ input.addEventListener('keydown', (event) => {
 
 function runFromLocation(): void {
   const claim = new URLSearchParams(location.search).get('claim') ?? '';
-  input.value = normalizeClaim(claim);
+  input.value = isMediaCheckInput(claim) ? claim.trim().slice(0, MEDIA_URL_MAX_CHARS) : normalizeClaim(claim);
+  syncInputLimit();
   void run(claim, { push: false });
 }
 

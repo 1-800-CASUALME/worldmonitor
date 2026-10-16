@@ -1,0 +1,244 @@
+#!/usr/bin/env node
+// @ts-check
+/**
+ * Media provenance worker (#9096): always-on Railway service.
+ *
+ * Pulls media checks from Redis (BLMOVE), downloads the file with SSRF guards,
+ * reads its C2PA content credentials, looks up the earliest copies TinEye has
+ * seen (within a monthly spend cap), and writes the result for the API to
+ * serve. Submitted files are kept in R2 for 30 days, then deleted.
+ *
+ * Deployed from Dockerfile.media-provenance-worker: the C2PA reader is a
+ * native addon built for glibc.
+ */
+
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+import { getRedisCredentials, loadEnvFile } from './_seed-utils.mjs';
+import { deleteR2Object, putR2BinaryObject, resolveR2StorageConfig } from './_r2-storage.mjs';
+import {
+  MEDIA_CAVEATS,
+  MEDIA_JOB_ID_RE,
+  MEDIA_OWNER_TOKEN_RE,
+  MEDIA_PROCESSING_KEY,
+  MEDIA_QUEUE_KEY,
+  MEDIA_RESULT_TTL_SECONDS,
+  MEDIA_RETENTION_DAYS,
+  MEDIA_STORAGE_PREFIX,
+  MEDIA_STORED_INDEX_KEY,
+  mediaResultKey,
+} from './shared/media-provenance-contract.js';
+import {
+  MediaCheckError,
+  fetchMedia,
+  findEarliestCopies,
+  readCredentials,
+  searchTinEye,
+  strippedSearchBytes,
+  tineyeLimits,
+} from './lib/media-provenance.mjs';
+
+loadEnvFile(import.meta.url);
+
+const RETENTION_MS = MEDIA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+const SWEEP_INTERVAL_MS = 30 * 60 * 1000;
+const IDLE_SLEEP_MS = 3_000;
+
+let shuttingDown = false;
+process.on('SIGTERM', () => { shuttingDown = true; });
+
+/** One Redis command over Upstash REST. */
+export async function redisCmd(cmd, args) {
+  const { url, token } = getRedisCredentials();
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify([String(cmd).toUpperCase(), ...args]),
+    signal: AbortSignal.timeout(40_000),
+  });
+  if (!resp.ok) throw new Error(`Redis ${cmd} HTTP ${resp.status}`);
+  const body = /** @type {{ result?: unknown; error?: string }} */ (await resp.json());
+  if (body.error) throw new Error(`Redis ${cmd}: ${body.error}`);
+  return body.result;
+}
+
+/** C2PA trust anchors (PEM), from the environment or a mounted file. */
+async function loadTrustAnchors(env = process.env) {
+  if (env.C2PA_TRUST_ANCHORS_PEM) return env.C2PA_TRUST_ANCHORS_PEM;
+  if (env.C2PA_TRUST_ANCHORS_FILE) {
+    const { readFile } = await import('node:fs/promises');
+    return readFile(env.C2PA_TRUST_ANCHORS_FILE, 'utf8').catch(() => '');
+  }
+  return '';
+}
+
+/** (assetPath, mimeType) => manifest store | null, using @contentauth/c2pa-node. */
+async function createReaderFactory(trustAnchors) {
+  const { Reader, Context } = await import('@contentauth/c2pa-node');
+  const context = trustAnchors
+    ? new Context({ verify: { verifyTrust: true }, trust: { trustAnchors } })
+    : undefined;
+  return async (path, mimeType) => {
+    const reader = await Reader.fromAsset({ path, mimeType }, context);
+    return reader ? reader.json() : null;
+  };
+}
+
+/**
+ * Run one check. Dependencies are injected so tests run it without network,
+ * native addons or storage.
+ */
+export async function runMediaCheck(job, deps) {
+  const fetched = await deps.fetchMedia(job.url);
+  const fetchedAt = new Date(deps.now()).toISOString();
+  await deps.storeOriginal(fetched).catch((error) => {
+    console.warn('[media-provenance] storing the file failed:', error?.message ?? error);
+  });
+
+  const dir = await mkdtemp(join(tmpdir(), 'media-provenance-'));
+  let credentials;
+  try {
+    const assetPath = join(dir, 'asset');
+    await writeFile(assetPath, fetched.bytes, { mode: 0o600 });
+    credentials = await readCredentials(assetPath, fetched.mediaType, deps.readerFactory, { trustListConfigured: deps.trustListConfigured });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+
+  const earliest = await findEarliestCopies({
+    sha256: fetched.sha256,
+    mediaType: fetched.mediaType,
+    searchBytes: () => deps.strippedSearchBytes(fetched.bytes, fetched.mediaType),
+    apiKey: deps.tineyeApiKey,
+    redisCmd: deps.redisCmd,
+    searchTinEye: deps.searchTinEye,
+    limits: deps.limits,
+    now: deps.now(),
+    cacheTtlSeconds: Math.round(RETENTION_MS / 1000),
+  });
+
+  return {
+    url: job.url,
+    mediaType: fetched.mediaType,
+    bytes: fetched.bytes.length,
+    sha256: fetched.sha256,
+    fetchedAt,
+    credentials,
+    earliest,
+    caveats: [...MEDIA_CAVEATS],
+  };
+}
+
+/** Record a stored file and delete files older than the retention period. */
+export async function sweepExpiredMedia({ redisCmd: cmd, deleteObject, now = Date.now() }) {
+  const expired = await cmd('zrangebyscore', [MEDIA_STORED_INDEX_KEY, '-inf', now - RETENTION_MS, 'LIMIT', 0, 200]);
+  let deleted = 0;
+  for (const key of Array.isArray(expired) ? expired : []) {
+    if (typeof key !== 'string' || !key.startsWith(`${MEDIA_STORAGE_PREFIX}/`)) continue;
+    try {
+      await deleteObject(key);
+      await cmd('zrem', [MEDIA_STORED_INDEX_KEY, key]);
+      deleted += 1;
+    } catch (error) {
+      console.warn('[media-provenance] retention delete failed:', key, error?.message ?? error);
+    }
+  }
+  return deleted;
+}
+
+function parseJob(raw) {
+  try {
+    const job = JSON.parse(String(raw));
+    if (!job || typeof job.url !== 'string' || !MEDIA_JOB_ID_RE.test(job.jobId) || !MEDIA_OWNER_TOKEN_RE.test(job.owner)) return null;
+    return job;
+  } catch {
+    return null;
+  }
+}
+
+async function runWorker() {
+  console.log(`[media-provenance] starting — listening on ${MEDIA_QUEUE_KEY}`);
+  const trustAnchors = await loadTrustAnchors();
+  const readerFactory = await createReaderFactory(trustAnchors);
+  const { default: sharp } = await import('sharp');
+  const r2 = resolveR2StorageConfig(process.env, { bucketEnv: 'CLOUDFLARE_R2_MEDIA_BUCKET' });
+  if (!r2) console.warn('[media-provenance] R2 is not configured: submitted files are not stored');
+  if (!process.env.TINEYE_API_KEY) console.warn('[media-provenance] TINEYE_API_KEY is not set: earliest-copy searches report not-configured');
+
+  const storeOriginal = async (fetched) => {
+    if (!r2) return;
+    const key = `${MEDIA_STORAGE_PREFIX}/${fetched.sha256}`;
+    await putR2BinaryObject(r2, key, fetched.bytes, fetched.mediaType);
+    await redisCmd('zadd', [MEDIA_STORED_INDEX_KEY, Date.now(), key]);
+  };
+
+  // Jobs left in processing by a crash go back to the queue once.
+  for (let moved = await redisCmd('lmove', [MEDIA_PROCESSING_KEY, MEDIA_QUEUE_KEY, 'RIGHT', 'LEFT']).catch(() => null); moved;) {
+    moved = await redisCmd('lmove', [MEDIA_PROCESSING_KEY, MEDIA_QUEUE_KEY, 'RIGHT', 'LEFT']).catch(() => null);
+  }
+
+  let lastSweep = 0;
+  while (!shuttingDown) {
+    if (r2 && Date.now() - lastSweep > SWEEP_INTERVAL_MS) {
+      lastSweep = Date.now();
+      await sweepExpiredMedia({ redisCmd, deleteObject: (key) => deleteR2Object(r2, key) }).catch((error) => {
+        console.warn('[media-provenance] retention sweep failed:', error?.message ?? error);
+      });
+    }
+
+    let raw;
+    try {
+      raw = await redisCmd('blmove', [MEDIA_QUEUE_KEY, MEDIA_PROCESSING_KEY, 'LEFT', 'RIGHT', 30]);
+    } catch (error) {
+      console.error('[media-provenance] BLMOVE error:', error?.message ?? error);
+      await new Promise((r) => setTimeout(r, 5_000));
+      continue;
+    }
+    if (!raw) {
+      await new Promise((r) => setTimeout(r, IDLE_SLEEP_MS));
+      continue;
+    }
+
+    const job = parseJob(raw);
+    if (!job) {
+      console.error('[media-provenance] discarding an invalid job');
+      await redisCmd('lrem', [MEDIA_PROCESSING_KEY, 1, String(raw)]).catch(() => null);
+      continue;
+    }
+    const resultKey = mediaResultKey(job.owner, job.jobId);
+    try {
+      const result = await runMediaCheck(job, {
+        fetchMedia,
+        storeOriginal,
+        readerFactory,
+        trustListConfigured: Boolean(trustAnchors),
+        strippedSearchBytes: (bytes, type) => strippedSearchBytes(bytes, type, sharp),
+        searchTinEye,
+        tineyeApiKey: process.env.TINEYE_API_KEY ?? '',
+        limits: tineyeLimits(),
+        redisCmd,
+        now: () => Date.now(),
+      });
+      await redisCmd('set', [resultKey, JSON.stringify({ status: 'done', result, completedAt: Date.now() }), 'EX', MEDIA_RESULT_TTL_SECONDS]);
+      console.log(`[media-provenance] ${job.jobId} done (${result.mediaType}, credentials=${result.credentials.state}, earliest=${result.earliest.state})`);
+    } catch (error) {
+      const message = error instanceof MediaCheckError ? error.message : 'The check could not be completed.';
+      if (!(error instanceof MediaCheckError)) console.error(`[media-provenance] ${job.jobId} failed:`, error?.message ?? error);
+      await redisCmd('set', [resultKey, JSON.stringify({ status: 'failed', error: message, failedAt: Date.now() }), 'EX', MEDIA_RESULT_TTL_SECONDS]).catch(() => null);
+    } finally {
+      await redisCmd('lrem', [MEDIA_PROCESSING_KEY, 1, String(raw)]).catch(() => null);
+    }
+  }
+  console.log('[media-provenance] shutdown complete');
+}
+
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  runWorker().catch((error) => {
+    console.error('[media-provenance] fatal:', error);
+    process.exit(1);
+  });
+}
