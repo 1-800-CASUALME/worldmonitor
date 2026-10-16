@@ -120,13 +120,14 @@ describe('claim headline search over the RSS caches', () => {
     assert.equal(reads, before, 'one feed-cache read serves the next claims');
   });
 
-  it('missing feed caches make the search partial and uncached at the CDN', async () => {
+  it('missing feed caches make the search partial, which is still a search and may be cached', async () => {
     cache.delete(rssFeedCacheKey('full', feed('Al Jazeera').url));
     put('BBC World', [row('BBC World', 'Storm hits Manila', 'https://www.bbc.co.uk/news/1')]);
     const { req, payload } = await request('Storm hits Manila');
     assert.equal(payload.state, 'partial');
     assert.equal(payload.feedCached, payload.feedTotal - 1);
-    assert.equal(drainResponseHeaders(req)?.['X-No-Cache'], '1');
+    assert.equal(payload.headlines.length, 1);
+    assert.equal(drainResponseHeaders(req)?.['X-No-Cache'], undefined);
   });
 
   it('an unreadable revocation list searches nothing: unavailable, never an empty search', async () => {

@@ -129,7 +129,10 @@ export async function searchClaimHeadlines(
   req: SearchClaimHeadlinesRequest,
 ): Promise<SearchClaimHeadlinesResponse> {
   const { candidates, ...search } = await searchClaimPool(req.claim ?? '');
-  if (search.state !== 'complete') markNoCacheResponse(ctx.request);
+  // A few feed caches are usually missing (231 of 241 on 2026-10-16), so a
+  // partial search is the normal answer and may be cached; a search that did
+  // not run may not.
+  if (search.state === 'unavailable') markNoCacheResponse(ctx.request);
   return { headlines: candidates.map(toHeadline), ...search };
 }
 
