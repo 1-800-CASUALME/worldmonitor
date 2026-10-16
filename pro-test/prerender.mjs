@@ -182,19 +182,25 @@ function tagAttribute(tag, name) {
   return valueEnd === -1 ? '' : tag.slice(valueStart, valueEnd);
 }
 
-// The hero screenshot is the welcome page's LCP element, but React only emits
-// an image preload for a bare <img> -- it skips one inside <picture> because it
-// cannot know which <source> the browser will pick. Mirror the AVIF <source>
-// (every browser that preloads also decodes AVIF or ignores the hint by type)
-// into a head preload so the fetch starts before the body is parsed. Read from
-// the rendered markup so the srcset and sizes can never drift from Hero.tsx.
+// On tall desktop screens the hero screenshot is the welcome page's LCP
+// element, but React only emits an image preload for a bare <img> -- it skips
+// one inside <picture> because it cannot know which <source> the browser will
+// pick. Mirror the AVIF <source> (every browser that preloads also decodes AVIF
+// or ignores the hint by type) into a head preload so the fetch starts before
+// the body is parsed. Read from the rendered markup so the srcset and sizes can
+// never drift from Hero.tsx.
+//
+// Desktop only: below 640px the screenshot sits about two screens under the
+// fold (the <h1> is the LCP), and at 3x DPR the preload would pull the 1280w
+// AVIF at high priority ahead of the deferred stylesheet and entry script.
+const HERO_IMAGE_PRELOAD_MEDIA = '(min-width: 640px)';
 function heroImagePreloadTag(markup) {
   const source = markup.match(/<picture><source type="image\/avif" srcSet="([^"]+)" sizes="([^"]+)"\/>/);
   if (!source) {
     console.error('[prerender] ERROR: Could not find the hero AVIF <source> in welcome markup to preload.');
     process.exit(1);
   }
-  return '    <link rel="preload" as="image" type="image/avif" imagesrcset="' + source[1] + '" imagesizes="' + source[2] + '" fetchpriority="high">';
+  return '    <link rel="preload" as="image" type="image/avif" media="' + HERO_IMAGE_PRELOAD_MEDIA + '" imagesrcset="' + source[1] + '" imagesizes="' + source[2] + '" fetchpriority="high">';
 }
 
 function inlineCriticalCss(html, file, headTags = []) {

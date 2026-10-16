@@ -287,7 +287,8 @@ test('built welcome page ships the real hero in #root before JavaScript', { skip
 test('built welcome head preloads the hero AVIF srcset the <picture> serves', { skip }, () => {
   const html = welcomeHtml();
   const head = html.slice(0, html.indexOf('</head>'));
-  const preload = head.match(/<link rel="preload" as="image" type="image\/avif" imagesrcset="([^"]+)" imagesizes="([^"]+)" fetchpriority="high">/);
+  // Desktop only: on phones the <h1> is the LCP and the screenshot is far below the fold.
+  const preload = head.match(/<link rel="preload" as="image" type="image\/avif" media="\(min-width: 640px\)" imagesrcset="([^"]+)" imagesizes="([^"]+)" fetchpriority="high">/);
   assert.ok(preload, 'welcome <head> should preload the hero AVIF');
   const source = welcomeRoot().content.match(/<picture><source type="image\/avif" srcSet="([^"]+)" sizes="([^"]+)"\/>/);
   assert.ok(source, 'hero <picture> should carry an AVIF <source>');
