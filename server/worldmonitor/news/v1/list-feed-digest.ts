@@ -2584,9 +2584,9 @@ function groupByTitleHash(items: readonly ParsedItem[]): Map<string, ParsedItem[
 /**
  * #9093: this cycle's corroboration label for every served story, and the
  * changes from the label each story's track row recorded last cycle. A label
- * reads the story's whole servable cluster: the category cap can drop a member
- * whose publisher the cluster-wide count includes, and the logged roster must
- * name every publisher behind that count.
+ * reads the story's whole servable cluster, because the category cap can drop a
+ * member whose publisher the cluster-wide count includes. The stored source
+ * roster is then capped by labelChangeFor; the publisher count is never capped.
  */
 function storyLabelChanges(
   served: readonly ParsedItem[],
