@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import { latestValidGithubStarsSnapshot } from '../scripts/github-stars-snapshot.mjs';
 import { guardProBuiltOutput, shouldSkipProBuiltOutput } from './_lib/pro-built-output.mjs';
@@ -295,14 +295,37 @@ test('built welcome head preloads the hero AVIF srcset the <picture> serves', { 
   assert.equal(preload[2], source[2], 'preload imagesizes must match the rendered <source>');
 });
 
-// Mobile audits fail any rendered text under 12px; the inline critical CSS is
-// what they read first, and it mirrors every size the hero uses.
-test('built welcome page sets no font size below 12px', { skip }, () => {
-  const tooSmall = [...welcomeHtml().matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)]
-    .map((match) => Number(match[1]))
-    .filter((px) => px < 12);
-  assert.deepEqual(tooSmall, []);
-  assert.doesNotMatch(welcomeRoot().content, /\btext-\[(?:\d|1[01])(?:\.\d+)?px\]/);
+// Mobile audits fail any rendered text under 12px (0.75rem at the 16px root).
+const fontSizesBelow12px = (css) =>
+  [...css.matchAll(/font-size:\s*(\d*\.?\d+)(px|rem)/g)]
+    .map(([declaration, value, unit]) => ({ declaration, px: Number(value) * (unit === 'rem' ? 16 : 1) }))
+    .filter(({ px }) => px < 12)
+    .map(({ declaration }) => declaration);
+const SUB_12PX_TEXT_UTILITY = /\btext-\[(?:(?:\d|1[01])(?:\.\d+)?px|0?\.(?:[0-6]\d*|7(?:[0-4]\d*)?)rem)\]/;
+
+// The inline critical CSS is what audits read first, and it mirrors every size
+// the prerendered hero uses — on / (welcome.html) and, since #9175, /pro too.
+test('built welcome and /pro pages set no font size below 12px', { skip }, () => {
+  const proHtml = readFileSync(new URL('../public/pro/index.html', import.meta.url), 'utf8');
+  assert.deepEqual(fontSizesBelow12px(welcomeHtml()), [], 'welcome.html');
+  assert.deepEqual(fontSizesBelow12px(proHtml), [], 'index.html');
+  assert.doesNotMatch(welcomeRoot().content, SUB_12PX_TEXT_UTILITY);
+});
+
+// Source-level twin of the built check, so it runs without a build and covers
+// components the welcome prerender never renders (/pro, pricing, checkout).
+test('pro-test source uses no text utility or font-size below 12px', () => {
+  const srcRoot = new URL('../pro-test/src/', import.meta.url);
+  const offenders = readdirSync(srcRoot, { recursive: true })
+    .filter((path) => /\.(?:tsx?|css)$/.test(path))
+    .flatMap((path) => {
+      const source = readFileSync(new URL(path, srcRoot), 'utf8');
+      return [
+        ...(source.match(new RegExp(SUB_12PX_TEXT_UTILITY.source, 'g')) ?? []),
+        ...fontSizesBelow12px(source),
+      ].map((hit) => `${path}: ${hit}`);
+    });
+  assert.deepEqual(offenders, []);
 });
 
 // The JSON-LD `author` (#7459a) must name someone the page visibly credits, or
