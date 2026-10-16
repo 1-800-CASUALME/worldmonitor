@@ -6,7 +6,7 @@ import { unwrapEnvelope } from '../_seed-envelope.js';
 import { chokepointCacheIdentity, chokepointSourcePolicy, type ChokepointPanelRead } from './_chokepoint-snapshot';
 import { newsIntelligenceFreshness, newsIntelligenceReuseUntil, type NewsIntelligencePanelRead } from './_news-intelligence-snapshot';
 import { resolveCountryFilter } from './_country-args';
-import { filterNaturalDisastersPanelData, naturalDisastersReuseUntil, presentNaturalDisastersPanel, type NaturalDisastersPanelRead } from './_natural-disasters-reuse';
+import { filterNaturalDisastersPanelData, naturalDisastersReuseUntil, type NaturalDisastersPanelRead } from './_natural-disasters-reuse';
 import { isAppOwnedRedisKey } from '../_redis-key-ownership.js';
 // @ts-expect-error — JS module, no declaration file
 import { captureSilentError } from '../_sentry-edge.js';
@@ -871,13 +871,20 @@ export async function dispatchToolsCall(
       result = presentDefaultMarketData(result as Record<string, unknown>, tool._outputBudgetBytes);
     }
     let { text: projectedText, value: projectedValue, failed } = applyJmespath(result, jmespathArg);
-    if (tool.name === 'get_natural_disasters' && dedicatedPanel && panelRead?.panel === 'disasters'
+    // A news-panel token reading Natural map data keeps its full geometry.
+    const newsMapRead = tool.name === 'get_natural_disasters' && panelRead !== undefined && panelRead.panel !== 'disasters';
+    let fitCoverage: unknown;
+    if (tool._fitToBudget && !newsMapRead
       && result && typeof result === 'object'
       && (failed === 'projection_too_large' || utf8ByteLength(projectedText) > tool._outputBudgetBytes)) {
-      const presented = presentNaturalDisastersPanel(result as Record<string, unknown>, tool._outputBudgetBytes, argBool(callArguments.summary));
+      const presented = tool._fitToBudget(result as Record<string, unknown>, tool._outputBudgetBytes, callArguments);
       if (presented !== result) {
         result = presented;
         ({ text: projectedText, value: projectedValue, failed } = applyJmespath(result, jmespathArg));
+        // A projection can select the trimmed lists and leave the coverage
+        // record behind, so it rides outside the projection like the
+        // attribution rider below.
+        if (jmespathUsed && failed === undefined) fitCoverage = presented.transportCoverage;
       }
     }
     // Attribution accompaniment. A projection can detach a redistribution-
@@ -900,7 +907,13 @@ export async function dispatchToolsCall(
     const rider = jmespathUsed && tool._attribution !== undefined
       ? buildAttributionRider(result, tool._attribution)
       : null;
-    const text = rider === null ? projectedText : mergeAttributionRider(projectedText, rider);
+    let text = rider === null ? projectedText : mergeAttributionRider(projectedText, rider);
+    if (fitCoverage !== undefined) {
+      const coverage = JSON.stringify(fitCoverage);
+      text = rider === null
+        ? `{"projection":${projectedText},"transportCoverage":${coverage}}`
+        : `${text.slice(0, -1)},"transportCoverage":${coverage}}`;
+    }
     const latencyMs = Date.now() - tStart;
     // Budget gate: always compute byte length for the budget check. This
     // replaces the previous telemetry-only perf gate for the post-JMESPath
@@ -966,10 +979,11 @@ export async function dispatchToolsCall(
     // tool's `summary: true`, which turns lists into `{count, sample}` — is no
     // longer the documented shape and is carried under `projection`.
     const summaryUsed = tool._execute === undefined && argBool(p.arguments?.summary);
-    const structuredContent = buildStructuredContent(projectedValue, {
+    const builtContent = buildStructuredContent(projectedValue, {
       reshaped: failed === undefined && (jmespathUsed || summaryUsed),
       rider,
     });
+    const structuredContent = fitCoverage === undefined ? builtContent : { ...builtContent, transportCoverage: fitCoverage };
     return rpcOk(id, { content: [{ type: 'text', text }], structuredContent, ...(panelUsage ? { _meta: { 'worldmonitor/usage': panelUsage } } : {}) }, corsHeaders);
   } catch (err: unknown) {
     // `latency_ms` is time-in-tool (from tStart, captured after the quota

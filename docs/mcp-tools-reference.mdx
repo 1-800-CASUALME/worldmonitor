@@ -2619,7 +2619,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `get_imd_cyclone_marine`
 
-Bounded India Meteorological Department sea-area and coastal marine bulletins from the public `mausam.imd.gov.in` pages: storm warnings, port signals, storm-surge or tidal warnings, wind, visibility, and sea state per area, each with its validity window. Products stay typed and are not merged into `weather:alerts:v1`. IMD cyclone track, wind radii, and cone are API-only and disabled; GDACS tropical cyclones cover the North Indian Ocean. Port warning and fishermen warning PDFs are not parsed. Always read `coverageState`: `degraded` means some bulletin pages failed and their last-good records were carried, `unavailable` means no page was readable, and `ok` is live. Per-page status is under `products.<id>.pages`. Empty lists with `degraded` or `unavailable` coverage are not an India all-clear.
+Bounded India Meteorological Department sea-area and coastal marine bulletins from the public `mausam.imd.gov.in` pages: storm warnings, port signals, storm-surge or tidal warnings, wind, visibility, and sea state per area, each with its validity window. Products stay typed and are not merged into `weather:alerts:v1`. IMD cyclone track, wind radii, and cone are API-only and disabled; GDACS tropical cyclones cover the North Indian Ocean. Port warning and fishermen warning PDFs are not parsed. Always read `coverageState`: `degraded` means some bulletin pages failed and their last-good records were carried, `unavailable` means no page was readable, and `ok` is live. Per-page status is under `products.<id>.pages`. Empty lists with `degraded` or `unavailable` coverage are not an India all-clear. A response over the 64 KB output budget trims lists from the end, the repeated `records` list and the alert-shaped copies first, and reports each trimmed list under `transportCoverage.collections`.
 
 **Parameters (tool-specific):**
 
@@ -2650,7 +2650,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `get_natural_disasters`
 
-Recent M4.5+ earthquakes (USGS and Earthquakes Canada / NRCan), active wildfires (NASA FIRMS), and natural hazard events. Includes magnitude, location, source, and threat severity.
+Recent M4.5+ earthquakes (USGS and Earthquakes Canada / NRCan), active wildfires (NASA FIRMS), and natural hazard events. Includes magnitude, location, source, and threat severity. A response over the 128 KB output budget simplifies or omits storm cone and track geometry and samples regional detail, with counts under `transportCoverage`; a `jmespath` projection that fits returns the original geometry.
 
 **Parameters (tool-specific):**
 
@@ -2906,16 +2906,16 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `generate_forecasts`
 
-Generate live AI geopolitical and economic forecasts. Unlike get_forecast_predictions (pre-computed cache), this calls the forecasting model directly for fresh probability estimates. Note: slower than cache tools.
+Current AI geopolitical and economic forecasts with probabilities, scenarios, signals, and per-forecast case files, filterable by domain and region. An oversized response omits the case files and reports the omitted count in transportCoverage; a domain or region filter that fits returns them.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|---------:|-------------|
-| `domain` | string | no | Forecast domain: "geopolitical", "economic", "military", "climate", or empty for all domains |
+| `domain` | string | no | Forecast domain: one of "conflict", "market", "supply_chain", "political", "military", "cyber", "infrastructure". Omit for all domains. |
 | `region` | string | no | Geographic region filter, e.g. "Middle East", "Europe", "Asia Pacific", or empty for global |
 
-- **API endpoints:** no public OpenAPI row; runtime proxies `POST /api/forecast/v1/get-forecasts` (the OpenAPI spec only declares `GET` on that path, which is covered by `get_forecast_predictions` — this tool's POST variant runs a fresh forecast).
+- **API endpoints:** no public OpenAPI row; runtime proxies `POST /api/forecast/v1/get-forecasts` (the OpenAPI spec only declares `GET` on that path, which is covered by `get_forecast_predictions` — this tool's POST variant reads the same published forecasts).
 - **Access:** `subscription` — requires a Pro subscription. RPC tool: no `summary` argument (use `jmespath` to trim the response).
 - **Kind:** live RPC — proxies a fetch to the WorldMonitor API on each call. Edge-runtime timeout: **25.0s**.
 
@@ -2942,7 +2942,7 @@ AI-generated geopolitical and economic forecasts from WorldMonitor's predictive 
 
 | Name | Type | Description |
 |------|------|-------------|
-| `domain` | string | Filter to one forecast domain (exact, case-insensitive — e.g. "shipping", "energy", "macro"). |
+| `domain` | string | Filter to one forecast domain (exact, case-insensitive): conflict, market, supply_chain, political, military, cyber, infrastructure. |
 | `region` | string | Filter to one region/theater (case-insensitive substring). |
 | `limit` | number | Paid interactive panel: integers 1–30, default 30. Ordinary API readers may use 0 for no cap. |
 | `refresh` | boolean | Request a new paid panel snapshot; requires a fresh request_id. |
