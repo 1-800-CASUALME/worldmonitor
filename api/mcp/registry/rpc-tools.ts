@@ -55,6 +55,7 @@ import { COUNTRY_BRIEF_UI_URI, COUNTRY_RISK_UI_URI, WORLD_BRIEF_UI_URI } from '.
 import { ANALYSIS_TOOLS } from './analysis-tools';
 import { buildPublicTool, TOOL_REGISTRY } from './index';
 import { COMPANY_INTEL_TOOL } from './company-intel-tools';
+import { tradeCountryCode } from './tariff-tools';
 
 type McpBriefSource = {
   title: string;
@@ -429,7 +430,6 @@ const PROCUREMENT_TOOL_MAX_PAGE_SIZE = 25;
 export const TRADE_FLOWS_DEFAULT_REPORTER = '840';
 export const TRADE_FLOWS_DEFAULT_YEARS = 10;
 export const TRADE_FLOWS_MAX_YEARS = 30;
-const TRADE_FLOWS_M49_CODE = /^[0-9]{3}$/;
 
 // Response vocabulary for `unavailableReason` — the closed enum emitted by the
 // RPC (TradeFlowUnavailableReason). The distinction agents depend on is
@@ -491,7 +491,14 @@ type NormalizedTradeFlowRequest = {
 
 function normalizeTradeFlowRequest(params: Record<string, unknown>): NormalizedTradeFlowRequest | null {
   const rawReporter = argStr(params.reporter);
-  if (rawReporter && !TRADE_FLOWS_M49_CODE.test(rawReporter)) return null;
+  let reporter = TRADE_FLOWS_DEFAULT_REPORTER;
+  if (rawReporter) {
+    try {
+      reporter = tradeCountryCode(rawReporter, 'get-trade-flows', 'reporter');
+    } catch {
+      return null;
+    }
+  }
 
   let years = TRADE_FLOWS_DEFAULT_YEARS;
   if (params.years !== undefined && params.years !== null) {
@@ -500,10 +507,7 @@ function normalizeTradeFlowRequest(params: Record<string, unknown>): NormalizedT
     years = rawYears;
   }
 
-  return {
-    reporter: rawReporter || TRADE_FLOWS_DEFAULT_REPORTER,
-    years,
-  };
+  return { reporter, years };
 }
 
 function unavailableTradeFlowResult(reason: typeof TRADE_FLOW_REASON.invalidRequest) {
@@ -1300,8 +1304,7 @@ export const RPC_TOOLS: ToolDef[] = [
       properties: {
         reporter: {
           type: 'string',
-          pattern: '^[0-9]{3}$',
-          description: 'WTO reporting country as a 3-digit UN M49 code (e.g. "840" = United States). Defaults to "840". The only partner served is the World ("000"); any other partner answers not_covered.',
+          description: 'Reporting country as an ISO 3166-1 alpha-2 code ("US") or a 3-digit UN M49 code ("840"); ISO2 is mapped to M49. Defaults to "840" (United States). The only partner served is the World ("000"); any other partner answers not_covered.',
         },
         years: {
           type: 'integer',
