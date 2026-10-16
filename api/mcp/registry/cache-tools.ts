@@ -631,8 +631,8 @@ const FORECAST_SCORECARD_DESCRIPTION = 'Forecast resolution scorecard with calib
 export function forecastScorecardDescription(configured?: ForecastAccuracyAudit | null): string {
   const override = accuracyAuditOverride(configured);
   const lead = override
-    ? `Forecast resolution scorecard, under audit since ${override.since} (issue ${override.issue}): do not quote its scores.`
-    : 'Forecast resolution scorecard (Brier, calibration, funnel); check underAudit before quoting scores.';
+    ? `Forecast resolution scorecard, under audit since ${override.since} (issue ${override.issue}): its scores are unverified.`
+    : 'Forecast resolution scorecard (Brier, calibration, funnel); underAudit marks scores still under audit.';
   return `${lead} ${FORECAST_SCORECARD_DESCRIPTION}`;
 }
 
@@ -2979,7 +2979,7 @@ export const CACHE_TOOLS: ToolDef[] = [
     name: 'get_tariff_trends',
     title: 'Tariff and trade price trends',
     _outputBudgetBytes: 131072,
-    description: 'Global trade and pricing indicators: US MFN applied tariff trend (all-products average; for another reporter, a partner or a product group use get_tariff_averages), Big Mac index, FAO Food Price Index, and per-country national debt levels.',
+    description: 'Global trade and pricing indicators: US MFN applied tariff trend (all-products average), Big Mac index, FAO Food Price Index, and per-country national debt levels.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3450,7 +3450,7 @@ export const CACHE_TOOLS: ToolDef[] = [
     title: 'Interactive forecasts',
     _uiResourceUri: FORECASTS_UI_URI,
     _outputBudgetBytes: 131072,
-    description: 'Open WorldMonitor’s interactive forecasts with local domain/region filters and original case analysis. Paid ChatGPT openings return the compact list and a signed panelRequest; expand Analysis to read an original case using get_forecast_case under the same allocation. Repeated openings reuse the five-minute admission; explicit refresh requires a fresh request_id. API callers retain the full published forecast result. AI assessments are not guarantees.',
+    description: 'Open WorldMonitor’s interactive forecasts with local domain/region filters and original case analysis. Paid ChatGPT openings return the compact list and a signed panelRequest; expanding Analysis reads one original case under the same allocation. Repeated openings reuse the five-minute admission; explicit refresh requires a fresh request_id. API callers retain the full published forecast result. AI assessments are not guarantees.',
     inputSchema: {
       type: 'object',
       properties: {
