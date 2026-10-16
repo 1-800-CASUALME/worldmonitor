@@ -13262,12 +13262,12 @@ function gfDepartureWindow(window) {
   return parts.length === 2 && parts.every(Number.isInteger) ? parts : null;
 }
 
-const GF_SORT_KEYS = new Map([
-  ['CHEAPEST', f => f.price], ['PRICE', f => f.price],
-  ['DEPARTURE_TIME', f => f.legs[0]?.departureDatetime], ['DEPARTURE', f => f.legs[0]?.departureDatetime],
-  ['ARRIVAL_TIME', f => f.legs.at(-1)?.arrivalDatetime], ['ARRIVAL', f => f.legs.at(-1)?.arrivalDatetime],
-  ['DURATION', f => f.durationMinutes],
-]);
+const GF_SORT_KEYS = new Map(Object.entries({
+  CHEAPEST: f => f.price, PRICE: f => f.price,
+  DEPARTURE_TIME: f => f.legs[0]?.departureDatetime, DEPARTURE: f => f.legs[0]?.departureDatetime,
+  ARRIVAL_TIME: f => f.legs.at(-1)?.arrivalDatetime, ARRIVAL: f => f.legs.at(-1)?.arrivalDatetime,
+  DURATION: f => f.durationMinutes,
+}));
 
 function selectGfFlights(flights, { departureWindow, sortBy }) {
   const range = gfDepartureWindow(departureWindow);
