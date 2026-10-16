@@ -25513,6 +25513,136 @@ paths:
                                 oneOf:
                                     - $ref: '#/components/schemas/Error'
                                     - $ref: '#/components/schemas/GatewayError'
+    /api/news/v1/list-label-changes:
+        get:
+            tags:
+                - NewsService
+            summary: ListLabelChanges
+            description: ListLabelChanges returns stories whose corroboration label moved between single-publisher and corroborated in the last seven days, with the publishers behind each change.
+            operationId: ListLabelChanges
+            parameters:
+                - name: story_id
+                  in: query
+                  description: Story identity hash (64 hex characters). Empty lists changes across all stories.
+                  required: false
+                  example: "example-id"
+                  schema:
+                    type: string
+                - name: limit
+                  in: query
+                  description: Maximum changes returned, newest first. 0 uses the default of 50; at most 200.
+                  required: false
+                  example: 25
+                  schema:
+                    type: integer
+                    format: int32
+                - name: jmespath
+                  in: query
+                  description: |-
+                    Optional JMESPath expression applied server-side to project or reduce the JSON response before it is returned (mirrors the MCP jmespath argument). Invalid expressions, expressions larger than 1024 UTF-8 bytes, or projections that exceed the 256 KB output cap return HTTP 400 with a {_jmespath_error, original_keys} envelope. Grammar and worked examples: https://www.worldmonitor.app/docs/mcp-jmespath.
+                  required: false
+                  example: "keys(@)"
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            example:
+                                "changes":
+                                    - "at": 1717200000000
+                                      "credibilityScore": 42
+                                      "field": "example"
+                                      "link": "https://example.com/worldmonitor"
+                                      "next": "example"
+                                "retentionDays": 7
+                                "state": "example"
+                            schema:
+                                $ref: '#/components/schemas/worldmonitor_news_v1_ListLabelChangesResponse'
+                "400":
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/ValidationError'
+                                    - $ref: '#/components/schemas/JmespathProjectionError'
+                "401":
+                    description: Missing or invalid API key.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/UnauthorizedError'
+                "403":
+                    description: API access requires an active subscription (the API key's subscription is inactive or expired).
+                    headers:
+                        X-Billing-Verification:
+                            description: Present when the 403 is a billing-provider-confirmed subscription lapse (value subscription_lapsed, matching the body `code`).
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ForbiddenError'
+                "429":
+                    description: Rate limit exceeded.
+                    headers:
+                        X-RateLimit-Limit:
+                            description: Maximum requests allowed in the active rate-limit window.
+                            schema:
+                                type: string
+                        X-RateLimit-Remaining:
+                            description: Requests remaining in the active rate-limit window.
+                            schema:
+                                type: string
+                        X-RateLimit-Reset:
+                            description: Unix epoch milliseconds when the active rate-limit window resets.
+                            schema:
+                                type: string
+                        Retry-After:
+                            description: Seconds to wait before retrying the request.
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/Error'
+                                    - $ref: '#/components/schemas/RateLimitError'
+                "503":
+                    description: Service unavailable. Billing-verification responses include code and X-Billing-Verification; other gateway infrastructure failures use the generic GatewayError shape.
+                    headers:
+                        Retry-After:
+                            description: Seconds to wait before retrying (1-60).
+                            schema:
+                                type: string
+                        X-Billing-Verification:
+                            description: Billing-verification state that produced this response (matches the body `code`).
+                            schema:
+                                type: string
+                        X-Validation-Mode:
+                            description: Present with value degraded when user API-key validation is temporarily unavailable.
+                            schema:
+                                type: string
+                        X-RateLimit-Mode:
+                            description: Present with value degraded when a fail-closed rate-limit dependency is unavailable.
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/BillingVerificationError'
+                                    - $ref: '#/components/schemas/GatewayError'
+                default:
+                    description: Gateway or handler error response.
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/Error'
+                                    - $ref: '#/components/schemas/GatewayError'
     /api/positive-events/v1/list-positive-geo-events:
         get:
             tags:
@@ -53443,6 +53573,97 @@ components:
                     format: int64
                     description: 'Publisher publication time in Unix epoch milliseconds.. Warning: Values > 2^53 may lose precision in JavaScript'
             description: CountryHeadline is a dated article from a configured RSS feed, before dashboard category caps.
+        worldmonitor_news_v1_ListLabelChangesRequest:
+            type: object
+            properties:
+                storyId:
+                    type: string
+                    maxLength: 64
+                    description: Story identity hash (64 hex characters). Empty lists changes across all stories.
+                limit:
+                    type: integer
+                    maximum: 200
+                    minimum: 0
+                    format: int32
+                    description: Maximum changes returned, newest first. 0 uses the default of 50; at most 200.
+            description: ListLabelChangesRequest selects recent corroboration label changes, optionally for one story.
+        worldmonitor_news_v1_ListLabelChangesResponse:
+            type: object
+            properties:
+                changes:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/worldmonitor_news_v1_LabelChange'
+                state:
+                    type: string
+                    description: ok | unavailable. Unavailable means the log could not be read, not that it is empty.
+                retentionDays:
+                    type: integer
+                    format: int32
+                    description: Retention window in days.
+            description: ListLabelChangesResponse lists changes from the last seven days, newest first.
+        worldmonitor_news_v1_LabelChange:
+            type: object
+            properties:
+                storyId:
+                    type: string
+                    description: Story identity hash.
+                field:
+                    type: string
+                    description: Label that changed. Always "corroboration".
+                previous:
+                    type: string
+                    description: 'Previous state: single-publisher | corroborated.'
+                next:
+                    type: string
+                    description: 'New state: single-publisher | corroborated.'
+                previousPublishers:
+                    type: integer
+                    format: int32
+                    description: Publisher families behind the previous label.
+                nextPublishers:
+                    type: integer
+                    format: int32
+                    description: Publisher families behind the new label.
+                at:
+                    type: integer
+                    format: int64
+                    description: 'Time the change was recorded, Unix epoch milliseconds.. Warning: Values > 2^53 may lose precision in JavaScript'
+                trigger:
+                    type: string
+                    description: 'What recorded it: digest (automatic) | report (an accepted error report).'
+                reason:
+                    type: string
+                    description: Plain-language reason, in English.
+                sources:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/worldmonitor_news_v1_LabelChangePublisher'
+                title:
+                    type: string
+                    description: Story headline when the change was recorded.
+                link:
+                    type: string
+                    description: |-
+                        Representative article URL. Empty when it failed the publisher link gate,
+                         was revoked after the change was recorded, or the revocation set could not
+                         be read.
+                credibilityScore:
+                    type: integer
+                    format: int32
+                    description: Story CRED score 0-100 when the change was recorded; -1 when unknown.
+            description: LabelChange records one story moving between single-publisher and corroborated coverage.
+        worldmonitor_news_v1_LabelChangePublisher:
+            type: object
+            properties:
+                name:
+                    type: string
+                    description: Curated publisher name, or the feed label when no family is curated.
+                tier:
+                    type: integer
+                    format: int32
+                    description: Declared source tier 1-4; 0 when no feed label declares one.
+            description: LabelChangePublisher is one publisher family behind the new label.
         worldmonitor_positive_events_v1_ListPositiveGeoEventsRequest:
             type: object
         worldmonitor_positive_events_v1_ListPositiveGeoEventsResponse:
