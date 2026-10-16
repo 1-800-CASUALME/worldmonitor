@@ -179,6 +179,7 @@ export const AGENT_NOT_FOUND_PASSTHROUGH_PREFIXES = [
   '/tos',
   '/tools',
   '/use-cases',
+  '/verify',
   '/welcome',
   '/zh',
   '/.well-known',

@@ -127,6 +127,7 @@
     { "source": "/ask", "destination": "/api/ask" },
     { "source": "/agent/auth", "destination": "/api/agent-auth" },
     { "source": "/mcp-grant", "destination": "/mcp-grant.html" },
+    { "source": "/verify", "destination": "/verify.html" },
     { "source": "/oauth/token", "destination": "/api/oauth/token" },
     { "source": "/oauth/register", "destination": "/api/oauth/register" },
     { "source": "/oauth/authorize", "destination": "/api/oauth/authorize" },

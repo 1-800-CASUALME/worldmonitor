@@ -10,6 +10,8 @@ All notable changes to World Monitor are documented here. Subscribe via [RSS](ht
 
 ### Added
 
+- **`verify_claim` MCP tool** (MCP server 1.33.0, Pro, #9092). Checks a claim or headline against the live news digest: finds the clusters reporting the same event (the 8 best matches) and returns the coverage verdict over them (`corroborated`, `single-publisher`, `tier4-only`, `unknown`), the publishers with their tiers, the matched headlines, and the figures in the claim that no matched headline states. It describes coverage, not accuracy, and a claim it cannot find is reported as not in WorldMonitor's sources, never as false. First phase of the verification and trust work (#9091).
+- **`/verify` page** (#9092). The same evidence card for people: paste a claim at [worldmonitor.app/verify](https://www.worldmonitor.app/verify) and see who is reporting it, whether they are independent, and which of its numbers they state. It runs in the browser over the public news digest, needs no account, and keeps the claim in the link so a result can be shared.
 - **Tariff lookups for MCP agents** (MCP server 1.32.0, Pro). Three new live tools wrap the Pro trade routes:
   - `get_tariff_averages`: the average tariff any reporter applies, as the WTO MFN series or, with a partner and/or WITS product group, the applied simple and import-weighted averages. It calls `get-tariff-trends`.
   - `get_bilateral_tariff`: one HS6 product between two countries. It calls `get-bilateral-tariff`.

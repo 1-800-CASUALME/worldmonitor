@@ -5,12 +5,12 @@
   "description": "Live markets, conflicts, country risk, chokepoints, energy, and China decision signals.",
   "kind": "product",
   "icon": "https://www.worldmonitor.app/favico/apple-touch-icon.png",
-  "version": "1.32.0",
+  "version": "1.33.0",
   "url": "https://worldmonitor.app/mcp",
   "serverUrl": "https://worldmonitor.app/mcp",
   "serverInfo": {
     "name": "worldmonitor",
-    "version": "1.32.0",
+    "version": "1.33.0",
     "description": "WorldMonitor's live global-intelligence stack as an MCP server: real-time markets, conflict events, aviation, maritime, energy, climate, health, displacement, supply chain, and AI-generated regional briefs.",
     "vendor": "WorldMonitor",
     "homepage": "https://www.worldmonitor.app"
@@ -576,6 +576,13 @@
     {
       "name": "get_news_clusters",
       "description": "Current topic clusters over the live headline digest, computed with the same Jaccard clustering the dashboard uses. Select the full digest (default) or tech digest with variant, then optionally restrict by category such as commodities, vcblogs, or accelerators. Each cluster reports its primary headline, member count, distinct sources with fail-closed provenance and declared tier, top keywords, threat level, time span, credibilityScore (0-100 source reliability, distinct from importance), corroboration, and the publishers roster with each publisher's declared tier; corroboration.state (single-publisher, tier4-only, corroborated, unknown) describes coverage, not accuracy. The result includes digestCoverage so agents can distinguish complete, partial, stale, and unavailable input. Deterministic — no LLM.",
+      "_meta": {
+        "worldmonitor/access": "subscription"
+      }
+    },
+    {
+      "name": "verify_claim",
+      "description": "Evidence card for a claim or headline (#9092): finds the live-digest clusters reporting the same event and returns a result state (corroborated, single-publisher, tier4-only, unknown, or not-found when the digest was searched and nothing reports it; unknown when the digest had no headlines to search) with WorldMonitor's coverage verdict over the matched clusters, the publishers roster with declared tiers, the matched headlines with fail-closed source provenance, a figure check (numbers and dates in the claim that no matched headline states), and first/last sighting. found=false means the claim was not matched (state tells whether the digest was searched), never that it is false. Coverage, not accuracy: nothing here says a claim is true or false. Deterministic — no LLM.",
       "_meta": {
         "worldmonitor/access": "subscription"
       }

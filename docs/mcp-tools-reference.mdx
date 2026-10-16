@@ -1589,6 +1589,39 @@ curl -s https://worldmonitor.app/mcp \
 
 </CodeGroup>
 
+### `verify_claim`
+
+Evidence card for a claim or headline. Finds the live-digest clusters that report the same event (one event often spans several clusters) and returns WorldMonitor's coverage verdict over them. A cluster matches when one of its headlines carries at least half of the claim's content words, and at least two of them; the 8 best-matching clusters are kept. The verdict is `assessCorroboration` over every matched headline, so syndicated feeds of one publisher count once.
+
+The result reports `found`, `state` (the coverage verdict; `not-found` when the digest was searched and nothing reports the claim; `unknown` with `found: false` when the digest was empty or unavailable, so nothing was searched), `corroboration` (`single-publisher`, `tier4-only`, `corroborated`, `unknown`), the `publishers` roster with declared tiers, up to 10 matched `headlines` with fail-closed source provenance, `credibilityScore` of the best match, `firstSeen` / `lastUpdated`, and `figures`: numbers and dates in the claim checked against the matched headlines with the brief grounding rule. `figures.ungrounded` lists figures no matched headline states; it does not mean the figure is wrong. `found: false` means no match: with `state: not-found` the claim is not in WorldMonitor's current sources; with `state: unknown` nothing was searched. It never means the claim is false. Every response carries the same `caveat`: coverage, not accuracy.
+
+**Parameters (tool-specific):**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `claim` | string | The claim or headline to check, up to 300 characters. Required. |
+| `variant` | `string: full / tech` | Headline digest variant to search. Defaults to full. |
+
+- **API endpoint:** `GET /api/news/v1/list-feed-digest`
+- **Access:** `subscription` — requires a Pro subscription.
+- **Kind:** deterministic local compute over the live digest window, not a historical index. No LLM.
+- **Quota:** standard — every call consumes the MCP daily reservation.
+
+<CodeGroup>
+
+```bash curl
+curl -s https://worldmonitor.app/mcp \
+  -H "X-WorldMonitor-Key: $WM_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc":"2.0","id":1,
+    "method":"tools/call",
+    "params":{"name":"verify_claim","arguments":{"claim":"Trump strikes diesel deal with Putin"}}
+  }'
+```
+
+</CodeGroup>
+
 ### `get_keyword_spikes`
 
 Trending keyword, CVE, and APT/FIN threat-group spikes versus baseline, using the same term-candidacy and spike-decision math as the dashboard's trending-keywords engine (minimum recent count, strict baseline multiplier, source-diversity gate). Each spike includes `sourceNames` (curated publisher name, or the original feed label when unmapped) and up to three `sampleHeadlines` as `{title, source, link}` objects so an agent can attribute and follow the stories behind the count. `source` on a sample is every publisher that carried that collapsed title; `link` is the canonical `story:track:v1` URL and may not belong to a single named outlet. The tool queries the recent window and its pre-window baseline as separate cohorts, each capped at 800 stories, so a busy recent window cannot consume the baseline sample. `baseline_hours` reports the exact sampled pre-window duration, and `sample_truncated: true` means either cohort reached its cap. When no pre-window stories are available, the tool returns no spikes with an explicit `baseline unavailable` note and does not cache the result. Results are cached for 10 minutes per `(window_hours, min_count)` combination.
