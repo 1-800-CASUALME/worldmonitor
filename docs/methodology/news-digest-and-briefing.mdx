@@ -295,7 +295,10 @@ never merges, because two outlets can write the same short headline
 independently. Words are compared in any script that separates them with
 spaces; Chinese, Japanese and Thai text is not compared, so those counts stay as
 curated. A merged group is listed under its curated publisher when it has one,
-and the outlets show as "Same copy, counted once" in the publisher list. `npm run syndication:candidates` lists the groups found in the
+and the outlets show as "Same copy, counted once" in the publisher list. The
+World Brief applies the same count: a story carried only as one copy cannot
+lead the brief or count as corroborated in Top Stories, including through
+entity corroboration. `npm run syndication:candidates` lists the groups found in the
 live digest for review; nothing is added to the curated map automatically.
 
 `sourceCount` is not stored in the story-track hash for current rows.

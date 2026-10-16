@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 
 import { clusterNewsCore, clusterPublisherCount } from '../shared/news-clustering-core.js';
 import { assignStoryIdentity } from '../server/worldmonitor/news/v1/dedup.mjs';
-import { assessCorroboration, evidenceFromCluster, publisherRoster } from '../server/_shared/corroboration.ts';
+import { assessCorroboration, evidenceFromCluster, evidenceFromStory, publisherRoster } from '../server/_shared/corroboration.ts';
 import { getSourceTier } from '../server/_shared/source-tiers.ts';
 
 const ZAP_TITLE = 'Zaporizhzhia airstrikes kill 17 as Russia intensifies attacks across Ukraine';
@@ -204,6 +204,34 @@ describe('every surface that counts publishers applies it', () => {
     assert.equal(roster.length, 1);
     assert.deepEqual(roster[0]!.labels, ['EuroNews', 'Africanews']);
     assert.equal(roster[0]!.sameCopy, true);
+  });
+
+  it('insights and brief leads: the lead survives normalization and the story carries the same copy', async () => {
+    const { normalizeDigestItemsForInsights } = await import('../scripts/seed-insights.mjs');
+    const { clusterItems, isBriefLeadEligible } = await import('../scripts/_clustering.mjs');
+    const digestItems = [euronews, africanews].map((item) => ({ ...item, link: `https://example.test/${item.source}`, publishedAt: at.getTime() }));
+    const [cluster, ...rest] = clusterItems(normalizeDigestItemsForInsights(digestItems));
+    assert.equal(rest.length, 0);
+    assert.equal(cluster.uniquePublisherCount, 1);
+    assert.equal(isBriefLeadEligible(cluster), false);
+
+    // The published story keeps both labels; its groups make every reader count them once.
+    const story = { sources: cluster.sources, corroborationCount: 1, sameCopy: cluster.sameCopy };
+    assert.deepEqual(assessCorroboration(evidenceFromStory(story)), { state: 'single-publisher', publishers: 1 });
+    assert.deepEqual(publisherRoster(evidenceFromStory(story)).map((p) => [p.labels, p.sameCopy]), [[['EuroNews', 'Africanews'], true]]);
+    const seeder = readFileSync(new URL('../scripts/seed-insights.mjs', import.meta.url), 'utf8');
+    assert.match(seeder, /\{ sameCopy: story\.sameCopy \}/);
+  });
+
+  it('a story\'s same-copy groups can only join families its own labels name', () => {
+    const story = (sameCopy: unknown) => evidenceFromStory({ sources: ['EuroNews', 'Africanews'], corroborationCount: 1, sameCopy });
+    const euro = publisherFamilyFor('EuroNews');
+    const africa = publisherFamilyFor('Africanews');
+    // A group naming an absent family, a lone family, or junk is dropped: the count stays 2.
+    for (const junk of [[[euro, publisherFamilyFor('Balkan Insight')]], [[euro]], 'x', [[1, 2]], [null]]) {
+      assert.deepEqual(assessCorroboration(story(junk)), { state: 'corroborated', publishers: 2 }, JSON.stringify(junk));
+    }
+    assert.deepEqual(assessCorroboration(story([[euro, africa]])), { state: 'single-publisher', publishers: 1 });
   });
 
   it('independent reports still corroborate, with no same-copy marker', () => {
