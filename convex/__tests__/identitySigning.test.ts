@@ -390,6 +390,16 @@ describe("dunning portal token signing/verification", () => {
     expect(await verifyDunningPortalToken(token, NOW)).toBe(USER);
   });
 
+  test("a day-7 reminder link still works a week after it was sent", async () => {
+    const token = await signDunningPortalToken(USER, NOW);
+    expect(await verifyDunningPortalToken(token, NOW + 7 * 86_400_000)).toBe(USER);
+    expect(await verifyDunningPortalToken(token, NOW + DUNNING_PORTAL_TOKEN_TTL_MS - 1)).toBe(USER);
+  });
+
+  test("lifetime stays short: about a week, not two", () => {
+    expect(DUNNING_PORTAL_TOKEN_TTL_MS).toBe(8 * 86_400_000);
+  });
+
   test("rejects an expired token", async () => {
     const token = await signDunningPortalToken(USER, NOW);
     expect(await verifyDunningPortalToken(token, NOW + DUNNING_PORTAL_TOKEN_TTL_MS)).toBeNull();

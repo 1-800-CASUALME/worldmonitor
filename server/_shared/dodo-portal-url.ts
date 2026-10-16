@@ -9,7 +9,7 @@ export function safeDodoPortalRedirectUrl(raw: unknown): string | null {
       return null;
     }
     const path = url.pathname || '/';
-    return `https://${host}${path}${url.search}`;
+    return `https://${host}${path}${url.search}${url.hash}`;
   } catch {
     return null;
   }

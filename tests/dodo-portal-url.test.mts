@@ -13,6 +13,15 @@ describe('safeDodoPortalRedirectUrl', () => {
     assert.equal(safeDodoPortalRedirectUrl(url), url);
   });
 
+  it('keeps the query and fragment a session link may carry', () => {
+    const url = 'https://customer.dodopayments.com/session/abc?lang=en#token=xyz';
+    assert.equal(safeDodoPortalRedirectUrl(url), url);
+  });
+
+  it('rejects a trailing-dot host', () => {
+    assert.equal(safeDodoPortalRedirectUrl('https://customer.dodopayments.com./s'), null);
+  });
+
   it('rejects http', () => {
     assert.equal(safeDodoPortalRedirectUrl('http://customer.dodopayments.com/s'), null);
   });

@@ -566,6 +566,9 @@ const DAY_MS = 86_400_000;
 export const DUNNING_DAY0_RETRY_MIN_AGE_MS = 60 * 60 * 1000;
 export const DUNNING_DAY3_AGE_MS = 3 * DAY_MS;
 export const DUNNING_DAY7_AGE_MS = 7 * DAY_MS;
+// A hold whose paid period already ended is dunned only within this window,
+// so a stale or very late on_hold row never gets a backlog final notice.
+export const DUNNING_ENDED_PERIOD_MAX_AGE_MS = DUNNING_DAY7_AGE_MS + 3 * DAY_MS;
 // Winback window bounds, measured from currentPeriodEnd (access end).
 export const WINBACK_MIN_AGE_MS = 30 * DAY_MS;
 export const WINBACK_MAX_AGE_MS = 60 * DAY_MS;
@@ -672,6 +675,18 @@ export const getDunningContext = internalQuery({
   },
 });
 
+/** Whether a dunning email's portal token may still mint a session. */
+export const hasOpenDunningHold = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const subs = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .collect();
+    return subs.some((s) => s.status === "on_hold");
+  },
+});
+
 export const wasDunningStepSent = internalQuery({
   args: {
     dodoSubscriptionId: v.string(),
@@ -757,8 +772,12 @@ export function buildDunningEmail(
   planName: string,
   ctaUrl: string,
   accessUntil?: number,
+  paidUntil?: number,
 ): { subject: string; html: string } {
   const stillCovered = typeof accessUntil === "number" && accessUntil > Date.now();
+  // Access can outlive the paid period (a comp grant), so the "ends with your
+  // paid period" wording is only true while the paid period itself covers.
+  const paidCovered = paidUntil === undefined ? stillCovered : paidUntil > Date.now();
   switch (step) {
     case "cancellation_confirm":
       return buildCancellationConfirmEmail(planName, ctaUrl, accessUntil);
@@ -785,8 +804,10 @@ export function buildDunningEmail(
           : `Reminder: update your payment method to restore ${planName}`,
         html: dunningEmailShell(
           "Still paused — 2 minutes to fix.",
-          stillCovered
+          stillCovered && paidCovered
             ? `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">Your ${planName} payment is still failing. Once your paid period ends, briefs, alerts and your Pro panels stop. Updating your card takes about two minutes and restores everything instantly.</p>`
+            : stillCovered
+            ? `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">Your ${planName} payment is still failing. Your access continues for now; once it ends, briefs, alerts and your Pro panels stop. Updating your card takes about two minutes and keeps everything running.</p>`
             : `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">Your ${planName} payment is still failing, so briefs, alerts and your Pro panels are off. Updating your card takes about two minutes and restores everything instantly.</p>`,
           "Update payment method",
           ctaUrl,
@@ -798,8 +819,10 @@ export function buildDunningEmail(
         subject: `Final notice: your World Monitor ${planName} subscription is paused`,
         html: dunningEmailShell(
           "Last reminder from us.",
-          stillCovered
+          stillCovered && paidCovered
             ? `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">This is the last email about this — your ${planName} subscription has been paused for a week over a failed payment. Update your payment method to keep your briefs, alerts and dashboards; otherwise access ends with your paid period.</p>`
+            : stillCovered
+            ? `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">This is the last email about this — your ${planName} subscription has been paused for a week over a failed payment. Your access continues for now; update your payment method to keep your briefs, alerts and dashboards after it ends.</p>`
             : `<p style="font-size: 14px; color: #999; margin: 0; line-height: 1.5;">This is the last email about this — your ${planName} subscription has been paused for a week over a failed payment. Update your payment method to restore your briefs, alerts and dashboards.</p>`,
           "Update payment method",
           ctaUrl,
@@ -939,6 +962,7 @@ type DunningSkipReason =
   | "not_covering"
   | "still_entitled"
   | "resubscribed"
+  | "too_old"
   | "recovered"
   | "no_email"
   | "suppressed"
@@ -1011,6 +1035,9 @@ function evaluateDunningEligibility(
   // not be told to fix this one: restoring it would bill them twice.
   if (sub.currentPeriodEnd <= now && sub.hasLiveSub) {
     return { ok: false, reason: "resubscribed" };
+  }
+  if (sub.currentPeriodEnd <= now && now - episodeAt > DUNNING_ENDED_PERIOD_MAX_AGE_MS) {
+    return { ok: false, reason: "too_old" };
   }
   return { ok: true };
 }
@@ -1108,6 +1135,7 @@ export const sendDunningEmail = internalAction({
       args.step === "cancellation_confirm"
         ? fresh.sub.currentPeriodEnd
         : Math.max(fresh.sub.currentPeriodEnd, fresh.sub.entitlementCoveredUntil),
+      fresh.sub.currentPeriodEnd,
     );
     await sendEmail(apiKey, fresh.sub.email, subject, html, ADMIN_EMAIL);
     // Ledger write AFTER the send: a Resend failure throws above, leaving no
@@ -1148,6 +1176,8 @@ export const runDunningScan = internalMutation({
     for (const sub of onHold) {
       const episodeAt = sub.onHoldAt ?? sub.updatedAt;
       const age = now - episodeAt;
+      // Mirrors the too_old send gate so ancient holds are not rescheduled daily.
+      if (sub.currentPeriodEnd <= now && age > DUNNING_ENDED_PERIOD_MAX_AGE_MS) continue;
       // Day-0 is first enqueued by the on_hold webhook, but a send that throws
       // (Resend error, exhausted slot OCC, RESEND_API_KEY missing at webhook
       // time) leaves no ledger row and is never auto-retried. Retry it here

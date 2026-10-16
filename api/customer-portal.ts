@@ -169,8 +169,14 @@ async function mintPortalUrl(body: { userId?: string; portalToken?: string }): P
   return { ok: true, portalUrl };
 }
 
+async function tokenRateLimitKey(portalToken: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(portalToken));
+  const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+  return `portal-token:${hex.slice(0, 32)}`;
+}
+
 // GET is a browser navigation from an email CTA, so every failure lands on
-// the dashboard, whose payment banner reaches the portal after sign-in.
+// the dashboard, the signed-in billing entry point.
 async function handlePortalGet(
   req: Request,
   cors: Record<string, string>,
@@ -189,6 +195,20 @@ async function handlePortalGet(
     ctx,
   });
   if (limited) return redirect(SIGN_IN_URL);
+
+  // Per-credential cap: a leaked link replayed from many IPs still mints at
+  // most a handful of sessions a minute.
+  if (portalToken) {
+    const tokenLimited = await checkRateLimit(req, cors, {
+      scope: 'customer-portal-get-token',
+      limit: 5,
+      window: '60 s',
+      failClosed: true,
+      identifier: await tokenRateLimitKey(portalToken),
+      ctx,
+    });
+    if (tokenLimited) return redirect(SIGN_IN_URL);
+  }
 
   try {
     let minted: MintResult;

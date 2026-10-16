@@ -1892,13 +1892,23 @@ http.route({
 
     let userId = typeof body.userId === "string" ? body.userId : "";
     if (typeof body.portalToken === "string" && body.portalToken.length > 0) {
-      const tokenUserId = await verifyDunningPortalToken(body.portalToken, Date.now());
-      if (!tokenUserId) {
+      // A token never falls back to body.userId. It mints only while the
+      // signed user still has an open hold, so recovery or cancellation
+      // revokes every outstanding email link.
+      const rejectToken = (reason: "invalid_or_expired" | "no_open_hold") => {
+        console.log(JSON.stringify({ event: "dunning_portal_token_rejected", reason }));
         return new Response(JSON.stringify({ error: "INVALID_PORTAL_TOKEN" }), {
           status: 401,
           headers: { "Content-Type": "application/json" },
         });
-      }
+      };
+      const tokenUserId = await verifyDunningPortalToken(body.portalToken, Date.now());
+      if (!tokenUserId) return rejectToken("invalid_or_expired");
+      const hasOpenHold = await ctx.runQuery(
+        internal.payments.subscriptionEmails.hasOpenDunningHold,
+        { userId: tokenUserId },
+      );
+      if (!hasOpenHold) return rejectToken("no_open_hold");
       userId = tokenUserId;
     }
 

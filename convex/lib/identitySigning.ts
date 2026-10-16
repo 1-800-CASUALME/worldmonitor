@@ -464,7 +464,10 @@ export async function verifyCheckoutLoginEmail(
 
 const DUNNING_PORTAL_TOKEN_VERSION = "v1";
 const DUNNING_PORTAL_USER_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
-export const DUNNING_PORTAL_TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+// Covers a week of reading time on the day-7 final notice. The relay also
+// refuses the token once the user has no open hold, so the link is not a
+// standing billing credential.
+export const DUNNING_PORTAL_TOKEN_TTL_MS = 8 * 24 * 60 * 60 * 1000;
 
 function dunningPortalPayload(userId: string, expiresAt: number): string {
   return `dunning-portal:${DUNNING_PORTAL_TOKEN_VERSION}:${userId.length}:${userId}:${expiresAt}`;
