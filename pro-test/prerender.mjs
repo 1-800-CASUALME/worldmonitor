@@ -388,7 +388,18 @@ for (const { file, renderRoot } of PAGES) {
 const agentContext = readFileSync(resolve(__dirname, '../public/home.md'), 'utf8');
 const metadata = agentContext.match(/^---\n[\s\S]*?\n---\n/);
 if (!metadata) throw new Error('Homepage agent context must have document metadata');
-const supplement = agentContext.slice(metadata[0].length).trim().replace(/^# .+\n+/, '');
+// The curated file repeats hero lines (slogan, audience) so it reads on its
+// own at /home.md; drop any one-line prose paragraph the rendered page already
+// states. Headings, lists and fences are never dropped.
+const renderedLines = new Set(welcomeMarkdown.split('\n').map((line) => line.trim()).filter(Boolean));
+const isRepeatedProse = (paragraph) => /^[A-Za-z][^\n]*$/.test(paragraph) && renderedLines.has(paragraph);
+const supplement = agentContext
+  .slice(metadata[0].length)
+  .trim()
+  .replace(/^# .+\n+/, '')
+  .split('\n\n')
+  .filter((paragraph) => !isRepeatedProse(paragraph))
+  .join('\n\n');
 writeFileSync(
   resolve(__dirname, '../public/pro/home.md'),
   `${metadata[0].replace('https://www.worldmonitor.app/home.md', 'https://www.worldmonitor.app/')}\n${welcomeMarkdown}\n\n${supplement}\n`,

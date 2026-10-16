@@ -102,6 +102,7 @@
     "build:llms-full": "node --import tsx scripts/build-llms-full.mjs",
     "build:llms-full:check": "node --import tsx scripts/build-llms-full.mjs --check",
     "build:ai-search": "node --import tsx scripts/build-ai-search.mjs",
+    "resilience:coverage": "node --import tsx scripts/sync-resilience-coverage.mjs",
     "build:ai-search:check": "node --import tsx scripts/build-ai-search.mjs --check",
     "build:sitemap": "node scripts/build-sitemap.mjs",
     "seo:internal-links": "node scripts/internal-links.mjs",
