@@ -51,7 +51,9 @@ message LabelChange {
   repeated LabelChangePublisher sources = 10;
   // Story headline when the change was recorded.
   string title = 11;
-  // Representative article URL; empty when it failed the publisher link gate.
+  // Representative article URL. Empty when it failed the publisher link gate,
+  // was revoked after the change was recorded, or the revocation set could not
+  // be read.
   string link = 12;
   // Story CRED score 0-100 when the change was recorded; -1 when unknown.
   int32 credibility_score = 13;

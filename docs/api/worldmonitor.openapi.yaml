@@ -53644,7 +53644,10 @@ components:
                     description: Story headline when the change was recorded.
                 link:
                     type: string
-                    description: Representative article URL; empty when it failed the publisher link gate.
+                    description: |-
+                        Representative article URL. Empty when it failed the publisher link gate,
+                         was revoked after the change was recorded, or the revocation set could not
+                         be read.
                 credibilityScore:
                     type: integer
                     format: int32
