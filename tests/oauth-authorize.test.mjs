@@ -234,7 +234,7 @@ describe('consentPage — scripts allowed by the deployed CSP', () => {
     const scriptSrc = csp.split(';').map((d) => d.trim()).find((d) => d.startsWith('script-src ')).split(/\s+/);
 
     const html = await renderHtml(BASE_PARAMS, NONCE);
-    const scripts = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)];
+    const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script[^>]*>/gi)];
     assert.ok(scripts.length > 0, 'consent page must render its disclosure script');
     for (const [, attrs, body] of scripts) {
       const nonce = /\bnonce="([^"]+)"/.exec(attrs)?.[1];
