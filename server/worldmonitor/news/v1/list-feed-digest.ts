@@ -2569,11 +2569,6 @@ function buildStoryTrackHsetFields(
   ];
 }
 
-/**
- * #9093: this cycle's corroboration label for every story, and the changes from
- * the label each story's track row recorded last cycle. A story's label reads
- * the items the digest kept for it, with the cluster-wide corroboration count.
- */
 function groupByTitleHash(items: readonly ParsedItem[]): Map<string, ParsedItem[]> {
   const byHash = new Map<string, ParsedItem[]>();
   for (const item of items) {
@@ -2587,9 +2582,11 @@ function groupByTitleHash(items: readonly ParsedItem[]): Map<string, ParsedItem[
 }
 
 /**
- * Labels each served story from its whole servable cluster: the category cap
- * can drop a member whose publisher the label counts, and the logged roster
- * must name every publisher behind the count.
+ * #9093: this cycle's corroboration label for every served story, and the
+ * changes from the label each story's track row recorded last cycle. A label
+ * reads the story's whole servable cluster: the category cap can drop a member
+ * whose publisher the cluster-wide count includes, and the logged roster must
+ * name every publisher behind that count.
  */
 function storyLabelChanges(
   served: readonly ParsedItem[],
@@ -2738,7 +2735,6 @@ async function writeStoryTracking(
               ...hsetFieldsWithEligibility.slice(anchorFieldAt + 2),
             ]
             : hsetFieldsWithEligibility),
-          // Rides the existing HSET: no extra command against the budget.
           ...(label ? [STORY_LABEL_FIELD, label] : []),
         ];
         commands.push(

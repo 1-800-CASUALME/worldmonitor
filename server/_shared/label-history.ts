@@ -26,13 +26,10 @@ import { runRedisPipeline, type RedisPipelineCommand } from './redis';
 export const LABEL_HISTORY_STATES = ['single-publisher', 'corroborated'] as const;
 export type LabelHistoryState = (typeof LABEL_HISTORY_STATES)[number];
 
-/** Seven days, the retention the owner set for #9093. */
 export const LABEL_HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const RETENTION_S = LABEL_HISTORY_RETENTION_MS / 1000;
 
-/** Newest-first log of every recorded change. */
 export const LABEL_CHANGES_KEY = 'trust:label-changes:v1';
-/** Newest-first changes for one story. */
 export const STORY_LABEL_HISTORY_KEY = (storyId: string) => `trust:label-history:v1:${storyId}`;
 /** One recorder per story transition: concurrent digest builds must not log it twice. */
 const LABEL_CHANGE_GUARD_KEY = (storyId: string, previous: string, next: string) =>
@@ -78,7 +75,6 @@ export interface LabelChange {
   readonly next: LabelHistoryState | '';
   readonly previousPublishers: number;
   readonly nextPublishers: number;
-  /** Epoch ms. */
   readonly at: number;
   /** 'digest' for automatic changes; accepted reports use 'report' (#9093 intake). */
   readonly trigger: 'digest' | 'report';
@@ -125,7 +121,6 @@ export function storyLabel(
   };
 }
 
-/** Value written to STORY_LABEL_FIELD: `state|publishers`, or UNTRACKED_LABEL for a state the history does not track. */
 export function encodeStoryLabel(label: StoryLabel): string {
   if (!isLabelHistoryState(label.state) || label.publishers === null) return UNTRACKED_LABEL;
   return `${label.state}|${label.publishers}`;
@@ -177,11 +172,10 @@ export function labelChangeFor(
     sources: current.roster.slice(0, ENTRY_PUBLISHERS_MAX),
     title: context.title,
     link: context.link,
-    credibilityScore: Number.isFinite(context.credibilityScore) ? Math.round(context.credibilityScore as number) : null,
+    credibilityScore: typeof context.credibilityScore === 'number' && Number.isFinite(context.credibilityScore) ? Math.round(context.credibilityScore) : null,
   };
 }
 
-/** Redis commands that append one change to both logs. */
 export function labelChangeCommands(change: LabelChange): RedisPipelineCommand[] {
   const member = JSON.stringify(change);
   const commands: RedisPipelineCommand[] = [
@@ -261,17 +255,15 @@ const DECLARED_TIERS: readonly unknown[] = [1, 2, 3, 4];
 /**
  * Drop the new label of every story whose change was not recorded, so the
  * story keeps its previous label and the change is detected again next cycle.
- * Mutates and returns `labelByHash`.
  */
 export function keepUnrecordedLabels(
   labelByHash: Map<string, string>,
   changes: readonly LabelChange[],
   recorded: ReadonlySet<string>,
-): Map<string, string> {
+): void {
   for (const change of changes) {
     if (!recorded.has(change.storyId)) labelByHash.delete(change.storyId);
   }
-  return labelByHash;
 }
 
 function asPublisher(raw: unknown): LabelChangePublisher | null {
@@ -281,7 +273,6 @@ function asPublisher(raw: unknown): LabelChangePublisher | null {
   return { name, tier: DECLARED_TIERS.includes(tier as number) ? (tier as number) : null };
 }
 
-/** A stored entry, or null when it is malformed or older than the retention window. */
 export function parseLabelChange(raw: unknown, now: number): LabelChange | null {
   let value: unknown = raw;
   if (typeof raw === 'string') {
