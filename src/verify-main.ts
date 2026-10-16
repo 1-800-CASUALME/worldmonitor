@@ -29,8 +29,21 @@ const result = document.getElementById('result') as HTMLDivElement;
 input.maxLength = CLAIM_MAX_CHARS;
 
 // Only the latest check may touch the page: a slow earlier search must not
-// paint over a newer one, or over a URL with no claim.
+// paint over a newer one, or over a URL with no claim. The status line has its
+// own counter, so only the latest search to start may write it.
 let latestRun = 0;
+let latestStatus = 0;
+
+function showCounts(search: ClaimSearch | null, statusId: number): void {
+  if (statusId !== latestStatus) return;
+  status.textContent = search ? describeSearch(search) : 'The live headlines are unavailable right now.';
+}
+
+/** The status line with no claim: an empty claim returns only the counts. */
+function loadCounts(): void {
+  const statusId = ++latestStatus;
+  fetchClaimSearch('').then((search) => showCounts(search, statusId), () => showCounts(null, statusId));
+}
 
 function describeSearch(search: ClaimSearch): string {
   const age = search.readAt ? Math.round((Date.now() - Date.parse(search.readAt)) / 60_000) : NaN;
@@ -49,6 +62,7 @@ async function run(claim: string, { push }: { push: boolean }): Promise<void> {
   if (!text) {
     result.replaceChildren();
     resetSubmit();
+    loadCounts();
     return;
   }
   if (push) {
@@ -61,10 +75,10 @@ async function run(claim: string, { push }: { push: boolean }): Promise<void> {
   // #9094: published fact-checks load beside the headline search and render
   // below the coverage card, which never waits for them.
   const factChecks = fetchFactChecks(text);
+  const statusId = ++latestStatus;
   try {
     const search = await fetchClaimSearch(text);
-    // The counts do not depend on the claim, so even a superseded check may show them.
-    status.textContent = describeSearch(search);
+    showCounts(search, statusId);
     if (runId !== latestRun) return;
     setTrustedHtml(result, trustedHtml(
       renderClaimCardHtml(checkClaim(text, search)) + '<div id="factChecks"></div>',
@@ -77,8 +91,8 @@ async function run(claim: string, { push }: { push: boolean }): Promise<void> {
       setTrustedHtml(slot, trustedHtml(renderFactChecksHtml(found), 'fact-check card escapes every fact-check string'));
     });
   } catch {
+    showCounts(null, statusId);
     if (runId !== latestRun) return;
-    status.textContent = 'The live headlines are unavailable right now.';
     result.replaceChildren();
     const error = document.createElement('p');
     error.className = 'vc-error';
@@ -111,9 +125,3 @@ function runFromLocation(): void {
 window.addEventListener('popstate', runFromLocation);
 
 runFromLocation();
-// The status line before any check: an empty claim returns only the counts.
-if (!input.value) {
-  fetchClaimSearch('').then((search) => { status.textContent = describeSearch(search); }).catch(() => {
-    status.textContent = 'The live headlines are unavailable right now.';
-  });
-}

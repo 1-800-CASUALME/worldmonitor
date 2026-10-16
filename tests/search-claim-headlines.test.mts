@@ -110,6 +110,20 @@ describe('claim headline search over the RSS caches', () => {
     assert.equal(payload.searchedHeadlines, 1);
   });
 
+  it('credits a broad Google News feed\'s rows to their trusted publishers; a site: feed keeps its label', async () => {
+    const origin = (source: string, title: string, link: string, originPublisher: string, originPublisherTrusted = true) =>
+      ({ ...row(source, title, link), originPublisher, originPublisherTrusted });
+    put('AI News', [
+      origin('AI News', 'OpenAI raises $40 billion in record funding round', 'https://www.bloomberg.com/1', 'Bloomberg'),
+      origin('AI News', 'OpenAI closes record $40 billion funding round', 'https://www.theverge.com/2', 'The Verge'),
+      origin('AI News', 'OpenAI funding round sets record at $40 billion', 'https://example.org/3', 'Untrusted Outlet', false),
+    ]);
+    put('Reuters World', [origin('Reuters World', 'OpenAI raises $40 billion in funding round', 'https://www.reuters.com/4', 'Reuters')]);
+    const { payload } = await request('OpenAI raises $40 billion in record funding round');
+    assert.deepEqual(payload.headlines.map(h => h.source).sort(), ['AI News', 'Bloomberg', 'Reuters World', 'The Verge']);
+    assert.equal(payload.searchedFeeds, 2, 'feeds, not publishers');
+  });
+
   it('an empty claim returns the counts only, and the pool read is reused across claims', async () => {
     put('BBC World', [row('BBC World', 'Storm hits Manila', 'https://www.bbc.co.uk/news/1')]);
     const { payload } = await request('');

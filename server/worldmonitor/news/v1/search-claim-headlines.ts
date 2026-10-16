@@ -24,6 +24,8 @@ import { FUTURE_DATE_TOLERANCE_MS, resolveMaxAgeMs, rssFeedCacheKey } from './_r
 /** Headlines read from the feed caches, shared by every claim this isolate serves for a short while. */
 type ClaimPool = {
   readonly items: NewsItemCore[];
+  /** Feeds that contributed at least one fresh headline. */
+  readonly feedsSearched: number;
   readonly feedTotal: number;
   readonly feedCached: number;
   readonly readable: boolean;
@@ -33,10 +35,40 @@ type ClaimPool = {
 const POOL_TTL_MS = 120_000;
 let pool: { at: number; promise: Promise<ClaimPool> } | null = null;
 
-function poolItem(value: unknown, source: string, now: number, cutoff: number, revoked: ReadonlySet<string>): NewsItemCore | null {
+/**
+ * A Google News search without `site:` (AI News, Africa News, Oil & Gas)
+ * carries many publishers under one feed label. Its rows are credited to the
+ * trusted origin publisher, so two outlets in one such feed still count as
+ * two. A `site:` feed is one publisher by construction and keeps its label,
+ * which is what source tiers are keyed on (AP News, not "The Associated Press").
+ */
+function isMultiPublisherFeed(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === 'news.google.com' && !/\bsite:/i.test(parsed.searchParams.get('q') ?? '');
+  } catch {
+    return false;
+  }
+}
+
+function poolSource(row: Record<string, unknown>, feedName: string, multiPublisher: boolean): string {
+  if (!multiPublisher || row.originPublisherTrusted !== true || typeof row.originPublisher !== 'string') return feedName;
+  const origin = row.originPublisher.replace(/\s+/g, ' ').trim();
+  return origin && origin.length <= 200 ? origin : feedName;
+}
+
+function poolItem(
+  value: unknown,
+  feedName: string,
+  multiPublisher: boolean,
+  now: number,
+  cutoff: number,
+  revoked: ReadonlySet<string>,
+): NewsItemCore | null {
   if (!value || typeof value !== 'object') return null;
   const row = value as Record<string, unknown>;
-  if (row.source !== source || typeof row.title !== 'string') return null;
+  if (row.source !== feedName || typeof row.title !== 'string') return null;
+  const source = poolSource(row, feedName, multiPublisher);
   const title = row.title.replace(/\s+/g, ' ').trim();
   if (!title || title.length > 1000) return null;
   if (typeof row.publishedAt !== 'number' || !Number.isFinite(row.publishedAt)
@@ -53,27 +85,31 @@ async function readPool(): Promise<ClaimPool> {
   const unique = [...new Map(feeds.map(feed => [rssFeedCacheKey('full', feed.url), feed])).entries()];
   const now = Date.now();
   const [cached, revoked] = await Promise.all([getCachedJsonBatch(unique.map(([key]) => key)), readRevokedUrlSet()]);
-  if (!revoked.readable) return { items: [], feedTotal: unique.length, feedCached: 0, readable: false, readAt: now };
+  if (!revoked.readable) return { items: [], feedsSearched: 0, feedTotal: unique.length, feedCached: 0, readable: false, readAt: now };
   const cutoff = now - resolveMaxAgeMs();
   const items: NewsItemCore[] = [];
   const seen = new Set<string>();
   let feedCached = 0;
+  let feedsSearched = 0;
   for (const [key, feed] of unique) {
     const entry = cached.get(key);
     if (!entry || typeof entry !== 'object' || !('items' in entry) || !Array.isArray(entry.items)) continue;
     feedCached++;
     const rows = 'countryItems' in entry && Array.isArray(entry.countryItems)
       ? [...entry.items, ...entry.countryItems] : entry.items;
+    const multiPublisher = isMultiPublisherFeed(feed.url);
+    const before = items.length;
     for (const value of rows) {
-      const item = poolItem(value, feed.name, now, cutoff, revoked.urls);
+      const item = poolItem(value, feed.name, multiPublisher, now, cutoff, revoked.urls);
       if (!item) continue;
       const dedupe = item.link || `${item.source}|${item.title}`;
       if (seen.has(dedupe)) continue;
       seen.add(dedupe);
       items.push(item);
     }
+    if (items.length > before) feedsSearched++;
   }
-  return { items, feedTotal: unique.length, feedCached, readable: true, readAt: now };
+  return { items, feedsSearched, feedTotal: unique.length, feedCached, readable: true, readAt: now };
 }
 
 function loadPool(): Promise<ClaimPool> {
@@ -112,7 +148,7 @@ export async function searchClaimPool(claimText: string): Promise<ClaimPoolSearc
   return {
     candidates: claim ? claimCandidates(claim, searched) : [],
     searchedHeadlines: searched.length,
-    searchedFeeds: new Set(searched.map(item => item.source)).size,
+    searchedFeeds: state === 'unavailable' ? 0 : read.feedsSearched,
     feedTotal: read.feedTotal,
     feedCached: read.feedCached,
     state,

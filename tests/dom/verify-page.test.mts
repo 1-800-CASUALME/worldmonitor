@@ -252,6 +252,28 @@ describe('/verify page bootstrap', () => {
     expect((document.getElementById('verifySubmit') as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it('an older search that finishes after a newer one failed does not overwrite the status', async () => {
+    let release!: () => void;
+    fetchMock.mockImplementation((input: unknown) => {
+      if (!isSearch(input)) return defaultFetch(input);
+      const claim = claimOf(input);
+      if (claim === 'Trump strikes diesel deal with Putin') {
+        return new Promise<Response>((resolve) => { release = () => resolve(json(searchBody(claim))); });
+      }
+      return Promise.resolve(json({}, 503));
+    });
+    history.replaceState(null, '', '/verify?claim=Trump%20strikes%20diesel%20deal%20with%20Putin');
+    await import('@/verify-main');
+    (document.getElementById('claimInput') as HTMLTextAreaElement).value = 'Panama earthquake kills 200';
+    (document.getElementById('verifyForm') as HTMLFormElement).requestSubmit();
+    await vi.waitFor(() => expect(document.querySelector('.vc-error')).not.toBeNull());
+    expect(document.getElementById('digestStatus')?.textContent).toBe('The live headlines are unavailable right now.');
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(document.getElementById('digestStatus')?.textContent).toBe('The live headlines are unavailable right now.');
+    expect(document.querySelector('.vc-card')).toBeNull();
+  });
+
   it('shows the claim as it is checked: trimmed, then capped', async () => {
     const long = `   ${'diesel '.repeat(60)}`;
     history.replaceState(null, '', `/verify?claim=${encodeURIComponent(long)}`);
