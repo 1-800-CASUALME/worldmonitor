@@ -6,7 +6,7 @@ import type {
 import { ApiError } from '../../../../src/generated/server/worldmonitor/aviation/v1/service_server';
 // @ts-expect-error — JS module, no declaration file
 import { sha256Hex } from '../../../../api/_crypto.js';
-import { getRelayBaseUrl, getRelayHeaders } from '../../../_shared/relay';
+import { getRelayBaseUrl, getRelayHeaders, relayFailureMessage } from '../../../_shared/relay';
 import { parseStringArray } from '../../../_shared/parse-string-array';
 import { normalizePassengerCount } from '../../../_shared/passenger-count';
 import { cachedFetchJsonWithMeta } from '../../../_shared/redis';
@@ -93,7 +93,7 @@ export async function searchGoogleDates(
           headers: getRelayHeaders(),
           signal: AbortSignal.timeout(30_000),
         });
-        if (!resp.ok) throw new Error(`relay returned ${resp.status}`);
+        if (!resp.ok) throw new Error(await relayFailureMessage(resp));
         const json = (await resp.json()) as { dates?: unknown[]; partial?: boolean; cooldown?: boolean; error?: string };
         if (!Array.isArray(json.dates)) throw new Error(json.error ?? 'no results');
         return {
