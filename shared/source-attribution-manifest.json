@@ -14822,6 +14822,9 @@
           "path": "api/ask.ts"
         },
         {
+          "path": "api/customer-portal.ts"
+        },
+        {
           "path": "api/mcp/skill-extension/generated.ts"
         },
         {

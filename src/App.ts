@@ -257,7 +257,11 @@ import {
   resetEntitlementState,
   resetEntitlementVerification,
 } from '@/services/entitlements';
-import { initSubscriptionWatch, destroySubscriptionWatch } from '@/services/billing';
+import { initSubscriptionWatch, destroySubscriptionWatch, openBillingPortal } from '@/services/billing';
+import {
+  captureBillingPortalIntentFromUrl,
+  resumePendingBillingPortal,
+} from '@/services/billing-portal-intent';
 import {
   FREE_TIER_FOLLOW_LIMIT,
   WM_FOLLOWED_COUNTRIES_CAP_DROP,
@@ -301,6 +305,15 @@ export type { CountryBriefSignals } from '@/app/app-context';
 
 export class App {
   private state: AppContext;
+  private resumeBillingPortal(capturedThisLoad = false): Promise<boolean> {
+    return resumePendingBillingPortal({
+      getUserId: () => getAuthState().user?.id,
+      openAuth: () => this.state.authModal?.open(),
+      openPortal: () => openBillingPortal(),
+      notify: (message) => showToast(message),
+    }, capturedThisLoad);
+  }
+
   private pendingDeepLinkCountry: string | null = null;
   private pendingDeepLinkExpanded = false;
   private pendingDeepLinkStoryCode: string | null = null;
@@ -2832,6 +2845,7 @@ export class App {
         void resumePendingCheckout({
           openAuth: () => this.state.authModal?.open(),
         });
+        void this.resumeBillingPortal();
       } else if (userId === null && _prevUserId !== null) {
         // Clerk's mounted UserButton signs out through the SDK directly, so
         // this observed transition is the authoritative place to invalidate
@@ -2960,6 +2974,11 @@ export class App {
       void resumePendingCheckout({
         openAuth: () => this.state.authModal?.open(),
       });
+    }
+    // Payment-email fallback (/dashboard?billing=portal): open the portal
+    // now if signed in, else after the sign-in the auth listener observes.
+    if (captureBillingPortalIntentFromUrl()) {
+      void this.resumeBillingPortal(true);
     }
 
     // Phase 4: MapLayerHandlers, CountryIntel. SearchManager is lazy-loaded
