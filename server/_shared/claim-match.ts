@@ -23,7 +23,6 @@ import {
 } from './corroboration';
 import { declaredSourceTier, getSourceTier, type DeclaredTier } from './source-tiers';
 
-/** Longest claim accepted, in characters. */
 export const CLAIM_MAX_CHARS = 300;
 
 /** Share of the claim's content words a headline must carry to match. */
@@ -32,10 +31,8 @@ export const CLAIM_MATCH_MIN_SCORE = 0.5;
 /** A match also needs this many content words in common, so a two-word claim cannot match on one word. */
 export const CLAIM_MATCH_MIN_SHARED = 2;
 
-/** Clusters of one event kept per claim. */
 export const CLAIM_MATCH_MAX_CLUSTERS = 8;
 
-/** Matched headlines listed on a claim card. */
 export const CLAIM_CARD_MAX_HEADLINES = 10;
 
 /** Shown with every claim card, found or not. */
