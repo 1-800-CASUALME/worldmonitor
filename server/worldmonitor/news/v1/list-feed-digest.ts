@@ -2574,24 +2574,35 @@ function buildStoryTrackHsetFields(
  * the label each story's track row recorded last cycle. A story's label reads
  * the items the digest kept for it, with the cluster-wide corroboration count.
  */
+function groupByTitleHash(items: readonly ParsedItem[]): Map<string, ParsedItem[]> {
+  const byHash = new Map<string, ParsedItem[]>();
+  for (const item of items) {
+    const hash = item.titleHash;
+    if (!hash) continue;
+    const members = byHash.get(hash);
+    if (members) members.push(item);
+    else byHash.set(hash, [item]);
+  }
+  return byHash;
+}
+
+/**
+ * Labels each served story from its whole servable cluster: the category cap
+ * can drop a member whose publisher the label counts, and the logged roster
+ * must name every publisher behind the count.
+ */
 function storyLabelChanges(
-  items: readonly ParsedItem[],
+  served: readonly ParsedItem[],
+  servable: readonly ParsedItem[],
   tracks: ReadonlyMap<string, StoryTrack>,
   now: number,
   unread: ReadonlySet<string> = new Set(),
 ): { labelByHash: Map<string, string>; labelChanges: LabelChange[] } {
-  const itemsByHash = new Map<string, ParsedItem[]>();
-  for (const item of items) {
-    const hash = item.titleHash;
-    if (!hash) continue;
-    const members = itemsByHash.get(hash);
-    if (members) members.push(item);
-    else itemsByHash.set(hash, [item]);
-  }
+  const clusterByHash = groupByTitleHash(servable);
   const labelByHash = new Map<string, string>();
   const labelChanges: LabelChange[] = [];
-  for (const [hash, members] of itemsByHash) {
-    const label = storyLabel(members);
+  for (const [hash, members] of groupByTitleHash(served)) {
+    const label = storyLabel(clusterByHash.get(hash) ?? members);
     // An unread track row is unknown, not new: leave its label untouched so
     // the next cycle compares against the real previous label.
     if (unread.has(hash)) continue;
@@ -3349,6 +3360,7 @@ async function buildDigest(
 
     // Sort by importanceScore desc, then pubDate desc; then truncate per category.
     const slicedByCategory = new Map<string, ParsedItem[]>();
+    const servableItems: ParsedItem[] = [];
     for (const [category, items] of results) {
       items.sort((a, b) =>
         b.importanceScore - a.importanceScore || b.publishedAt - a.publishedAt,
@@ -3358,6 +3370,7 @@ async function buildDigest(
       const servable = revokedUrls.size === 0
         ? items
         : items.filter((item) => typeof item.link !== 'string' || !revokedUrls.has(item.link));
+      servableItems.push(...servable);
       ledgerDrops.perCategoryCap += Math.max(0, servable.length - MAX_ITEMS_PER_CATEGORY);
       slicedByCategory.set(category, servable.slice(0, MAX_ITEMS_PER_CATEGORY));
     }
@@ -3386,7 +3399,7 @@ async function buildDigest(
     // shared by every variant, and a variant that keeps fewer of a story's
     // feeds would flip the label back and forth.
     const { labelByHash, labelChanges } = variant === 'full' && lang === 'en'
-      ? storyLabelChanges(allSliced, storyTracks, now, unreadTracks)
+      ? storyLabelChanges(allSliced, servableItems, storyTracks, now, unreadTracks)
       : { labelByHash: undefined, labelChanges: [] };
 
     // Record changes before persisting the new labels: a story whose entry

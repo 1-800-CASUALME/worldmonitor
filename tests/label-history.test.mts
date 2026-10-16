@@ -152,12 +152,25 @@ describe('digest wiring', () => {
       [HASH_A, { firstSeen: 1, lastSeen: 1, mentionCount: 1, sourceCount: 1, label: 'single-publisher|1' }],
       [HASH_B, { firstSeen: 1, lastSeen: 1, mentionCount: 1, sourceCount: 1, label: 'single-publisher|1' }],
     ]);
-    const { labelByHash, labelChanges } = __testing__.storyLabelChanges(items as never, tracks, NOW);
+    const { labelByHash, labelChanges } = __testing__.storyLabelChanges(items as never, items as never, tracks, NOW);
     assert.equal(labelByHash.get(HASH_A), 'corroborated|2');
     assert.equal(labelByHash.get(HASH_B), 'single-publisher|1');
     assert.equal(labelChanges.length, 1);
     assert.equal(labelChanges[0]!.storyId, HASH_A);
     assert.equal(labelChanges[0]!.title, 'Rates held', 'the highest-importance member names the story');
+  });
+
+  it('names every publisher behind the label, including members past the category cap', () => {
+    const served = item({ titleHash: HASH_A, corroborationCount: 2 });
+    const pastCap = item({ titleHash: HASH_A, source: 'BBC World', corroborationCount: 2, importanceScore: 1, title: 'Rates held' });
+    const notServed = item({ titleHash: HASH_B, corroborationCount: 2 });
+    const tracks = new Map([[HASH_A, { firstSeen: 1, lastSeen: 1, mentionCount: 1, sourceCount: 1, label: 'single-publisher|1' }]]);
+    const { labelByHash, labelChanges } = __testing__.storyLabelChanges([served] as never, [served, pastCap, notServed] as never, tracks, NOW);
+    assert.equal(labelChanges.length, 1);
+    assert.equal(labelChanges[0]!.nextPublishers, 2);
+    assert.deepEqual(labelChanges[0]!.sources.map((source) => source.name).sort(), ['BBC', 'Reuters']);
+    assert.equal(labelChanges[0]!.title, 'Central bank holds rates', 'the served item names the story');
+    assert.equal(labelByHash.has(HASH_B), false, 'a story the digest does not serve gets no label');
   });
 
   it('persists the label on the existing HSET, adding no command', async () => {
@@ -183,7 +196,7 @@ describe('digest wiring', () => {
 
   it('an unread track row is unknown, not new: its label is left untouched', async () => {
     const items = [item({ titleHash: HASH_A, corroborationCount: 2 }), item({ titleHash: HASH_A, source: 'BBC World', corroborationCount: 2 })];
-    const { labelByHash, labelChanges } = __testing__.storyLabelChanges(items as never, new Map(), NOW, new Set([HASH_A]));
+    const { labelByHash, labelChanges } = __testing__.storyLabelChanges(items as never, items as never, new Map(), NOW, new Set([HASH_A]));
     assert.equal(labelByHash.has(HASH_A), false);
     assert.deepEqual(labelChanges, []);
 
