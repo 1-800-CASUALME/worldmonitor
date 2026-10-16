@@ -2604,6 +2604,7 @@ function storyLabelChanges(
   const states: Array<ReturnType<typeof storyLabel>['state']> = [];
   for (const [hash, members] of groupByTitleHash(served)) {
     const label = storyLabel(clusterByHash.get(hash) ?? members);
+    // Counts describe today's labels, whether or not the track row was read.
     states.push(label.state);
     // An unread track row is unknown, not new: leave its label untouched so
     // the next cycle compares against the real previous label.
