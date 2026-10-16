@@ -860,6 +860,7 @@ export async function dispatchToolsCall(
     let { text: projectedText, value: projectedValue, failed } = applyJmespath(result, jmespathArg);
     // A news-panel token reading Natural map data keeps its full geometry.
     const newsMapRead = tool.name === 'get_natural_disasters' && panelRead !== undefined && panelRead.panel !== 'disasters';
+    let fitCoverage: unknown;
     if (tool._fitToBudget && !newsMapRead
       && result && typeof result === 'object'
       && (failed === 'projection_too_large' || utf8ByteLength(projectedText) > tool._outputBudgetBytes)) {
@@ -867,6 +868,10 @@ export async function dispatchToolsCall(
       if (presented !== result) {
         result = presented;
         ({ text: projectedText, value: projectedValue, failed } = applyJmespath(result, jmespathArg));
+        // A projection can select the trimmed lists and leave the coverage
+        // record behind, so it rides outside the projection like the
+        // attribution rider below.
+        if (jmespathUsed && failed === undefined) fitCoverage = presented.transportCoverage;
       }
     }
     // Attribution accompaniment. A projection can detach a redistribution-
@@ -889,7 +894,13 @@ export async function dispatchToolsCall(
     const rider = jmespathUsed && tool._attribution !== undefined
       ? buildAttributionRider(result, tool._attribution)
       : null;
-    const text = rider === null ? projectedText : mergeAttributionRider(projectedText, rider);
+    let text = rider === null ? projectedText : mergeAttributionRider(projectedText, rider);
+    if (fitCoverage !== undefined) {
+      const coverage = JSON.stringify(fitCoverage);
+      text = rider === null
+        ? `{"projection":${projectedText},"transportCoverage":${coverage}}`
+        : `${text.slice(0, -1)},"transportCoverage":${coverage}}`;
+    }
     const latencyMs = Date.now() - tStart;
     // Budget gate: always compute byte length for the budget check. This
     // replaces the previous telemetry-only perf gate for the post-JMESPath
@@ -955,10 +966,11 @@ export async function dispatchToolsCall(
     // tool's `summary: true`, which turns lists into `{count, sample}` — is no
     // longer the documented shape and is carried under `projection`.
     const summaryUsed = tool._execute === undefined && argBool(p.arguments?.summary);
-    const structuredContent = buildStructuredContent(projectedValue, {
+    const builtContent = buildStructuredContent(projectedValue, {
       reshaped: failed === undefined && (jmespathUsed || summaryUsed),
       rider,
     });
+    const structuredContent = fitCoverage === undefined ? builtContent : { ...builtContent, transportCoverage: fitCoverage };
     return rpcOk(id, { content: [{ type: 'text', text }], structuredContent, ...(panelUsage ? { _meta: { 'worldmonitor/usage': panelUsage } } : {}) }, corsHeaders);
   } catch (err: unknown) {
     // `latency_ms` is time-in-tool (from tStart, captured after the quota
