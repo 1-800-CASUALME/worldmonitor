@@ -1351,3 +1351,53 @@ test('theater-posture uses adsb.lol, then Wingbits, without routine OpenSky debi
     await upstash.close();
   }
 });
+
+// Google answers a rejected RPC with HTTP 200 and a `wrb.fr` row whose payload
+// slot is null and whose error slot holds the RPC status. Captured verbatim
+// from GetShoppingResults on 2026-10-16, when every search returned this.
+const GOOGLE_RPC_REJECTION = ')]}\'\n\n[["wrb.fr",null,null,null,null,[13]],["di",142],["af.httprm",142,"7097742796501415412",112]]';
+const googleShoppingBody = (items) => `)]}'\n\n${JSON.stringify([['wrb.fr', null, JSON.stringify([null, null, items, null])]])}`;
+const googleFlightRow = () => {
+  const leg = [];
+  Object.assign(leg, { 3: 'JFK', 6: 'LHR', 8: [18, 30], 10: [6, 45], 11: 435, 20: [2026, 11, 15], 21: [2026, 11, 16], 22: ['BA', '178'] });
+  const flight = [];
+  Object.assign(flight, { 2: [leg], 9: 435 });
+  return [flight, [[null, 512]]];
+};
+
+test('Google Flights RPC rejections fail the relay call instead of reading as zero flights', async () => {
+  const { child, ready } = spawnRelay({
+    RELAY_GOOGLE_FLIGHTS_RATE_LIMIT_MAX: '1000',
+    RELAY_TEST_GOOGLE_STATUS_SEQUENCE: '200,200,200,200',
+    RELAY_TEST_GOOGLE_BODY_SEQUENCE: JSON.stringify([
+      GOOGLE_RPC_REJECTION,
+      GOOGLE_RPC_REJECTION,
+      googleShoppingBody(null),
+      googleShoppingBody([[googleFlightRow()]]),
+    ]),
+  });
+
+  try {
+    const { port } = await ready;
+
+    const rejected = await get(port, '/google-flights/search?origin=JFK&destination=LHR&departure_date=2026-11-15');
+    assert.equal(rejected.status, 502, 'an RPC error envelope is an upstream failure, not an empty result');
+    assert.match(JSON.parse(rejected.body).error, /Google Flights returned RPC error 13/);
+
+    const rejectedDates = await get(port, '/google-flights/search-dates?origin=JFK&destination=LHR&start_date=2026-11-15&end_date=2026-11-22');
+    assert.equal(rejectedDates.status, 502);
+    assert.match(JSON.parse(rejectedDates.body).error, /Google Flights returned RPC error 13/);
+
+    const empty = await get(port, '/google-flights/search?origin=JFK&destination=LHR&departure_date=2026-11-16');
+    assert.equal(empty.status, 200, 'a well-formed payload without flight rows is a genuine empty result');
+    assert.deepEqual(JSON.parse(empty.body).flights, []);
+
+    const found = await get(port, '/google-flights/search?origin=JFK&destination=LHR&departure_date=2026-11-17');
+    assert.equal(found.status, 200);
+    const [flight] = JSON.parse(found.body).flights;
+    assert.equal(flight.price, 512);
+    assert.equal(flight.legs[0].flightNumber, '178');
+  } finally {
+    await stop(child);
+  }
+});

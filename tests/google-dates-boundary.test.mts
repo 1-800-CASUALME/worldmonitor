@@ -433,3 +433,13 @@ test('a malformed successful single-chunk calendar body is degraded, not cached,
   assert.equal((await read()).dates.length, 31);
   assert.equal(count, 2);
 });
+
+test('a Google RPC rejection surfaces its reason through the relay instead of a bare 502', async () => {
+  // Captured from GetCalendarGraph on 2026-10-16: HTTP 200, no payload, RPC status 13.
+  installCalendarRelay((async () => new Response(')]}\'\n\n[["wrb.fr",null,null,null,null,[13]],["di",34],["af.httprm",34,"8506576470587309570",112]]')) as typeof fetch);
+  const result = await read({ startDate: '2026-11-15', endDate: '2026-11-22' });
+  assert.equal(result.degraded, true);
+  assert.deepEqual(result.dates, []);
+  assert.match(result.error, /^relay returned 502: Google Flights returned RPC error 13/);
+  assert.equal([...redis.redis.keys()].filter(key => key.startsWith('aviation:gf-dates:')).length, 0);
+});
