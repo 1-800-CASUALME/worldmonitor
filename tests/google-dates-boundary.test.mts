@@ -311,6 +311,26 @@ test('a 31-day search reads one results page per day, six at a time, in date ord
   assert.equal(relay.pages.length, 31, 'a complete grid is cached');
 });
 
+test('concurrent date searches share one relay-wide cap on pages in flight', async () => {
+  let active = 0;
+  let peak = 0;
+  const relay = installPageRelay(async (url) => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    active--;
+    return pricedDay(url);
+  });
+  const results = await Promise.all([
+    read(month),
+    read({ ...month, origin: 'JFK' }),
+    read({ ...month, origin: 'CDG' }),
+  ]);
+  assert.equal(peak, 8);
+  assert.equal(relay.pages.length, 93);
+  assert.ok(results.every(result => !result.degraded && result.dates.length === 31));
+});
+
 test('a range over 31 days is rejected at the edge and at the relay', async () => {
   const relay = installPageRelay(async url => pricedDay(url));
   assert.equal((await gateway(request({ start_date: '2026-11-01', end_date: '2026-12-02' }))).status, 400);
@@ -365,6 +385,22 @@ test('failed days keep the answered days, are not cached as a grid, and recover'
   const recovered = await read(month);
   assert.equal(recovered.degraded, false);
   assert.equal(recovered.dates.length, 31);
+});
+
+test('each failed day is counted once, whether other days answer or none do', async () => {
+  let failAll = false;
+  const relay = installPageRelay(async (url) => {
+    if (failAll || legDate(url) === '2026-11-02') throw new TypeError('fetch failed');
+    return pricedDay(url);
+  });
+  const range = { startDate: '2026-11-01', endDate: '2026-11-03' };
+  assert.equal((await read(range)).dates.length, 2);
+  assert.deepEqual(relay.outcomes.filter(outcome => outcome !== 'success'), ['terminalFailure', 'fallback']);
+  relay.outcomes.length = 0;
+  failAll = true;
+  const failed = await read({ startDate: '2026-11-05', endDate: '2026-11-07' });
+  assert.match(failed.error, /^relay returned 502: fetch failed/);
+  assert.deepEqual(relay.outcomes, ['terminalFailure', 'terminalFailure', 'terminalFailure']);
 });
 
 test('a 429 arms the cooldown, answers degraded, and suppresses provider calls', async () => {

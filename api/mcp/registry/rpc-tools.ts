@@ -3066,7 +3066,7 @@ export const RPC_TOOLS: ToolDef[] = [
     name: 'search_flight_prices_by_date',
     title: 'Flight prices across dates',
     _outputBudgetBytes: 262144,
-    description: 'Cheapest Google Flights fare for each departure date between two airports, across a range of at most 31 days (one results-page search per date). Each row has the date, the return date for round trips (departure plus trip_duration), and the lowest total USD price for all passengers. A date with no itineraries is omitted; degraded means one or more dates failed and the list is partial. Airports are IATA codes.',
+    description: 'Cheapest Google Flights fare for each departure date between two airports, across a range of at most 31 days (one results-page search per date). Each row has the date, the return date for round trips (departure plus trip_duration), and the lowest total USD price for all passengers. A date with no itineraries is omitted. degraded with an error means some or all dates failed, and the list holds only the dates that answered. Airports are IATA codes.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3090,7 +3090,7 @@ export const RPC_TOOLS: ToolDef[] = [
           returnDate: { type: 'string', description: 'Empty for one-way searches.' },
           price: { type: 'number', description: 'Lowest total USD price for all passengers.' },
         } } },
-        degraded: { type: 'boolean', description: 'True when one or more dates failed and the list is partial.' },
+        degraded: { type: 'boolean', description: 'True when some or all dates failed; the list holds only the dates that answered.' },
         error: { type: 'string' },
       },
     },

@@ -13095,6 +13095,33 @@ const GF_PAGE_TIMEOUT_MS = 12_000;
 const GF_DATES_MAX_DAYS = 31;
 const GF_DATES_CONCURRENCY = 6;
 const GF_DATES_DEADLINE_MS = 20_000;
+// Pages in flight across every search, so concurrent date searches cannot
+// burst Google into a 429 that cools the route down for all callers.
+const GF_PAGE_SLOTS = 8;
+let gfPagesInFlight = 0;
+const gfPageWaiters = [];
+
+async function withGfPageSlot(signal, run) {
+  while (gfPagesInFlight >= GF_PAGE_SLOTS) {
+    signal.throwIfAborted();
+    await new Promise((resolve, reject) => {
+      const onAbort = () => {
+        gfPageWaiters.splice(gfPageWaiters.indexOf(wake), 1);
+        reject(signal.reason);
+      };
+      const wake = () => { signal.removeEventListener('abort', onAbort); resolve(); };
+      gfPageWaiters.push(wake);
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+  gfPagesInFlight++;
+  try {
+    return await run();
+  } finally {
+    gfPagesInFlight--;
+    gfPageWaiters.shift()?.();
+  }
+}
 
 function gfCabinClass(cabin) {
   switch ((cabin || '').toUpperCase()) {
@@ -13227,22 +13254,26 @@ function parseGfFlights(html) {
   return flights;
 }
 
-// The page has no departure-time filter or sort control in `tfs`; apply both here.
+// The page has no departure-time filter or sort control in `tfs`; apply both
+// here. A round-trip page lists only the outbound legs, so the window filters
+// the outbound departure; the return journey is chosen on a later page.
 function gfDepartureWindow(window) {
   const parts = String(window || '').split('-').map(n => parseInt(n, 10));
   return parts.length === 2 && parts.every(Number.isInteger) ? parts : null;
 }
 
+const GF_SORT_KEYS = new Map([
+  ['CHEAPEST', f => f.price], ['PRICE', f => f.price],
+  ['DEPARTURE_TIME', f => f.legs[0]?.departureDatetime], ['DEPARTURE', f => f.legs[0]?.departureDatetime],
+  ['ARRIVAL_TIME', f => f.legs.at(-1)?.arrivalDatetime], ['ARRIVAL', f => f.legs.at(-1)?.arrivalDatetime],
+  ['DURATION', f => f.durationMinutes],
+]);
+
 function selectGfFlights(flights, { departureWindow, sortBy }) {
   const range = gfDepartureWindow(departureWindow);
   const hour = f => parseInt(f.legs[0]?.departureDatetime.slice(11, 13), 10);
   let rows = range ? flights.filter(f => hour(f) >= range[0] && hour(f) < range[1]) : flights.slice();
-  const key = {
-    CHEAPEST: f => f.price, PRICE: f => f.price,
-    DEPARTURE_TIME: f => f.legs[0]?.departureDatetime, DEPARTURE: f => f.legs[0]?.departureDatetime,
-    ARRIVAL_TIME: f => f.legs.at(-1)?.arrivalDatetime, ARRIVAL: f => f.legs.at(-1)?.arrivalDatetime,
-    DURATION: f => f.durationMinutes,
-  }[(sortBy || '').toUpperCase()];
+  const key = GF_SORT_KEYS.get((sortBy || '').toUpperCase());
   if (key) rows = rows.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
   return rows;
 }
@@ -13252,7 +13283,10 @@ function selectGfFlights(flights, { departureWindow, sortBy }) {
  * provider failures and arms the global cooldown on 429.
  */
 async function fetchGfFlights(params, signal) {
-  const gfResp = await fetch(buildGfSearchUrl(params), { headers: GF_HEADERS, signal });
+  const { gfResp, html } = await withGfPageSlot(signal, async () => {
+    const gfResp = await fetch(buildGfSearchUrl(params), { headers: GF_HEADERS, signal });
+    return { gfResp, html: gfResp.ok ? await gfResp.text() : '' };
+  });
   if (gfResp.status === 429) {
     gfGlobal429Until = Date.now() + GF_429_COOLDOWN_MS;
     console.warn(`[Google Flights] 429 — global cooldown ${GF_429_COOLDOWN_MS / 1000}s`);
@@ -13268,7 +13302,6 @@ async function fetchGfFlights(params, signal) {
     recordRelayOutcome('googleFlights', 'terminalFailure');
     throw new Error(`Google Flights returned ${gfResp.status}`);
   }
-  const html = await gfResp.text();
   try {
     return parseGfFlights(html);
   } catch (err) {
@@ -13277,13 +13310,16 @@ async function fetchGfFlights(params, signal) {
   }
 }
 
-function sendGfFailure(res, err, label, emptyKey) {
-  const isTimeout = err?.name === 'TimeoutError' || err?.message?.includes('timed out');
+function recordGfFailure(err) {
+  const isTimeout = err?.name === 'TimeoutError' || err?.name === 'AbortError' || err?.message?.includes('timed out');
   if (isTimeout) {
     recordRelayOutcome('googleFlights', 'timeout');
   } else if (!err?.message?.startsWith('Google Flights')) {
     recordRelayOutcome('googleFlights', 'terminalFailure');
   }
+}
+
+function sendGfFailure(res, err, label, emptyKey) {
   console.error(`[Google Flights] ${label} error:`, err?.message || err);
   const retryAfter = Math.max(0, Math.ceil((gfGlobal429Until - Date.now()) / 1000));
   res.writeHead(502, {
@@ -13338,6 +13374,7 @@ async function handleGoogleFlightsSearch(req, res) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ flights }));
   } catch (err) {
+    recordGfFailure(err);
     sendGfFailure(res, err, 'search', 'flights');
   }
 }
@@ -13414,7 +13451,7 @@ async function handleGoogleFlightsDates(req, res) {
           results[index] = prices.length ? [{ date, returnDate, price: Math.min(...prices) }] : [];
         } catch (err) {
           if (err?.message === 'Google Flights returned 429') hasCooldown = true;
-          else if (err?.name === 'TimeoutError' || err?.name === 'AbortError') recordRelayOutcome('googleFlights', 'timeout');
+          else recordGfFailure(err);
           firstFailure ||= err?.message || 'date search failed';
         }
       }
@@ -13422,8 +13459,11 @@ async function handleGoogleFlightsDates(req, res) {
     await Promise.all(Array.from({ length: Math.min(GF_DATES_CONCURRENCY, days.length) }, worker));
 
     const answered = results.filter(Boolean);
-    // Every day failed outright: report the first reason like a single search.
-    if (answered.length === 0 && !hasCooldown) throw new Error(firstFailure || 'date search failed');
+    // Every day failed outright (each already counted): report the first reason like a single search.
+    if (answered.length === 0 && !hasCooldown) {
+      sendGfFailure(res, new Error(firstFailure || 'date search failed'), 'dates', 'dates');
+      return;
+    }
     const dates = answered.flat();
     const partial = answered.length < days.length;
     if (url.searchParams.get('sort_by_price') === 'true') dates.sort((a, b) => a.price - b.price);
@@ -13432,6 +13472,7 @@ async function handleGoogleFlightsDates(req, res) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ dates, partial, cooldown: hasCooldown }));
   } catch (err) {
+    recordGfFailure(err);
     sendGfFailure(res, err, 'dates', 'dates');
   }
 }

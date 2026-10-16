@@ -435,7 +435,7 @@
     },
     {
       "name": "search_flight_prices_by_date",
-      "description": "Cheapest Google Flights fare for each departure date between two airports, across a range of at most 31 days (one results-page search per date). Each row has the date, the return date for round trips (departure plus trip_duration), and the lowest total USD price for all passengers. A date with no itineraries is omitted; degraded means one or more dates failed and the list is partial. Airports are IATA codes.",
+      "description": "Cheapest Google Flights fare for each departure date between two airports, across a range of at most 31 days (one results-page search per date). Each row has the date, the return date for round trips (departure plus trip_duration), and the lowest total USD price for all passengers. A date with no itineraries is omitted. degraded with an error means some or all dates failed, and the list holds only the dates that answered. Airports are IATA codes.",
       "_meta": {
         "worldmonitor/access": "subscription"
       }

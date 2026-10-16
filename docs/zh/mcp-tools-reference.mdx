@@ -2045,7 +2045,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `search_flight_prices_by_date`
 
-两个机场之间每个出发日期的 Google Flights 最低票价，日期范围最多 31 天（每个日期一次结果页搜索）。每行包含日期、往返行程的返程日期（出发日期加 trip_duration），以及全部乘客的最低美元总价。没有行程的日期不列出；degraded 表示有日期失败、列表不完整。机场使用 IATA 代码。
+两个机场之间每个出发日期的 Google Flights 最低票价，日期范围最多 31 天（每个日期一次结果页搜索）。每行包含日期、往返行程的返程日期（出发日期加 trip_duration），以及全部乘客的最低美元总价。没有行程的日期不列出。degraded 带 error 表示部分或全部日期失败，列表只包含有结果的日期。机场使用 IATA 代码。
 
 **参数：**
 
