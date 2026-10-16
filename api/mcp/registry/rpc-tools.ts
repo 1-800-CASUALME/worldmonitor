@@ -2862,6 +2862,20 @@ export const RPC_TOOLS: ToolDef[] = [
         signal: AbortSignal.timeout(25_000),
       }, execution);
       await assertToolFetchOk(res, 'deduct-situation');
+      // The handler degrades to an empty analysis instead of a non-2xx when
+      // no LLM provider answers. Read a clone so a real analysis still
+      // passes through verbatim (the OpenAPI parity suite keys on that).
+      const result = await res.clone().json() as { analysis?: unknown; provider?: unknown };
+      if (typeof result.analysis !== 'string' || !result.analysis.trim()) {
+        if (result.provider === 'skipped') {
+          throw new RpcValidationError('deduct-situation', [{ field: 'query', description: 'query must contain non-whitespace text.' }]);
+        }
+        throw new McpSourceUnavailableError(
+          `Situation analysis unavailable (provider ${String(result.provider ?? 'unknown')})`,
+          [],
+          ['deduct-situation'],
+        );
+      }
       return res.json();
     },
     _apiPaths: [
