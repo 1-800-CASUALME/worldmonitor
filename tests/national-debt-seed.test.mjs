@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { imfSdmxFetchIndicator } from '../scripts/_seed-utils.mjs';
 
 // Import only the pure compute function (no Redis, no fetch side-effects)
 import { computeEntries, weoYearWindow } from '../scripts/seed-national-debt.mjs';
@@ -216,5 +218,32 @@ describe('rolling WEO year window', () => {
     assert.ok(Math.abs(entries[0].debtToGdp - 112) < 0.001);
     // baseline should track the vintage year, not be pinned to 2024
     assert.equal(entries[0].baselineTs, Date.UTC(2026, 0, 1));
+  });
+});
+
+
+describe('IMF SDMX dollar contract', () => {
+  it('preserves raw NGDPD dollars in GDP, debt, and deficit rates', async (t) => {
+    const fixture = JSON.parse(readFileSync(new URL('./fixtures/national-debt/imf-ngdpd.json', import.meta.url), 'utf8'));
+    t.mock.method(globalThis, 'fetch', async (url) => {
+      assert.match(String(url), /dataflow\/IMF\.RES\/WEO\/\+\/\*\.NGDPD\.A/);
+      return Response.json(fixture);
+    });
+    const gdp = await imfSdmxFetchIndicator('NGDPD', { years: ['2027'] });
+    assert.equal(gdp.CHN['2027'], 22_939_132_112_000);
+    assert.equal(gdp.USA['2027'], 34_441_606_777_000);
+    const entries = computeEntries(
+      { CHN: { '2027': 100 }, USA: { '2027': 100 } },
+      gdp,
+      { CHN: { '2027': -5 }, USA: { '2027': -5 } },
+      null,
+    );
+    for (const entry of entries) {
+      const expectedGdp = gdp[entry.iso3]['2027'];
+      assert.equal(entry.gdpUsd, expectedGdp);
+      assert.equal(entry.debtUsd, expectedGdp);
+      assert.equal(entry.perDayRate, expectedGdp * 0.05 / 365.25);
+      assert.equal(entry.perSecondRate, expectedGdp * 0.05 / (365.25 * 86400));
+    }
   });
 });
