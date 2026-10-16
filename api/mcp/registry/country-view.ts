@@ -70,7 +70,7 @@ export const COUNTRY_VIEW_TOOLS: ToolDef[] = [{
   name: 'open_country_brief',
   title: 'WorldMonitor country brief',
   _subscriptionOnly: true,
-  description: 'Open the interactive WorldMonitor country brief with its assessment, source evidence, resilience, energy, trade and security sections. Use for country brief requests and follow-up topic navigation. On dedicated paid MCP plans, one country request includes its internal section loads. Same-country opens reuse the request for five minutes. Explicit refresh starts a new request. API plans retain per-tool weighted billing. The interface loads sections progressively through the authenticated connection. Section availability and dates are shown in the view. Use get_country_brief only when the user explicitly wants a text assessment.',
+  description: 'Open the interactive WorldMonitor country brief with its assessment, source evidence, resilience, energy, trade and security sections. Covers country brief requests and follow-up topic navigation. On dedicated paid MCP plans, one country request includes its internal section loads. Same-country opens reuse the request for five minutes. Explicit refresh starts a new request. API plans retain per-tool weighted billing. The interface loads sections progressively through the authenticated connection. Section availability and dates are shown in the view.',
   _uiResourceUri: COUNTRY_VIEW_UI_URI,
   _openaiEntrypoints: [{ type: 'global' }, { type: 'thread' }],
   _outputBudgetBytes: 4096,
