@@ -38,6 +38,7 @@ message GetMediaProvenanceRequest {
   // Job id returned by the check.
   string job_id = 1 [
     (sebuf.http.query) = { name: "job_id" },
+    (buf.validate.field).required = true,
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).string.max_len = 64
   ];
@@ -140,6 +141,7 @@ message GetReportMediaRequest {
   // Job id returned by CheckReportMedia.
   string job_id = 1 [
     (sebuf.http.query) = { name: "job_id" },
+    (buf.validate.field).required = true,
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).string.max_len = 64
   ];

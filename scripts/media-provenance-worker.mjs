@@ -45,6 +45,19 @@ loadEnvFile(import.meta.url);
 
 const RETENTION_MS = MEDIA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 30 * 60 * 1000;
+/** A claimed job holds a lease this long; only a job whose lease lapsed is reclaimed. */
+const JOB_LEASE_SECONDS = 10 * 60;
+/** A file whose delete failed is retried this long after, so it never blocks later files. */
+const DELETE_RETRY_MS = 60 * 60 * 1000;
+
+export function mediaLeaseKey(jobId) {
+  return `media-provenance:lease:${jobId}`;
+}
+
+/** The R2 key of a submitted file: one object per job, so a sweep never deletes another job's upload. */
+export function mediaStorageKey(sha256, jobId) {
+  return `${MEDIA_STORAGE_PREFIX}/${sha256}/${jobId.replace(/:/g, '-')}`;
+}
 const IDLE_SLEEP_MS = 3_000;
 
 let shuttingDown = false;
@@ -94,7 +107,7 @@ async function createReaderFactory(trustAnchors) {
 export async function runMediaCheck(job, deps) {
   const fetched = await deps.fetchMedia(job.url);
   const fetchedAt = new Date(deps.now()).toISOString();
-  await deps.storeOriginal(fetched).catch((error) => {
+  await deps.storeOriginal(fetched, job.jobId).catch((error) => {
     console.warn('[media-provenance] storing the file failed:', error?.message ?? error);
   });
 
@@ -132,7 +145,10 @@ export async function runMediaCheck(job, deps) {
   };
 }
 
-/** Record a stored file and delete files older than the retention period. */
+/**
+ * Delete stored files older than the retention period. A failed delete is
+ * pushed back an hour, so it cannot hold up the files behind it.
+ */
 export async function sweepExpiredMedia({ redisCmd: cmd, deleteObject, now = Date.now() }) {
   const expired = await cmd('zrangebyscore', [MEDIA_STORED_INDEX_KEY, '-inf', now - RETENTION_MS, 'LIMIT', 0, 200]);
   let deleted = 0;
@@ -144,9 +160,31 @@ export async function sweepExpiredMedia({ redisCmd: cmd, deleteObject, now = Dat
       deleted += 1;
     } catch (error) {
       console.warn('[media-provenance] retention delete failed:', key, error?.message ?? error);
+      // Retry it in an hour, behind the files that are due now.
+      await cmd('zadd', [MEDIA_STORED_INDEX_KEY, now - RETENTION_MS + DELETE_RETRY_MS, key]).catch(() => null);
     }
   }
   return deleted;
+}
+
+/**
+ * Put back on the queue every claimed job whose lease has lapsed: its worker
+ * crashed or lost its final write. A live worker's job keeps its lease and is
+ * left alone; LREM decides which of two recovering workers re-queues a job.
+ */
+export async function recoverAbandonedJobs(cmd) {
+  const claimed = await cmd('lrange', [MEDIA_PROCESSING_KEY, 0, -1]);
+  let recovered = 0;
+  for (const raw of Array.isArray(claimed) ? claimed : []) {
+    const job = parseJob(raw);
+    if (job && Number(await cmd('exists', [mediaLeaseKey(job.jobId)])) > 0) continue;
+    if (Number(await cmd('lrem', [MEDIA_PROCESSING_KEY, 1, String(raw)])) !== 1) continue;
+    if (job) {
+      await cmd('lpush', [MEDIA_QUEUE_KEY, String(raw)]);
+      recovered += 1;
+    }
+  }
+  return recovered;
 }
 
 function parseJob(raw) {
@@ -168,25 +206,26 @@ async function runWorker() {
   if (!r2) console.warn('[media-provenance] R2 is not configured: submitted files are not stored');
   if (!process.env.TINEYE_API_KEY) console.warn('[media-provenance] TINEYE_API_KEY is not set: earliest-copy searches report not-configured');
 
-  const storeOriginal = async (fetched) => {
+  // Record the deletion date first: a file is never stored without one.
+  const storeOriginal = async (fetched, jobId) => {
     if (!r2) return;
-    const key = `${MEDIA_STORAGE_PREFIX}/${fetched.sha256}`;
-    await putR2BinaryObject(r2, key, fetched.bytes, fetched.mediaType);
+    const key = mediaStorageKey(fetched.sha256, jobId);
     await redisCmd('zadd', [MEDIA_STORED_INDEX_KEY, Date.now(), key]);
+    await putR2BinaryObject(r2, key, fetched.bytes, fetched.mediaType);
   };
-
-  // Jobs left in processing by a crash go back to the queue once.
-  for (let moved = await redisCmd('lmove', [MEDIA_PROCESSING_KEY, MEDIA_QUEUE_KEY, 'RIGHT', 'LEFT']).catch(() => null); moved;) {
-    moved = await redisCmd('lmove', [MEDIA_PROCESSING_KEY, MEDIA_QUEUE_KEY, 'RIGHT', 'LEFT']).catch(() => null);
-  }
 
   let lastSweep = 0;
   while (!shuttingDown) {
-    if (r2 && Date.now() - lastSweep > SWEEP_INTERVAL_MS) {
+    if (Date.now() - lastSweep > SWEEP_INTERVAL_MS) {
       lastSweep = Date.now();
-      await sweepExpiredMedia({ redisCmd, deleteObject: (key) => deleteR2Object(r2, key) }).catch((error) => {
-        console.warn('[media-provenance] retention sweep failed:', error?.message ?? error);
+      await recoverAbandonedJobs(redisCmd).catch((error) => {
+        console.warn('[media-provenance] job recovery failed:', error?.message ?? error);
       });
+      if (r2) {
+        await sweepExpiredMedia({ redisCmd, deleteObject: (key) => deleteR2Object(r2, key) }).catch((error) => {
+          console.warn('[media-provenance] retention sweep failed:', error?.message ?? error);
+        });
+      }
     }
 
     let raw;
@@ -209,6 +248,8 @@ async function runWorker() {
       continue;
     }
     const resultKey = mediaResultKey(job.owner, job.jobId);
+    await redisCmd('set', [mediaLeaseKey(job.jobId), '1', 'EX', JOB_LEASE_SECONDS]).catch(() => null);
+    let saved = false;
     try {
       const result = await runMediaCheck(job, {
         fetchMedia,
@@ -223,13 +264,19 @@ async function runWorker() {
         now: () => Date.now(),
       });
       await redisCmd('set', [resultKey, JSON.stringify({ status: 'done', result, completedAt: Date.now() }), 'EX', MEDIA_RESULT_TTL_SECONDS]);
+      saved = true;
       console.log(`[media-provenance] ${job.jobId} done (${result.mediaType}, credentials=${result.credentials.state}, earliest=${result.earliest.state})`);
     } catch (error) {
       const message = error instanceof MediaCheckError ? error.message : 'The check could not be completed.';
       if (!(error instanceof MediaCheckError)) console.error(`[media-provenance] ${job.jobId} failed:`, error?.message ?? error);
-      await redisCmd('set', [resultKey, JSON.stringify({ status: 'failed', error: message, failedAt: Date.now() }), 'EX', MEDIA_RESULT_TTL_SECONDS]).catch(() => null);
-    } finally {
+      saved = await redisCmd('set', [resultKey, JSON.stringify({ status: 'failed', error: message, failedAt: Date.now() }), 'EX', MEDIA_RESULT_TTL_SECONDS])
+        .then(() => true, () => false);
+    }
+    // Release the claim only once a final status is saved. Otherwise the job
+    // stays claimed; its lease lapses and recovery runs it again.
+    if (saved) {
       await redisCmd('lrem', [MEDIA_PROCESSING_KEY, 1, String(raw)]).catch(() => null);
+      await redisCmd('del', [mediaLeaseKey(job.jobId)]).catch(() => null);
     }
   }
   console.log('[media-provenance] shutdown complete');

@@ -30,6 +30,7 @@ export declare const MEDIA_WORDING: Readonly<{
   unknownTrust: string;
   aiDeclared: string;
   changedAfterSigning: string;
+  failedValidation: string;
   earliestNone: string;
   earliestUnsupported: string;
   earliestNotConfigured: string;

@@ -236,6 +236,11 @@ function overrideStringExample(key, context = {}) {
   // the heuristic defaults ('example' / a generic https URL) contradict the
   // fields' own descriptions. The statusUrl value must mirror the Location
   // header example in openapi-inject-async-jobs.mjs (contract-tested).
+  // #9096: a media job id has its own form; the generic jobId default is a
+  // scenario id, which the media poll routes reject.
+  if (key.replace(/_/g, '') === 'jobid' && /media-?provenance|report-?media/.test(where)) {
+    return 'media:1717200000000:0123456789abcdef0123456789abcdef';
+  }
   if (key === 'status' || key === 'statusurl') {
     if (where.includes('runscenario') || where.includes('run-scenario')) {
       return key === 'status'

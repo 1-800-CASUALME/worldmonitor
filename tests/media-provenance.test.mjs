@@ -2,6 +2,8 @@
 // scripts/media-provenance-worker.mjs) and the wording they report with.
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
+import { lookup as dnsLookup } from 'node:dns';
+import { createServer } from 'node:net';
 import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 
@@ -20,12 +22,13 @@ import {
   mediaUrlProblem,
   parseTinEyeResponse,
   readCredentials,
+  requestOnce,
   sniffMediaType,
   strippedSearchBytes,
   summarizeCredentials,
   tineyeLimits,
 } from '../scripts/lib/media-provenance.mjs';
-import { runMediaCheck, sweepExpiredMedia } from '../scripts/media-provenance-worker.mjs';
+import { mediaLeaseKey, mediaStorageKey, recoverAbandonedJobs, runMediaCheck, sweepExpiredMedia } from '../scripts/media-provenance-worker.mjs';
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/media-provenance/${name}`, import.meta.url), 'utf8'));
 
@@ -166,6 +169,44 @@ describe('fetching media', () => {
     await assert.rejects(fetchMedia('https://example.com/a.jpg', { request: drip.request, deadlineMs: 50 }), (e) => e.code === 'timeout');
   });
 
+  it('holds every request to the overall deadline, headers included', async () => {
+    // A server that drips header bytes never trips the socket idle timeout.
+    const server = createServer((socket) => {
+      socket.write('HTTP/1.1 200 OK\r\n');
+      const drip = setInterval(() => socket.write('X'), 10);
+      socket.on('close', () => clearInterval(drip));
+      socket.on('error', () => clearInterval(drip));
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const started = Date.now();
+      await assert.rejects(
+        requestOnce(new URL(`http://127.0.0.1:${server.address().port}/a.jpg`), { lookup: dnsLookup, timeoutMs: 5_000, deadlineAt: Date.now() + 150 }),
+        (e) => e instanceof MediaCheckError && e.code === 'timeout',
+      );
+      assert.ok(Date.now() - started < 2_000, 'the deadline, not the idle timeout, ended it');
+    } finally {
+      server.close();
+    }
+    const { request, calls } = scriptedRequest({ 'https://example.com/a.jpg': () => response(200, {}, JPEG) });
+    await fetchMedia('https://example.com/a.jpg', { request, deadlineMs: 60_000 });
+    assert.ok(Math.abs(calls[0].options.deadlineAt - (Date.now() + 60_000)) < 5_000, 'fetchMedia passes its deadline to each request');
+  });
+
+  it('closes a discarded response instead of draining it', async () => {
+    const redirect = response(302, { location: '/b' });
+    const missing = response(404);
+    const huge = response(200, { 'content-length': '999999999' }, JPEG);
+    const { request } = scriptedRequest({
+      'https://example.com/a': () => redirect,
+      'https://example.com/b': () => missing,
+      'https://example.com/c': () => huge,
+    });
+    await assert.rejects(fetchMedia('https://example.com/a', { request }), /HTTP 404/);
+    await assert.rejects(fetchMedia('https://example.com/c', { request }), (e) => e.code === 'too-large');
+    assert.ok(redirect.destroyed && missing.destroyed && huge.destroyed);
+  });
+
   it('refuses a page that is not an image or video, and an error status', async () => {
     const page = scriptedRequest({ 'https://example.com/a': () => response(200, { 'content-type': 'image/jpeg' }, HTML) });
     await assert.rejects(fetchMedia('https://example.com/a', { request: page.request }), (e) => e.code === 'type');
@@ -226,6 +267,9 @@ describe('earliest copies (TinEye)', () => {
       ['2026-10-15', 'https://example.net/gallery/1'],
     ]);
     assert.equal(parsed.totalMatches, 3);
+    const paged = fixture('tineye-search.json');
+    paged.stats.total_results = 57;
+    assert.equal(parseTinEyeResponse(paged).totalMatches, 57, 'the provider total, not the page length');
     assert.equal(parseTinEyeResponse({ code: 401, messages: ['bad key'] }), null);
     assert.equal(parseTinEyeResponse(null), null);
   });
@@ -233,6 +277,8 @@ describe('earliest copies (TinEye)', () => {
   it('defaults to the owner cap of $50 a month at about $0.04 a search', () => {
     assert.deepEqual(tineyeLimits({}), { capCents: 5000, costCents: 4 });
     assert.deepEqual(tineyeLimits({ TINEYE_MONTHLY_CAP_USD: '10', TINEYE_COST_PER_SEARCH_USD: '0.05' }), { capCents: 1000, costCents: 5 });
+    assert.deepEqual(tineyeLimits({ TINEYE_MONTHLY_CAP_USD: '', TINEYE_COST_PER_SEARCH_USD: ' ' }), { capCents: 5000, costCents: 4 }, 'blank means unset');
+    assert.equal(tineyeLimits({ TINEYE_MONTHLY_CAP_USD: '0' }).capCents, 0, 'an explicit 0 turns searches off');
     assert.equal(tineyeSpendKey(now), 'media-provenance:tineye-spend:v1:2026-10');
   });
 
@@ -289,9 +335,11 @@ describe('earliest copies (TinEye)', () => {
 describe('a whole check (worker)', () => {
   it('reads credentials from a temporary file it then removes, and never fails on storage', async () => {
     let assetPath = '';
-    const result = await runMediaCheck({ url: 'https://example.com/a.jpg' }, {
+    let storedFor = '';
+    const jobId = `media:1760616000000:${'a'.repeat(32)}`;
+    const result = await runMediaCheck({ url: 'https://example.com/a.jpg', jobId }, {
       fetchMedia: async () => ({ bytes: JPEG, mediaType: 'image/jpeg', sha256: 'f'.repeat(64) }),
-      storeOriginal: async () => { throw new Error('R2 down'); },
+      storeOriginal: async (_fetched, id) => { storedFor = id; throw new Error('R2 down'); },
       readerFactory: async (path) => { assetPath = path; assert.ok(existsSync(path)); return fixture('c2pa-store-trusted.json'); },
       trustListConfigured: true,
       strippedSearchBytes: async () => JPEG,
@@ -302,6 +350,8 @@ describe('a whole check (worker)', () => {
       now: () => Date.parse('2026-10-16T12:00:00Z'),
     });
     assert.equal(existsSync(assetPath), false, 'the temporary copy is deleted');
+    assert.equal(storedFor, jobId, 'each job stores its own object');
+    assert.equal(mediaStorageKey('f'.repeat(64), jobId), `media-provenance/v1/${'f'.repeat(64)}/media-1760616000000-${'a'.repeat(32)}`);
     assert.equal(result.credentials.signerTrust, 'trusted');
     assert.equal(result.earliest.state, 'ok');
     assert.equal(result.bytes, JPEG.length);
@@ -320,6 +370,42 @@ describe('a whole check (worker)', () => {
     assert.equal(await sweepExpiredMedia({ redisCmd, deleteObject: async (key) => { deleted.push(key); }, now }), 1);
     assert.deepEqual(deleted, ['media-provenance/v1/aaa'], 'only this feature\'s prefix is ever deleted');
     assert.equal(calls[0][3], now - 30 * 24 * 60 * 60 * 1000);
+  });
+
+  it('pushes a failed delete back an hour so it cannot block the files behind it', async () => {
+    const now = Date.parse('2026-10-16T12:00:00Z');
+    const calls = [];
+    const redisCmd = async (name, args) => {
+      calls.push([name, ...args]);
+      return name === 'zrangebyscore' ? ['media-provenance/v1/stuck', 'media-provenance/v1/next'] : 1;
+    };
+    const deleteObject = async (key) => { if (key.endsWith('stuck')) throw new Error('R2 500'); };
+    assert.equal(await sweepExpiredMedia({ redisCmd, deleteObject, now }), 1);
+    assert.deepEqual(calls.find(([name]) => name === 'zadd'), ['zadd', 'media-provenance:stored:v1', now - 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000, 'media-provenance/v1/stuck']);
+    assert.deepEqual(calls.filter(([name]) => name === 'zrem').map((c) => c[2]), ['media-provenance/v1/next']);
+  });
+
+  it('re-queues only claimed jobs whose lease has lapsed', async () => {
+    const live = JSON.stringify({ jobId: `media:1760616000000:${'1'.repeat(32)}`, url: 'https://example.com/a.jpg', owner: 'b'.repeat(64) });
+    const lapsed = JSON.stringify({ jobId: `media:1760616000000:${'2'.repeat(32)}`, url: 'https://example.com/b.jpg', owner: 'b'.repeat(64) });
+    const processing = [live, lapsed, 'garbage'];
+    const queue = [];
+    const cmd = async (name, args) => {
+      if (name === 'lrange') return [...processing];
+      if (name === 'exists') return args[0] === mediaLeaseKey(JSON.parse(live).jobId) ? 1 : 0;
+      if (name === 'lrem') {
+        const at = processing.indexOf(args[2]);
+        if (at < 0) return 0;
+        processing.splice(at, 1);
+        return 1;
+      }
+      if (name === 'lpush') { queue.unshift(args[1]); return queue.length; }
+      throw new Error(`unexpected ${name}`);
+    };
+    assert.equal(await recoverAbandonedJobs(cmd), 1);
+    assert.deepEqual(processing, [live], 'a live worker keeps its job');
+    assert.deepEqual(queue, [lapsed]);
+    assert.equal(await recoverAbandonedJobs(cmd), 0, 'nothing is re-queued twice');
   });
 });
 

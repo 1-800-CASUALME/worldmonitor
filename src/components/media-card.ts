@@ -46,6 +46,7 @@ function credentialsHtml(result: MediaProvenance): string {
     `<p class="mc-note">${escapeHtml(trust)}</p>`,
   ];
   if (c.contentChangedAfterSigning) lines.push(`<p class="mc-warning">${escapeHtml(MEDIA_WORDING.changedAfterSigning)}</p>`);
+  else if (c.validationState === 'invalid') lines.push(`<p class="mc-warning">${escapeHtml(MEDIA_WORDING.failedValidation)}</p>`);
   if (c.declaresAiGeneration) lines.push(`<p class="mc-ai">${escapeHtml(MEDIA_WORDING.aiDeclared)}</p>`);
   const facts: string[] = [];
   if (c.claimGenerator) facts.push(`<li>Made with: ${escapeHtml(c.claimGenerator)}</li>`);

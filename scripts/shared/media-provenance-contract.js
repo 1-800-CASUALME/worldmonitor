@@ -70,6 +70,7 @@ export const MEDIA_WORDING = Object.freeze({
   unknownTrust: 'Signed. The signer could not be checked against a trust list.',
   aiDeclared: 'The credentials say this was made with a generative AI model.',
   changedAfterSigning: 'The credentials do not match the file: it was changed after it was signed. This does not say how or by whom.',
+  failedValidation: 'The credentials failed validation: the signature or what they declare could not be confirmed. This does not say how the media was made or changed.',
   earliestNone: 'TinEye has not seen this image anywhere.',
   earliestUnsupported: 'The earliest-copy search covers images only.',
   earliestNotConfigured: 'The earliest-copy search is not set up on this server.',

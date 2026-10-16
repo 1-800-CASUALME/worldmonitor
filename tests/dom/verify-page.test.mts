@@ -325,6 +325,11 @@ describe('/verify media check (#9096)', () => {
     host.innerHTML = renderMediaCheckHtml({ kind: 'done', result: none as never });
     expect(host.textContent).toContain(MEDIA_WORDING.noCredentials);
     expect(host.textContent).toContain(MEDIA_WORDING.earliestCapReached);
+    const invalid = { ...doneResult, credentials: { ...doneResult.credentials, validationState: 'invalid', failureCodes: ['claimSignature.mismatch'] } };
+    host.innerHTML = renderMediaCheckHtml({ kind: 'done', result: invalid as never });
+    expect(host.querySelector('.mc-warning')?.textContent).toBe(MEDIA_WORDING.failedValidation);
+    host.innerHTML = renderMediaCheckHtml({ kind: 'done', result: { ...invalid, credentials: { ...invalid.credentials, contentChangedAfterSigning: true } } as never });
+    expect([...host.querySelectorAll('.mc-warning')].map((n) => n.textContent)).toEqual([MEDIA_WORDING.changedAfterSigning]);
     host.innerHTML = renderMediaCheckHtml({ kind: 'needs-sign-in' });
     expect(host.querySelector('[data-media-signin]')).not.toBeNull();
     host.innerHTML = renderMediaCheckHtml({ kind: 'needs-pro' });
@@ -403,5 +408,26 @@ describe('/verify page media flow (#9096)', () => {
     await import('@/verify-main');
     await vi.waitFor(() => expect(document.querySelector('a.mc-upgrade')).not.toBeNull());
     expect((document.getElementById('verifySubmit') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('reports the check as unavailable when the signed-in client fails to load', async () => {
+    vi.doMock('@/services/media-provenance', async (original) => ({
+      ...(await original<typeof import('@/services/media-provenance')>()),
+      ensureSignedInState: async () => true,
+      premiumMediaFetch: async () => { throw new Error('chunk load failed'); },
+    }));
+    history.replaceState(null, '', `/verify?claim=${encodeURIComponent('https://example.com/a.jpg')}`);
+    await import('@/verify-main');
+    await vi.waitFor(() => expect(document.getElementById('result')?.textContent).toContain('could not run right now'));
+  });
+
+  it('raises the length limit before a long link is pasted, so it is not cut', async () => {
+    await import('@/verify-main');
+    const input = document.getElementById('claimInput') as HTMLTextAreaElement;
+    expect(input.maxLength).toBeLessThan(2048);
+    const paste = new Event('paste', { cancelable: true }) as Event & { clipboardData: unknown };
+    paste.clipboardData = { getData: () => `https://cdn.example.com/a.jpg?sig=${'x'.repeat(900)}` };
+    input.dispatchEvent(paste);
+    expect(input.maxLength).toBe(2048);
   });
 });

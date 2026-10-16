@@ -14,6 +14,7 @@ import {
   isMediaCheckInput,
   openMediaSignIn,
   premiumMediaFetch,
+  type MediaCheckOutcome,
 } from '@/services/media-provenance';
 import {
   CLAIM_MAX_CHARS,
@@ -47,6 +48,11 @@ function idleLabel(): string {
 }
 syncInputLimit();
 input.addEventListener('input', syncInputLimit);
+// The browser caps a paste at the current maxLength before `input` fires, so a
+// long signed link pasted into an empty field would arrive cut. Raise it first.
+input.addEventListener('paste', (event) => {
+  if (/^\s*https?:\/\//i.test(event.clipboardData?.getData('text') ?? '')) input.maxLength = MEDIA_URL_MAX_CHARS;
+});
 
 let digest: Promise<ClaimDigest> | null = null;
 // Only the latest check may touch the page: a slow first digest load must not
@@ -85,9 +91,11 @@ async function runMediaCheck(url: string, runId: number): Promise<void> {
   paint(renderMediaCheckHtml(null));
   const signedIn = await ensureSignedInState().catch(() => false);
   if (runId !== latestRun) return;
-  const outcome = signedIn
-    ? await checkMediaUrl(url, { fetch: await premiumMediaFetch() })
-    : { kind: 'needs-sign-in' as const };
+  const outcome: MediaCheckOutcome = signedIn
+    ? await premiumMediaFetch()
+      .then((fetch) => checkMediaUrl(url, { fetch }))
+      .catch((): MediaCheckOutcome => ({ kind: 'unavailable' }))
+    : { kind: 'needs-sign-in' };
   paint(renderMediaCheckHtml(outcome));
   result.querySelector<HTMLButtonElement>('[data-media-signin]')?.addEventListener('click', () => {
     void openMediaSignIn();

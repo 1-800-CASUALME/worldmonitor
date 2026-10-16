@@ -89,15 +89,24 @@ export function sniffMediaType(bytes) {
   return null;
 }
 
-function requestOnce(url, { lookup, timeoutMs }) {
+export function requestOnce(url, { lookup, timeoutMs, deadlineAt = Number.POSITIVE_INFINITY }) {
   const client = url.protocol === 'https:' ? https : http;
   return new Promise((resolve, reject) => {
+    // The socket timeout alone resets on every byte, so a server that drips
+    // header bytes could hold the worker; the absolute deadline cannot.
+    const timer = Number.isFinite(deadlineAt)
+      ? setTimeout(() => req.destroy(new MediaCheckError('The file took too long to download.', 'timeout')), Math.max(0, deadlineAt - Date.now()))
+      : null;
     const req = client.request(url, {
       method: 'GET',
       headers: { 'User-Agent': USER_AGENT, Accept: 'image/*,video/mp4,video/quicktime;q=0.9,*/*;q=0.1' },
       lookup,
       timeout: timeoutMs,
-    }, resolve);
+    }, (res) => {
+      if (timer) clearTimeout(timer);
+      resolve(res);
+    });
+    req.on('close', () => { if (timer) clearTimeout(timer); });
     req.on('timeout', () => req.destroy(new MediaCheckError('The file took too long to download.', 'timeout')));
     req.on('error', reject);
     req.end();
@@ -147,7 +156,7 @@ export async function fetchMedia(rawUrl, {
     const url = new URL(current);
     let res;
     try {
-      res = await request(url, { lookup, timeoutMs });
+      res = await request(url, { lookup, timeoutMs, deadlineAt });
     } catch (error) {
       if (error instanceof MediaCheckError) throw error;
       if (error && error.code === 'ERR_SSRF_BLOCKED') throw new MediaCheckError('The link must point to a public website.', 'url');
@@ -155,17 +164,17 @@ export async function fetchMedia(rawUrl, {
     }
     const status = res.statusCode ?? 0;
     if (status >= 300 && status < 400 && res.headers.location) {
-      res.resume();
+      res.destroy();
       current = new URL(String(res.headers.location), url).toString();
       continue;
     }
     if (status !== 200) {
-      res.resume();
+      res.destroy();
       throw new MediaCheckError(`The file could not be downloaded (HTTP ${status}).`, 'fetch');
     }
     const declared = Number(res.headers['content-length']);
     if (Number.isFinite(declared) && declared > maxBytes) {
-      res.resume();
+      res.destroy();
       throw new MediaCheckError(`The file is larger than ${Math.round(maxBytes / (1024 * 1024))} MB.`, 'too-large');
     }
     const bytes = await readCapped(res, maxBytes, deadlineAt);
@@ -301,12 +310,17 @@ export function parseTinEyeResponse(body) {
     }
   }
   copies.sort((a, b) => a.crawlDate.localeCompare(b.crawlDate) || a.domain.localeCompare(b.domain));
-  return { copies: copies.slice(0, TINEYE_MAX_COPIES), totalMatches: matches.length };
+  // The search returns one page of matches; the provider's total counts them all.
+  const reported = Number(body.stats?.total_results);
+  const totalMatches = Number.isSafeInteger(reported) && reported >= matches.length ? reported : matches.length;
+  return { copies: copies.slice(0, TINEYE_MAX_COPIES), totalMatches };
 }
 
 export function tineyeLimits(env = process.env) {
-  const cap = Number(env.TINEYE_MONTHLY_CAP_USD);
-  const cost = Number(env.TINEYE_COST_PER_SEARCH_USD);
+  // A blank setting (as in .env.example) means unset, not zero; an explicit "0" disables searches.
+  const number = (raw) => (typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : Number.NaN);
+  const cap = number(env.TINEYE_MONTHLY_CAP_USD);
+  const cost = number(env.TINEYE_COST_PER_SEARCH_USD);
   return {
     capCents: Math.round((Number.isFinite(cap) && cap >= 0 ? cap : TINEYE_DEFAULT_MONTHLY_CAP_USD) * 100),
     costCents: Math.max(1, Math.round((Number.isFinite(cost) && cost > 0 ? cost : TINEYE_DEFAULT_COST_PER_SEARCH_USD) * 100)),

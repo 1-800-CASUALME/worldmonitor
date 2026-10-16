@@ -1145,7 +1145,7 @@ paths:
                     content:
                         application/json:
                             example:
-                                "jobId": "scenario:1717200000000:abcd1234"
+                                "jobId": "media:1717200000000:0123456789abcdef0123456789abcdef"
                                 "status": "pending"
                                 "statusUrl": "/api/news/v1/get-media-provenance?job_id=media%3A1717200000000%3A0123456789abcdef0123456789abcdef"
                             schema:
@@ -1299,8 +1299,8 @@ paths:
                 - name: job_id
                   in: query
                   description: Job id returned by the check.
-                  required: false
-                  example: "scenario:1717200000000:abcd1234"
+                  required: true
+                  example: "media:1717200000000:0123456789abcdef0123456789abcdef"
                   schema:
                     type: string
                 - name: jmespath
@@ -1473,7 +1473,7 @@ paths:
                     content:
                         application/json:
                             example:
-                                "jobId": "scenario:1717200000000:abcd1234"
+                                "jobId": "media:1717200000000:0123456789abcdef0123456789abcdef"
                                 "status": "pending"
                                 "statusUrl": "/api/news/v1/get-report-media?job_id=media%3A1717200000000%3A0123456789abcdef0123456789abcdef"
                             schema:
@@ -1540,8 +1540,8 @@ paths:
                 - name: job_id
                   in: query
                   description: Job id returned by CheckReportMedia.
-                  required: false
-                  example: "scenario:1717200000000:abcd1234"
+                  required: true
+                  example: "media:1717200000000:0123456789abcdef0123456789abcdef"
                   schema:
                     type: string
                 - name: jmespath
@@ -2565,6 +2565,8 @@ components:
                     maxLength: 64
                     minLength: 1
                     description: Job id returned by the check.
+            required:
+                - jobId
             description: GetMediaProvenanceRequest polls one media check.
         GetMediaProvenanceResponse:
             type: object
@@ -2715,4 +2717,6 @@ components:
                     maxLength: 64
                     minLength: 1
                     description: Job id returned by CheckReportMedia.
+            required:
+                - jobId
             description: GetReportMediaRequest polls a media check an operator started. Operators only.
