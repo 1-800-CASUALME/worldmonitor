@@ -19,7 +19,7 @@ const DIRECTIVE_PHRASE = /\b(before quoting|before concluding|read it every time
 
 const sentences = (text) => text.split(/(?<=[.;:])\s+/).map((s) => s.trim()).filter(Boolean);
 
-export function descriptionViolations(tool, names) {
+function descriptionViolations(tool, names) {
   const found = [];
   for (const other of names) {
     if (other !== tool.name && new RegExp(`\\b${other}\\b`).test(tool.description)) found.push(`names ${other}`);
