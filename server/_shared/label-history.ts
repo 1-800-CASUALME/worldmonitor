@@ -41,7 +41,6 @@ export const STORY_LABEL_HISTORY_MAX = 20;
 /** Publishers listed per entry; the count is always complete. */
 const ENTRY_PUBLISHERS_MAX = 12;
 
-/** The full/en digest's latest count of stories by label (#9093 /trust "today"). */
 export const LABEL_COUNTS_KEY = 'trust:label-counts:v1';
 /** Counts older than this are not served: the digest that wrote them has stopped. */
 export const LABEL_COUNTS_MAX_AGE_MS = 6 * 60 * 60 * 1000;
@@ -72,7 +71,6 @@ export function labelCountsCommand(counts: LabelCounts): RedisPipelineCommand {
   return ['SET', LABEL_COUNTS_KEY, JSON.stringify(counts), 'EX', LABEL_COUNTS_MAX_AGE_MS / 1000];
 }
 
-/** Stored counts, or null when missing, malformed or older than LABEL_COUNTS_MAX_AGE_MS. */
 export function parseLabelCounts(raw: unknown, now: number): LabelCounts | null {
   if (typeof raw !== 'string') return null;
   try {

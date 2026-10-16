@@ -109,6 +109,7 @@ import {
   storyLabel,
   type LabelChange,
   type LabelCounts,
+  type StoryLabel,
 } from '../../../_shared/label-history';
 import {
   STORY_TRACK_KEY,
@@ -2601,7 +2602,7 @@ function storyLabelChanges(
   const clusterByHash = groupByTitleHash(servable);
   const labelByHash = new Map<string, string>();
   const labelChanges: LabelChange[] = [];
-  const states: Array<ReturnType<typeof storyLabel>['state']> = [];
+  const states: StoryLabel['state'][] = [];
   for (const [hash, members] of groupByTitleHash(served)) {
     const label = storyLabel(clusterByHash.get(hash) ?? members);
     // Counts describe today's labels, whether or not the track row was read.

@@ -185,7 +185,6 @@
       });
   }
 
-  // ---- report form ----
   var reportStoryId = '';
   var autoUrl = '';
   function startReport(change) {
