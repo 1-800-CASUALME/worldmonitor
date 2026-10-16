@@ -247,6 +247,31 @@ export const USER_AGENT_ROUTED_DOCUMENTS = Object.freeze(['/']);
 export const AGENT_USER_AGENTS = Object.freeze(agentRequestPolicy.userAgents.map((agent) => agent.toLowerCase()));
 
 /**
+ * User-Agent substrings Mintlify answers on /docs/* with a markdown rendering
+ * carrying `x-robots-tag: noindex`, whatever the Accept header says. Measured
+ * 2026-10-16 against cache-busted URLs (which Cloudflare does not store):
+ * ChatGPT-User, OAI-SearchBot, Claude-User, PerplexityBot, Perplexity-User,
+ * DuckAssistBot and MistralAI-User got text/markdown; Googlebot, bingbot,
+ * GPTBot, ClaudeBot and Claude-SearchBot got HTML. The Accept guard cannot see
+ * a UA-routed variant, so one agent fetch stored the noindex markdown under the
+ * bare URL and the edge served it to Googlebot and browsers for the TTL. These
+ * requests stay out of the docs claim: excluding one only costs a cache hit,
+ * admitting one hands every later reader a noindex page. Lowercased substrings,
+ * so `perplexity` covers both Perplexity agents.
+ */
+export const DOCS_MARKDOWN_USER_AGENT_TOKENS = Object.freeze([
+  'chatgpt-user',
+  'oai-searchbot',
+  'claude-user',
+  'perplexity',
+  'duckassistbot',
+  'mistralai-user',
+]);
+
+/** Families whose nested documents vary by User-Agent at the origin, with the UA substrings to carve out. */
+const USER_AGENT_ROUTED_FAMILIES = Object.freeze({ docs: DOCS_MARKDOWN_USER_AGENT_TOKENS });
+
+/**
  * Cache-phase rules this rule has superseded. `--check` reports one still in
  * the zone as drift and `--apply` deletes it after the managed rule is in place.
  * Matched by ref, or by description when the live rule carries Cloudflare's
@@ -310,6 +335,7 @@ function buildCorpusCacheExpression({
   documents = ENTRY_DOCUMENTS,
   userAgentRouted = USER_AGENT_ROUTED_DOCUMENTS,
   agents = AGENT_USER_AGENTS,
+  userAgentRoutedFamilies = USER_AGENT_ROUTED_FAMILIES,
 } = {}) {
   const path = 'http.request.uri.path';
   const bare = families
@@ -318,14 +344,24 @@ function buildCorpusCacheExpression({
     .join(' ');
   const nested = families.map((family) => {
     const excluded = exclusions[family];
-    if (!excluded) return `    or starts_with(${path}, "/${family}/")`;
+    const routedAgents = userAgentRoutedFamilies[family] ?? [];
+    if (!excluded && !routedAgents.length) return `    or starts_with(${path}, "/${family}/")`;
     const carveOuts = [
-      ...excluded.exact.map((exact) => `${path} ne "/${family}/${exact}"`),
-      ...excluded.prefixes.map((prefix) => `not starts_with(${path}, "/${family}/${prefix}")`),
+      ...(excluded?.exact ?? []).map((exact) => `${path} ne "/${family}/${exact}"`),
+      ...(excluded?.prefixes ?? []).map((prefix) => `not starts_with(${path}, "/${family}/${prefix}")`),
     ];
+    // Same shape as the homepage carve-out below; an empty token list emits no group.
+    const agentCarveOut = routedAgents.length
+      ? [
+        '      and not (',
+        ...routedAgents.map((agent, index) => `        ${index ? 'or ' : ''}lower(http.user_agent) contains "${agent}"`),
+        '      )',
+      ]
+      : [];
     return [
       `    or (starts_with(${path}, "/${family}/")`,
       ...carveOuts.map((clause) => `      and ${clause}`),
+      ...agentCarveOut,
       '    )',
     ].join('\n');
   });
