@@ -14,7 +14,7 @@
     try { return sessionStorage.getItem(KEY_STORAGE) || ''; } catch (e) { return ''; }
   }
   function saveKey(value) {
-    try { sessionStorage.setItem(KEY_STORAGE, value); } catch (e) { /* storage blocked: keep it in the field */ }
+    try { sessionStorage.setItem(KEY_STORAGE, value); } catch (e) {}
   }
   function setStatus(text, isError) {
     statusEl.textContent = text;
@@ -30,7 +30,7 @@
     return ms ? new Date(ms).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : '';
   }
   function api(path, init) {
-    var headers = Object.assign({ 'Content-Type': 'application/json' }, (init && init.headers) || {});
+    var headers = { 'Content-Type': 'application/json' };
     headers[HEADER] = keyInput.value;
     return fetch(path, Object.assign({}, init, { headers: headers, credentials: 'omit', cache: 'no-store' }))
       .then(function (res) {

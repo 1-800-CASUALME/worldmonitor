@@ -131,7 +131,6 @@ export async function reviewErrorReport(
   const id = (req.reportId ?? '').trim().toLowerCase();
   if (!REPORT_ID_RE.test(id)) throw new ValidationError([{ field: 'report_id', description: 'Invalid report id' }]);
 
-  // One reviewer at a time: two decisions on one report must not both apply.
   const claim = await claimReview(id);
   if (claim === 'unavailable') throw new ApiError(503, 'Reports are temporarily unavailable', '');
   if (!claim) throw new ApiError(409, 'Report is being reviewed', '');

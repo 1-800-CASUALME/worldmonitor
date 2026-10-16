@@ -21,11 +21,10 @@ const REVIEWED_REPORTS_MAX = 500;
 const LIST_LIMIT = 200;
 export const ERROR_REPORT_TTL_S = 90 * 24 * 60 * 60;
 const ERROR_REPORT_TTL_MS = ERROR_REPORT_TTL_S * 1000;
-/** One reviewer at a time per report; a crashed review frees it after this. */
 const REVIEW_LOCK_KEY = (id: string) => `trust:report-review-lock:v1:${id}`;
+/** A crashed review frees its report after this. */
 const REVIEW_LOCK_TTL_S = 60;
 
-/** Header carrying the operator secret (TRUST_REVIEW_SECRET). */
 export const TRUST_REVIEW_HEADER = 'x-trust-review-key';
 
 export type ErrorReportStatus = 'pending' | 'accepted' | 'rejected';
