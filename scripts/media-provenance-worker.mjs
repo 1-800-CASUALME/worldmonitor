@@ -12,6 +12,7 @@
  * native addon built for glibc.
  */
 
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -177,14 +178,50 @@ export async function recoverAbandonedJobs(cmd) {
   let recovered = 0;
   for (const raw of Array.isArray(claimed) ? claimed : []) {
     const job = parseJob(raw);
-    if (job && Number(await cmd('exists', [mediaLeaseKey(job.jobId)])) > 0) continue;
-    if (Number(await cmd('lrem', [MEDIA_PROCESSING_KEY, 1, String(raw)])) !== 1) continue;
-    if (job) {
-      await cmd('lpush', [MEDIA_QUEUE_KEY, String(raw)]);
+    if (!job) {
+      await cmd('lrem', [MEDIA_PROCESSING_KEY, 1, String(raw)]);
+      continue;
+    }
+    // One script: the job leaves processing only if it goes back on the queue,
+    // and only while its lease is still absent.
+    if (Number(await cmd('eval', [REQUEUE_SCRIPT, 3, MEDIA_PROCESSING_KEY, MEDIA_QUEUE_KEY, mediaLeaseKey(job.jobId), String(raw)])) === 1) {
       recovered += 1;
     }
   }
   return recovered;
+}
+
+const REQUEUE_SCRIPT = `if redis.call('EXISTS', KEYS[3]) == 1 then return 0 end
+if redis.call('LREM', KEYS[1], 1, ARGV[1]) == 1 then redis.call('LPUSH', KEYS[2], ARGV[1]) return 1 end
+return 0`;
+
+/** Extend a lease only while this claim still holds it. */
+const REFRESH_SCRIPT = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end
+return 0`;
+
+/**
+ * Save a final status, release the claim and drop the lease in one step, and
+ * only while this claim still holds the lease: a worker whose job was
+ * recovered and re-run elsewhere cannot overwrite that run's result.
+ */
+const FINALIZE_SCRIPT = `if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
+redis.call('LREM', KEYS[3], 1, ARGV[4])
+redis.call('DEL', KEYS[1])
+return 1`;
+
+export async function claimJobLease(cmd, jobId, token) {
+  await cmd('set', [mediaLeaseKey(jobId), token, 'EX', JOB_LEASE_SECONDS]);
+}
+
+export async function refreshJobLease(cmd, jobId, token) {
+  return Number(await cmd('eval', [REFRESH_SCRIPT, 1, mediaLeaseKey(jobId), token, JOB_LEASE_SECONDS])) === 1;
+}
+
+/** True when the status was saved and the claim released; false when this claim no longer holds the lease. */
+export async function finalizeJob(cmd, { jobId, token, resultKey, payload, raw }) {
+  const saved = await cmd('eval', [FINALIZE_SCRIPT, 3, mediaLeaseKey(jobId), resultKey, MEDIA_PROCESSING_KEY, token, JSON.stringify(payload), MEDIA_RESULT_TTL_SECONDS, String(raw)]);
+  return Number(saved) === 1;
 }
 
 function parseJob(raw) {
@@ -248,8 +285,13 @@ async function runWorker() {
       continue;
     }
     const resultKey = mediaResultKey(job.owner, job.jobId);
-    await redisCmd('set', [mediaLeaseKey(job.jobId), '1', 'EX', JOB_LEASE_SECONDS]).catch(() => null);
-    let saved = false;
+    const token = randomUUID();
+    await claimJobLease(redisCmd, job.jobId, token).catch(() => null);
+    // Keep the lease alive while the check runs, so recovery never takes a live job.
+    const heartbeat = setInterval(() => {
+      refreshJobLease(redisCmd, job.jobId, token).catch(() => null);
+    }, (JOB_LEASE_SECONDS * 1000) / 3);
+    let payload;
     try {
       const result = await runMediaCheck(job, {
         fetchMedia,
@@ -263,21 +305,19 @@ async function runWorker() {
         redisCmd,
         now: () => Date.now(),
       });
-      await redisCmd('set', [resultKey, JSON.stringify({ status: 'done', result, completedAt: Date.now() }), 'EX', MEDIA_RESULT_TTL_SECONDS]);
-      saved = true;
+      payload = { status: 'done', result, completedAt: Date.now() };
       console.log(`[media-provenance] ${job.jobId} done (${result.mediaType}, credentials=${result.credentials.state}, earliest=${result.earliest.state})`);
     } catch (error) {
       const message = error instanceof MediaCheckError ? error.message : 'The check could not be completed.';
       if (!(error instanceof MediaCheckError)) console.error(`[media-provenance] ${job.jobId} failed:`, error?.message ?? error);
-      saved = await redisCmd('set', [resultKey, JSON.stringify({ status: 'failed', error: message, failedAt: Date.now() }), 'EX', MEDIA_RESULT_TTL_SECONDS])
-        .then(() => true, () => false);
+      payload = { status: 'failed', error: message, failedAt: Date.now() };
+    } finally {
+      clearInterval(heartbeat);
     }
-    // Release the claim only once a final status is saved. Otherwise the job
-    // stays claimed; its lease lapses and recovery runs it again.
-    if (saved) {
-      await redisCmd('lrem', [MEDIA_PROCESSING_KEY, 1, String(raw)]).catch(() => null);
-      await redisCmd('del', [mediaLeaseKey(job.jobId)]).catch(() => null);
-    }
+    // The status, the claim and the lease change together. If the write fails,
+    // the job stays claimed; its lease lapses and recovery runs it again.
+    const saved = await finalizeJob(redisCmd, { jobId: job.jobId, token, resultKey, payload, raw }).catch(() => false);
+    if (!saved) console.warn(`[media-provenance] ${job.jobId}: final status not saved; left for recovery`);
   }
   console.log('[media-provenance] shutdown complete');
 }

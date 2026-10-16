@@ -6,6 +6,7 @@ import { lookup as dnsLookup } from 'node:dns';
 import { createServer } from 'node:net';
 import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
+import { lauxlib, lua, lualib, to_jsstring, to_luastring } from 'fengari';
 
 import sharp from 'sharp';
 
@@ -28,7 +29,17 @@ import {
   summarizeCredentials,
   tineyeLimits,
 } from '../scripts/lib/media-provenance.mjs';
-import { mediaLeaseKey, mediaStorageKey, recoverAbandonedJobs, runMediaCheck, sweepExpiredMedia } from '../scripts/media-provenance-worker.mjs';
+import {
+  claimJobLease,
+  finalizeJob,
+  mediaLeaseKey,
+  mediaStorageKey,
+  recoverAbandonedJobs,
+  refreshJobLease,
+  runMediaCheck,
+  sweepExpiredMedia,
+} from '../scripts/media-provenance-worker.mjs';
+import { MEDIA_PROCESSING_KEY, MEDIA_QUEUE_KEY } from '../shared/media-provenance-contract.js';
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/media-provenance/${name}`, import.meta.url), 'utf8'));
 
@@ -385,29 +396,101 @@ describe('a whole check (worker)', () => {
     assert.deepEqual(calls.filter(([name]) => name === 'zrem').map((c) => c[2]), ['media-provenance/v1/next']);
   });
 
-  it('re-queues only claimed jobs whose lease has lapsed', async () => {
+  it('re-queues only claimed jobs whose lease has lapsed, in one atomic step', async () => {
     const live = JSON.stringify({ jobId: `media:1760616000000:${'1'.repeat(32)}`, url: 'https://example.com/a.jpg', owner: 'b'.repeat(64) });
     const lapsed = JSON.stringify({ jobId: `media:1760616000000:${'2'.repeat(32)}`, url: 'https://example.com/b.jpg', owner: 'b'.repeat(64) });
-    const processing = [live, lapsed, 'garbage'];
-    const queue = [];
-    const cmd = async (name, args) => {
-      if (name === 'lrange') return [...processing];
-      if (name === 'exists') return args[0] === mediaLeaseKey(JSON.parse(live).jobId) ? 1 : 0;
-      if (name === 'lrem') {
-        const at = processing.indexOf(args[2]);
-        if (at < 0) return 0;
-        processing.splice(at, 1);
-        return 1;
-      }
-      if (name === 'lpush') { queue.unshift(args[1]); return queue.length; }
-      throw new Error(`unexpected ${name}`);
-    };
-    assert.equal(await recoverAbandonedJobs(cmd), 1);
-    assert.deepEqual(processing, [live], 'a live worker keeps its job');
-    assert.deepEqual(queue, [lapsed]);
-    assert.equal(await recoverAbandonedJobs(cmd), 0, 'nothing is re-queued twice');
+    const redis = luaRedis({ [mediaLeaseKey(JSON.parse(live).jobId)]: 'token' }, { [MEDIA_PROCESSING_KEY]: [live, lapsed, 'garbage'], [MEDIA_QUEUE_KEY]: [] });
+    assert.equal(await recoverAbandonedJobs(redis.cmd), 1);
+    assert.deepEqual(redis.lists.get(MEDIA_PROCESSING_KEY), [live], 'a live worker keeps its job; garbage is dropped');
+    assert.deepEqual(redis.lists.get(MEDIA_QUEUE_KEY), [lapsed]);
+    assert.equal(await recoverAbandonedJobs(redis.cmd), 0, 'nothing is re-queued twice');
+    assert.ok(redis.log.every(([name]) => name !== 'lpush'), 'the move happens inside the script, never as a separate push');
+  });
+
+  it('lets only the claim that holds the lease refresh it or save the final status', async () => {
+    const jobId = `media:1760616000000:${'3'.repeat(32)}`;
+    const raw = JSON.stringify({ jobId, url: 'https://example.com/c.jpg', owner: 'b'.repeat(64) });
+    const redis = luaRedis({}, { [MEDIA_PROCESSING_KEY]: [raw], [MEDIA_QUEUE_KEY]: [] });
+    await claimJobLease(redis.cmd, jobId, 'first');
+    assert.equal(await refreshJobLease(redis.cmd, jobId, 'first'), true);
+    // The lease lapsed and recovery handed the job to a second claim.
+    redis.strings.set(mediaLeaseKey(jobId), 'second');
+    assert.equal(await refreshJobLease(redis.cmd, jobId, 'first'), false);
+    const args = { jobId, resultKey: 'media-provenance:result:x', raw };
+    assert.equal(await finalizeJob(redis.cmd, { ...args, token: 'first', payload: { status: 'done', by: 'first' } }), false);
+    assert.equal(redis.strings.has('media-provenance:result:x'), false, 'the stale claim writes nothing');
+    assert.equal(await finalizeJob(redis.cmd, { ...args, token: 'second', payload: { status: 'done', by: 'second' } }), true);
+    assert.equal(JSON.parse(redis.strings.get('media-provenance:result:x')).by, 'second');
+    assert.deepEqual(redis.lists.get(MEDIA_PROCESSING_KEY), [], 'the claim is released with the save');
+    assert.equal(redis.strings.has(mediaLeaseKey(jobId)), false);
   });
 });
+
+/** An in-memory Redis whose EVAL runs the real Lua script (fengari). */
+function luaRedis(strings = {}, lists = {}) {
+  const state = { strings: new Map(Object.entries(strings)), lists: new Map(Object.entries(lists).map(([k, v]) => [k, [...v]])), log: [] };
+  const call = (name, args) => {
+    const verb = String(name).toUpperCase();
+    const list = () => state.lists.get(args[0]) ?? [];
+    switch (verb) {
+      case 'GET': return state.strings.has(args[0]) ? state.strings.get(args[0]) : false;
+      case 'SET': state.strings.set(args[0], String(args[1])); return 'OK';
+      case 'EXISTS': return state.strings.has(args[0]) ? 1 : 0;
+      case 'EXPIRE': return state.strings.has(args[0]) ? 1 : 0;
+      case 'DEL': return state.strings.delete(args[0]) ? 1 : 0;
+      case 'LRANGE': return [...list()];
+      case 'LPUSH': state.lists.set(args[0], [String(args[1]), ...list()]); return list().length;
+      case 'LREM': {
+        const items = list();
+        const at = items.indexOf(String(args[2]));
+        if (at < 0) return 0;
+        items.splice(at, 1);
+        state.lists.set(args[0], items);
+        return 1;
+      }
+      default: throw new Error(`luaRedis does not implement ${verb}`);
+    }
+  };
+  const push = (L, value) => {
+    if (value === false || value == null) lua.lua_pushboolean(L, false);
+    else if (typeof value === 'number') lua.lua_pushnumber(L, value);
+    else if (typeof value === 'string') lua.lua_pushstring(L, to_luastring(value));
+    else {
+      lua.lua_createtable(L, value.length, 0);
+      value.forEach((entry, i) => { push(L, entry); lua.lua_seti(L, -2, i + 1); });
+    }
+  };
+  const evalScript = (script, keys, argv) => {
+    const L = lauxlib.luaL_newstate();
+    lualib.luaL_openlibs(L);
+    lua.lua_createtable(L, 0, 1);
+    lua.lua_pushjsclosure(L, (S) => {
+      const args = [];
+      for (let i = 2; i <= lua.lua_gettop(S); i += 1) args.push(to_jsstring(lua.lua_tostring(S, i)));
+      push(S, call(to_jsstring(lua.lua_tostring(S, 1)), args));
+      return 1;
+    }, 0);
+    lua.lua_setfield(L, -2, to_luastring('call'));
+    lua.lua_setglobal(L, to_luastring('redis'));
+    push(L, keys);
+    lua.lua_setglobal(L, to_luastring('KEYS'));
+    push(L, argv.map(String));
+    lua.lua_setglobal(L, to_luastring('ARGV'));
+    if (lauxlib.luaL_loadstring(L, to_luastring(script)) !== lua.LUA_OK || lua.lua_pcall(L, 0, 1, 0) !== lua.LUA_OK) {
+      throw new Error(`Lua: ${to_jsstring(lua.lua_tostring(L, -1))}`);
+    }
+    return lua.lua_tonumber(L, -1);
+  };
+  const cmd = async (name, args) => {
+    state.log.push([name, ...args]);
+    if (name === 'eval') {
+      const [script, count, ...rest] = args;
+      return evalScript(script, rest.slice(0, Number(count)), rest.slice(Number(count)));
+    }
+    return call(name, args);
+  };
+  return { ...state, cmd };
+}
 
 describe('wording (#9091: evidence, never a verdict)', () => {
   it('never calls media authentic, fake, verified or original', () => {
