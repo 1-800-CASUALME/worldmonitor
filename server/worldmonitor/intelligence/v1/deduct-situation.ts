@@ -148,6 +148,12 @@ export async function deductSituation(
                 ],
                 temperature: 0.3,
                 maxTokens: 1500,
+                // Since 2026-09-26 deepseek-v4-flash spends the full 1500
+                // tokens on hidden reasoning and returns empty content
+                // (finish_reason "length"); a budget large enough for both
+                // runs ~18s, past the model's 15s attempt cap. Reasoning off
+                // answers the same prompt in ~3-6s with ~700 tokens.
+                enableReasoning: false,
                 timeoutMs: DEDUCT_TIMEOUT_MS,
                 stage: 'deduct-situation',
                 systemAppend: framework || undefined,
