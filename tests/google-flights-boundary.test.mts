@@ -356,3 +356,33 @@ test('provider cooldown remains degraded and is never stored as a healthy empty 
   assert.equal(attempts, 2, 'cooldown must not be cached as a successful empty result');
   assert.equal([...redis.redis.keys()].filter(key => key.startsWith('aviation:gf:')).length, 0);
 });
+
+test('a Google RPC rejection reaches the caller as a degraded search, not an empty flight list', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { runInNewContext } = await import('node:vm');
+  const source = readFileSync(new URL('../scripts/ais-relay.cjs', import.meta.url), 'utf8');
+  const relaySource = source.slice(source.indexOf('const GF_SHOPPING_URL ='), source.indexOf('// ─── Widget Agent'));
+  const outcomes: string[] = [];
+  // Captured from GetShoppingResults on 2026-10-16: HTTP 200, no payload, RPC status 13.
+  const rejection = ')]}\'\n\n[["wrb.fr",null,null,null,null,[13]],["di",142],["af.httprm",142,"7097742796501415412",112]]';
+  const relay = runInNewContext(relaySource + '\nhandleGoogleFlightsSearch', {
+    URL, Date, AbortSignal, process: { env: {} }, console: { warn() {}, error() {} },
+    incrementRelayMetric() {}, recordRelayOutcome(_route: string, outcome: string) { outcomes.push(outcome); },
+    fetch: async () => new Response(rejection),
+  }) as (req: { url: string }, res: { writeHead(status: number, headers: Record<string, string>): void; end(body: string): void }) => Promise<void>;
+  const transport = globalThis.fetch;
+  globalThis.fetch = (async (input, init) => {
+    const url = new URL(String(input));
+    if (url.hostname !== 'relay.example') return transport(input, init);
+    let status = 0; let headers: Record<string, string> = {}; let body = '';
+    await relay({ url: url.pathname + url.search }, { writeHead(code, value) { status = code; headers = value; }, end(value) { body = value; } });
+    return new Response(body, { status, headers });
+  }) as typeof fetch;
+
+  const result = await read({ origin: 'JFK', departureDate: '2026-11-15' });
+  assert.equal(result.degraded, true);
+  assert.deepEqual(result.flights, []);
+  assert.match(result.error, /^relay returned 502: Google Flights returned RPC error 13/);
+  assert.deepEqual(outcomes, ['terminalFailure']);
+  assert.equal([...redis.redis.keys()].filter(key => key.startsWith('aviation:gf:')).length, 0);
+});
