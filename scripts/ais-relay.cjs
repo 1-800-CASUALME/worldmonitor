@@ -13282,11 +13282,14 @@ function readGfPayload(text) {
       ? 'Google Flights returned no payload'
       : `Google Flights returned RPC error ${code}`);
   }
+  let data;
   try {
-    return JSON.parse(inner);
+    data = JSON.parse(inner);
   } catch {
     throw new Error('Google Flights returned an unreadable payload');
   }
+  if (!Array.isArray(data)) throw new Error('Google Flights returned an unrecognized payload');
+  return data;
 }
 
 /**
@@ -13313,9 +13316,10 @@ function parseGfFlights(text) {
     try {
       const fd = item[0];
       const pd = item[1];
+      if (!Array.isArray(fd?.[2]) || fd[2].length === 0) return null;
       const priceArr = pd?.[0];
       const price = Array.isArray(priceArr) ? (priceArr[priceArr.length - 1] ?? 0) : 0;
-      const legs = (fd[2] || []).map(fl => ({
+      const legs = fd[2].map(fl => ({
         airlineCode: fl[22]?.[0] ?? '',
         flightNumber: String(fl[22]?.[1] ?? ''),
         departureAirport: fl[3] ?? '',
@@ -13553,6 +13557,8 @@ async function handleGoogleFlightsDates(req, res) {
         });
       }
       if (totalDays > MAX_CHUNK * MAX_DATE_CHUNKS) hasPartialFailure = true;
+      let chunkSucceeded = false;
+      let chunkFailure = '';
 
       // At most six concurrent 20s fetches fit within the RPC's 30s wait.
       const results = await Promise.all(chunks.map(async (chunk) => {
@@ -13575,28 +13581,41 @@ async function handleGoogleFlightsDates(req, res) {
             hasCooldown = true;
           } else if (gfResp.status === 401 || gfResp.status === 403) {
             recordRelayOutcome('googleFlights', 'authRejection');
+            chunkFailure ||= `Google Flights returned ${gfResp.status}`;
           } else if (gfResp.ok) {
             const text = await gfResp.text();
             const dates = parseGfDates(text, isRoundTrip);
             if (dates === null) {
               recordRelayOutcome('googleFlights', 'terminalFailure');
               console.warn(`[Google Flights] dates chunk ${chunk.startDate} returned an invalid calendar response`);
+              chunkFailure ||= 'Google Flights returned an invalid calendar response';
             } else {
               recordRelayOutcome('googleFlights', 'success');
               incrementRelayMetric('googleFlightsServed');
+              chunkSucceeded = true;
               return dates;
             }
           } else {
             recordRelayOutcome('googleFlights', 'terminalFailure');
             console.warn(`[Google Flights] dates chunk ${chunk.startDate} failed: ${gfResp.status}`);
+            chunkFailure ||= `Google Flights returned ${gfResp.status}`;
           }
         } catch (err) {
           recordRelayOutcome('googleFlights', classifyUpstreamOutcome({ error: err }));
+          chunkFailure ||= err?.message || 'calendar chunk failed';
         }
         hasPartialFailure = true;
         return [];
       }));
       for (const dates of results) allDates.push(...dates);
+      // Every chunk failed outright: report it like a single-chunk failure so
+      // the reason survives instead of collapsing into a generic partial grid.
+      if (!chunkSucceeded && !hasCooldown && chunkFailure) {
+        console.error('[Google Flights] dates error:', chunkFailure);
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: chunkFailure, dates: [] }));
+        return;
+      }
     }
 
     const sortByPrice = url.searchParams.get('sort_by_price') === 'true';
