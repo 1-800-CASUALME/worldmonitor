@@ -1095,10 +1095,9 @@ describe('forecast panel transport through production cache reads', () => {
     await invoke(deps, 'get_forecast_predictions', { limit: 1 });
     const { TOOL_REGISTRY, toolWeight } = await import('../api/mcp/registry/index.ts');
     assert.equal(pipe.count, 2 * toolWeight(TOOL_REGISTRY.find(tool => tool.name === 'get_forecast_predictions')));
-    const beforeDenied = sourceReads.length;
-    assert.equal((await invoke(deps, 'get_forecast_case', { forecast_id: 'original-0', generated_at: String(canonical.generatedAt) })).body.error.code, -32602);
-    assert.equal(sourceReads.length, beforeDenied);
-    assert.equal(pipe.count, 2 * toolWeight(TOOL_REGISTRY.find(tool => tool.name === 'get_forecast_predictions')));
+    const detail = await invoke(deps, 'get_forecast_case', { forecast_id: 'original-0', generated_at: String(canonical.generatedAt) });
+    assert.deepEqual(detail.body.result.structuredContent.data.forecastCase.forecast, canonical.predictions[0]);
+    assert.equal(pipe.count, 2 * toolWeight(TOOL_REGISTRY.find(tool => tool.name === 'get_forecast_predictions')) + toolWeight(TOOL_REGISTRY.find(tool => tool.name === 'get_forecast_case')));
   });
   it('recovers an unavailable opening under the same allocation and caches observed empty lists', async () => {
     const { deps, pipe } = makeProDeps();

@@ -141,7 +141,7 @@ describe('original forecast theater signed transport', () => {
   it('advertises a subscription reader with no run selector, UI opening or producer API', () => {
     const tool = TOOL_REGISTRY.find(tool => tool.name === 'get_forecast_theaters');
     assert.equal(toolAccess(tool), 'subscription');
-    assert.deepEqual(tool.inputSchema.required, ['panel_request']);
+    assert.deepEqual(tool.inputSchema.required, []);
     assert.deepEqual(Object.keys(tool.inputSchema.properties), ['panel_request']);
     assert.deepEqual(tool._apiPaths, ['GET /api/forecast/v1/get-simulation-outcome']);
     assert.equal(tool._uiResourceUri, undefined);

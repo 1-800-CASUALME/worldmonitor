@@ -163,7 +163,7 @@ describe('original forecast readers: access matrix', () => {
     assert.ok('panel_request' in theaterTool.inputSchema.properties);
     for (const tool of [caseTool, theaterTool]) {
       assert.equal(tool._subscriptionOnly, true);
-      assert.doesNotMatch(tool.description, /get_forecast_predictions|\bcall\b|\byou\b/i);
+      assert.doesNotMatch(tool.description, /\bget_[a-z_]+|\byou\b/i);
     }
   });
 });

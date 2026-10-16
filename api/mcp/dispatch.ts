@@ -25,7 +25,8 @@ import { evaluateFreshness } from './freshness';
 import { applyJmespath } from './jmespath';
 import { admitChokepointPanel, admitConflictPanel, admitCountryPanel, admitDisasterPanel, admitForecastPanel, admitMarketPanel, admitNewsIntelligencePanel, admitNewsPanel, admitPredictionPanel, admitWorldBriefPanel, authorizePanelRead, PANEL_READ_LIMIT, PanelRequestError, type PaidPanelAdmission } from './panel-requests';
 import { parseNewsDashboardRequest } from '../../shared/plugin-news-view';
-import { chokepointPanelViewSchema, conflictPanelViewSchema, disasterPanelViewSchema, forecastPanelReadSchema, marketPanelViewSchema, newsIntelligencePanelViewSchema, predictionPanelViewSchema, worldBriefPanelViewSchema, type PanelUsage } from '../../shared/panel-admission';
+import { forecastTheaterReadSchema } from '../../shared/forecast-theaters';
+import { chokepointPanelViewSchema, conflictPanelViewSchema, disasterPanelViewSchema, forecastCaseReadSchema, forecastPanelReadSchema, marketPanelViewSchema, newsIntelligencePanelViewSchema, predictionPanelViewSchema, worldBriefPanelViewSchema, type PanelUsage } from '../../shared/panel-admission';
 import { isSharedRestCounter, readDailyAllowance, reserveQuota, resolveDailyLimit, type McpBudget } from './quota';
 import { reserveFreeAccountAllowance } from './free-account-allowance';
 import { buildMcpStructuredDenial, type McpDenial } from './upgrade';
@@ -502,6 +503,11 @@ export async function dispatchToolsCall(
   const suppliedPanel = p.arguments?.panel_request;
   const callArguments = Object.fromEntries(Object.entries(p.arguments ?? {}).filter(([key]) => key !== 'panel_request'));
   let sourceArguments = callArguments;
+  // Callers without a dedicated panel allowance (API allowances, operator keys)
+  // cannot hold a forecast panel_request; they read original evidence at the
+  // tool's own weight instead. Free accounts and keyless callers never reach here.
+  const perToolForecastRead = !dedicatedPanel && suppliedPanel === undefined
+    && (tool.name === 'get_forecast_case' || tool.name === 'get_forecast_theaters');
   try {
     if (tool.name === 'get_country_brief' || tool.name === 'get_country_risk') {
       if (!dedicatedPanel && ('refresh' in callArguments || 'request_id' in callArguments)) throw new PanelRequestError('Country refresh controls require a paid panel allowance.', 'invalid');
@@ -631,7 +637,10 @@ export async function dispatchToolsCall(
         panelRead = await authorizePanelRead(context, deps.redisPipeline, tool.name, filters, panelRequest.token);
       }
     }
-    if ((tool.name === 'get_forecast_case' || tool.name === 'get_forecast_theaters') && suppliedPanel === undefined) throw new PanelRequestError('Open a forecast panel before reading original evidence.', 'invalid');
+    if (perToolForecastRead) {
+      const schema = tool.name === 'get_forecast_case' ? forecastCaseReadSchema : forecastTheaterReadSchema;
+      if (!schema.safeParse(callArguments).success) throw new PanelRequestError(tool.name === 'get_forecast_case' ? 'Provide an exact forecast_id and generated_at.' : 'Forecast theaters take no arguments.', 'invalid');
+    } else if ((tool.name === 'get_forecast_case' || tool.name === 'get_forecast_theaters') && suppliedPanel === undefined) throw new PanelRequestError('Open a forecast panel before reading original evidence.', 'invalid');
     if (dedicatedPanel && tool.name === 'get_forecast_predictions' && suppliedPanel === undefined) {
       const admissionArgs = Object.fromEntries(Object.entries(callArguments).filter(([key]) => key !== 'jmespath' && key !== 'summary'));
       panelRequest = await admitForecastPanel(context, budget, deps.redisPipeline, admissionArgs);
@@ -792,6 +801,7 @@ export async function dispatchToolsCall(
         };
       }
       if (panelRead?.panel === 'forecasts') execution.panelScope = 'forecasts';
+      if (perToolForecastRead) execution.perToolForecastRead = true;
       if (tool._execute) result = await tool._execute(
         dedicatedPanel && (tool.name === 'get_country_brief' || tool.name === 'get_country_risk') ? sourceArguments : callArguments,
         execution.downstreamOrigin,
