@@ -222,6 +222,15 @@ describe('route CSPs allow their page scripts by hash', () => {
     });
   }
 
+  it('YouTube embed lists the hosts its player script loads from, for browsers without strict-dynamic', async () => {
+    const html = await youtubeEmbedHandler(new Request('https://worldmonitor.app/api/youtube/embed?videoId=iEpJwprxDdk')).then((r) => r.text());
+    const loaded = [...html.matchAll(/\.src\s*=\s*'(https:\/\/[^/']+)\//g)].map((m) => m[1]);
+    assert.deepEqual(loaded, ['https://www.youtube.com']);
+    const routeScriptSrc = tokens(effectiveCsp('/api/youtube/embed'), 'script-src');
+    assert.ok(routeScriptSrc.includes("'strict-dynamic'"));
+    for (const host of loaded) assert.ok(routeScriptSrc.includes(host), `/api/youtube/embed script-src must list ${host}`);
+  });
+
   it('route rules differ from the site-wide CSP only in script-src', () => {
     for (const route of Object.values(ROUTE_CSP_FILES).flat()) {
       assert.equal(withoutScriptSrc(effectiveCsp(route)), withoutScriptSrc(siteCsp), route);

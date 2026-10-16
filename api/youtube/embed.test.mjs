@@ -9,7 +9,8 @@ function makeRequest(query = '') {
 
 async function render(query) {
   const html = await (await handler(makeRequest(query))).text();
-  const json = /<script type="application\/json" id="player-config">([\s\S]*?)<\/script>/.exec(html)?.[1];
+  const json = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script[^>]*>/gi)]
+    .find((m) => /\bid="player-config"/i.test(m[1]))?.[2];
   assert.ok(json, 'embed page must carry its player config');
   return { html, config: JSON.parse(json) };
 }
