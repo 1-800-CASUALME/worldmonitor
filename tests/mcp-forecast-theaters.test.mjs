@@ -61,7 +61,7 @@ describe('original forecast theater signed transport', () => {
   it('fails closed before fetching for missing or widened scope and tampered receipts', async t => {
     const f = await fixture(t);
     for (const args of [{}, { panel_request: f.token, run_id: completed.runId }, { panel_request: f.token, summary: true },
-      { panel_request: f.token, jmespath: '*' }, { panel_request: f.token.slice(0, -1) + 'z' }]) {
+      { panel_request: f.token, jmespath: '*', run_id: completed.runId }, { panel_request: f.token.slice(0, -1) + 'z' }]) {
       const reply = await f.invoke('get_forecast_theaters', args);
       assert.equal(reply.error?.code, -32602, JSON.stringify(reply));
     }

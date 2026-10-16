@@ -506,8 +506,11 @@ export async function dispatchToolsCall(
   // Callers without a dedicated panel allowance (API allowances, operator keys)
   // cannot hold a forecast panel_request; they read original evidence at the
   // tool's own weight instead. Free accounts and keyless callers never reach here.
-  const perToolForecastRead = !dedicatedPanel && suppliedPanel === undefined
-    && (tool.name === 'get_forecast_case' || tool.name === 'get_forecast_theaters');
+  const forecastReader = tool.name === 'get_forecast_case' || tool.name === 'get_forecast_theaters';
+  const perToolForecastRead = !dedicatedPanel && suppliedPanel === undefined && forecastReader;
+  // jmespath only shapes the response after execution (and after any panel save),
+  // so the strict reader contracts and the panel read scope must not see it.
+  const forecastReaderArguments = forecastReader ? Object.fromEntries(Object.entries(callArguments).filter(([key]) => key !== 'jmespath')) : callArguments;
   try {
     if (tool.name === 'get_country_brief' || tool.name === 'get_country_risk') {
       if (!dedicatedPanel && ('refresh' in callArguments || 'request_id' in callArguments)) throw new PanelRequestError('Country refresh controls require a paid panel allowance.', 'invalid');
@@ -639,7 +642,7 @@ export async function dispatchToolsCall(
     }
     if (perToolForecastRead) {
       const schema = tool.name === 'get_forecast_case' ? forecastCaseReadSchema : forecastTheaterReadSchema;
-      if (!schema.safeParse(callArguments).success) throw new PanelRequestError(tool.name === 'get_forecast_case' ? 'Provide an exact forecast_id and generated_at.' : 'Forecast theaters take no arguments.', 'invalid');
+      if (!schema.safeParse(forecastReaderArguments).success) throw new PanelRequestError(tool.name === 'get_forecast_case' ? 'Provide an exact forecast_id and generated_at.' : 'Forecast theaters take no arguments.', 'invalid');
     } else if ((tool.name === 'get_forecast_case' || tool.name === 'get_forecast_theaters') && suppliedPanel === undefined) throw new PanelRequestError('Open a forecast panel before reading original evidence.', 'invalid');
     if (dedicatedPanel && tool.name === 'get_forecast_predictions' && suppliedPanel === undefined) {
       const admissionArgs = Object.fromEntries(Object.entries(callArguments).filter(([key]) => key !== 'jmespath' && key !== 'summary'));
@@ -656,8 +659,8 @@ export async function dispatchToolsCall(
     } else if (suppliedPanel !== undefined) {
       if (!dedicatedPanel || budget?.limit === 0) throw new PanelRequestError('This allowance does not support panel requests.', 'invalid');
       panelRead = await authorizePanelRead(context, deps.redisPipeline, tool.name,
-        tool.name === 'get_forecast_predictions' || tool.name === 'get_forecast_case' || tool.name === 'get_forecast_theaters'
-          ? callArguments
+        tool.name === 'get_forecast_predictions' ? callArguments
+          : forecastReader ? forecastReaderArguments
           : Object.fromEntries(Object.entries(sourceArguments).filter(([key]) => key !== 'jmespath')), suppliedPanel);
     }
     if (tool.name === 'get_country_brief_section' && callArguments.section === 'signalsRaw'
@@ -803,7 +806,7 @@ export async function dispatchToolsCall(
       if (panelRead?.panel === 'forecasts') execution.panelScope = 'forecasts';
       if (perToolForecastRead) execution.perToolForecastRead = true;
       if (tool._execute) result = await tool._execute(
-        dedicatedPanel && (tool.name === 'get_country_brief' || tool.name === 'get_country_risk') ? sourceArguments : callArguments,
+        dedicatedPanel && (tool.name === 'get_country_brief' || tool.name === 'get_country_risk') ? sourceArguments : forecastReaderArguments,
         execution.downstreamOrigin,
         context,
         execution,
@@ -812,7 +815,7 @@ export async function dispatchToolsCall(
         const sourceTool = tool.name === 'get_conflict_events' && dedicatedPanel
           ? { ...tool, _postFilter: filterConflictPanelEvents }
           : tool;
-        result = await executeTool(sourceTool, execution.panelScope === 'forecasts' ? Object.fromEntries(Object.entries(callArguments).filter(([key]) => key !== 'summary')) : sourceArguments, undefined, execution);
+        result = await executeTool(sourceTool, forecastReader ? forecastReaderArguments : execution.panelScope === 'forecasts' ? Object.fromEntries(Object.entries(callArguments).filter(([key]) => key !== 'summary')) : sourceArguments, undefined, execution);
       }
     }
     if (panelRead && panelRead.cached === undefined) {
