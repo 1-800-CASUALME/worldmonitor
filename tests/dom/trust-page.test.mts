@@ -43,7 +43,11 @@ function mount(replies: Record<string, Reply[]>) {
     const next = replies[key]!.shift() ?? { body: {} };
     return new Response(JSON.stringify(next.body), { status: next.status ?? 200 });
   }));
-  document.documentElement.innerHTML = html.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<link rel="stylesheet"[^>]*>/g, '');
+  // Parse the page, then drop its script and stylesheet elements: the script
+  // under test runs below, and happy-dom would otherwise try to fetch both.
+  const page = new DOMParser().parseFromString(html, 'text/html');
+  page.querySelectorAll('script, link[rel="stylesheet"]').forEach((node) => node.remove());
+  document.documentElement.innerHTML = page.documentElement.innerHTML;
   Element.prototype.scrollIntoView = () => {};
   new Function(script)();
   return calls;
