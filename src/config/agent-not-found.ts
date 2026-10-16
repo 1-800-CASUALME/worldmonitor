@@ -178,6 +178,7 @@ export const AGENT_NOT_FOUND_PASSTHROUGH_PREFIXES = [
   '/textures',
   '/tos',
   '/tools',
+  '/trust/review',
   '/use-cases',
   '/verify',
   '/welcome',
