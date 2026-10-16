@@ -1052,6 +1052,27 @@ describe("failed-renewal hold whose period ended at hold start", () => {
     expect(sends[0]!.html).toContain("access continues for now");
   });
 
+  test("ended-period hold skips as resubscribed when another subscription covers the user", async () => {
+    process.env.RESEND_API_KEY = "re_test";
+    const fetchMock = mockResend();
+    const t = convexTest(schema, modules);
+    const holdAt = Date.now() - 4 * DAY_MS;
+    await seedSub(t, { onHoldAt: holdAt, currentPeriodEnd: holdAt - 60_000 });
+    await seedSub(t, {
+      dodoSubscriptionId: "sub_resubscribed",
+      status: "active",
+      currentPeriodEnd: Date.now() + 25 * DAY_MS,
+    });
+
+    const result = await t.action(internal.payments.subscriptionEmails.sendDunningEmail, {
+      dodoSubscriptionId: SUB_ID,
+      step: "dunning_day3",
+      episodeAt: holdAt,
+    });
+    expect(result).toEqual({ sent: false, reason: "resubscribed" });
+    expect(resendSends(fetchMock)).toHaveLength(0);
+  });
+
   test("period that ended after hold start still skips as not_covering and is logged", async () => {
     process.env.RESEND_API_KEY = "re_test";
     const fetchMock = mockResend();

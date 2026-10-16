@@ -1007,6 +1007,11 @@ function evaluateDunningEligibility(
   if (sub.currentPeriodEnd <= now && sub.currentPeriodEnd > episodeAt) {
     return { ok: false, reason: "not_covering" };
   }
+  // An ended-period hold whose user already bought another subscription must
+  // not be told to fix this one: restoring it would bill them twice.
+  if (sub.currentPeriodEnd <= now && sub.hasLiveSub) {
+    return { ok: false, reason: "resubscribed" };
+  }
   return { ok: true };
 }
 
