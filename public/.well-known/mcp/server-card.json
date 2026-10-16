@@ -190,7 +190,7 @@
     },
     {
       "name": "get_imd_cyclone_marine",
-      "description": "Bounded India Meteorological Department sea-area and coastal marine bulletins from the public mausam.imd.gov.in pages: storm warnings, port signals, storm-surge/tidal warnings, wind, visibility, and sea state per area with each bulletin validity window. Not merged into weather:alerts:v1. IMD cyclone track, wind radii, and cone products are API-only and disabled (GDACS tropical cyclones cover the North Indian Ocean in natural events); port warning and fishermen warning PDFs are not parsed. Read coverageState on every call: degraded means some bulletin pages failed and their last-good records were carried, unavailable means no page was readable, and ok is live. Per-page status is under products.<id>.pages. Empty lists with degraded or unavailable coverage are not an India all-clear.",
+      "description": "Bounded India Meteorological Department sea-area and coastal marine bulletins from the public mausam.imd.gov.in pages: storm warnings, port signals, storm-surge/tidal warnings, wind, visibility, and sea state per area with each bulletin validity window. Not merged into weather:alerts:v1. IMD cyclone track, wind radii, and cone products are API-only and disabled (GDACS tropical cyclones cover the North Indian Ocean in natural events); port warning and fishermen warning PDFs are not parsed. coverageState reports bulletin coverage: degraded means some bulletin pages failed and their last-good records were carried, unavailable means no page was readable, and ok is live. Per-page status is under products.<id>.pages. Empty lists with degraded or unavailable coverage are not an India all-clear.",
       "_meta": {
         "worldmonitor/access": "free-account"
       }
@@ -288,7 +288,7 @@
     },
     {
       "name": "get_defense_industrial_base",
-      "description": "Return one country's latest World Bank military-capacity indicators and SIPRI-derived five-year arms-supplier shares and concentration. Use this to answer who supplies a country's major weapons and how concentrated that dependency is. TIV is a transfer-volume indicator, not money.",
+      "description": "Return one country's latest World Bank military-capacity indicators and SIPRI-derived five-year arms-supplier shares and concentration. Answers who supplies a country's major weapons and how concentrated that dependency is. TIV is a transfer-volume indicator, not money.",
       "_meta": {
         "worldmonitor/access": "subscription"
       }
@@ -617,14 +617,14 @@
     },
     {
       "name": "get_macro_history",
-      "description": "CPI, interest-rate and sovereign yield histories from seeded official-source reports. Select a dataset; country is required for world CPI or government yields. Default 30 newest observations per series, kept in chronological order; maximum 365. Set history=false for latest snapshots. Dates are Unix milliseconds, rates and yields are percentages. Missing readings or tenors are unknown, not zero. Series differ in source, frequency, index base and yield measure, and each records them. A truncated response is not full history; unavailable is not a zero reading.",
+      "description": "CPI, interest-rate and sovereign yield histories from seeded official-source reports. Select a dataset; country is required for world CPI or government yields. Default 30 newest observations per series, kept in chronological order; maximum 365. Set history=false for latest snapshots. Dates are Unix milliseconds, rates and yields are percentages. Missing readings or tenors are unknown, not zero. Series differ in source, frequency, index base and yield measure; a series records those that apply to its dataset. A truncated response is not full history; unavailable is not a zero reading.",
       "_meta": {
         "worldmonitor/access": "subscription"
       }
     },
     {
       "name": "get_stock_research",
-      "description": "Stock research through the existing subscription gateway: current analysis, technical backtest, saved analysis history, or saved backtests. Analyze or backtest one symbol; retrieve stored results for a watchlist. Default no news, four history snapshots per symbol, and a ten-trading-day evaluation window. Each result records availability, observation dates, model/fallback provenance, ratingBasis and engineVersion. Technical backtests omit point-in-time fundamentals and are simulations, not trading results or forecasts. Cold analysis may invoke upstream data and an LLM; Existing provider quotas and billing denials apply; account calls use the daily MCP meter, while env-key calls retain their existing rate limit. Analysis/backtest generation may save shared research snapshots. No trading or account changes. For large histories use fewer symbols/snapshots or a jmespath projection.",
+      "description": "Stock research through the existing subscription gateway: current analysis, technical backtest, saved analysis history, or saved backtests. Analyze or backtest one symbol; retrieve stored results for a watchlist. Default no news, four history snapshots per symbol, and a ten-trading-day evaluation window. Results record availability and observation dates; analysis results also carry ratingBasis, and generated results carry model/fallback provenance and engineVersion where the operation produces them. Technical backtests omit point-in-time fundamentals and are simulations, not trading results or forecasts. Cold analysis may invoke upstream data and an LLM; Existing provider quotas and billing denials apply; account calls use the daily MCP meter, while env-key calls retain their existing rate limit. Analysis/backtest generation may save shared research snapshots. No trading or account changes. For large histories use fewer symbols/snapshots or a jmespath projection.",
       "_meta": {
         "worldmonitor/access": "subscription"
       }

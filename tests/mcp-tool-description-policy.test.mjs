@@ -14,8 +14,8 @@ const NAMES = REGISTRY.map((tool) => tool.name);
 
 // A sentence that opens with a command to the reader, or a phrase that tells
 // the model when or how to act.
-const DIRECTIVE_OPENER = /^(Preserve|Prefer|Check|Always|ALWAYS|Never|NEVER|Do not|Don't|Make sure|Remember|Ensure|Treat)\b/;
-const DIRECTIVE_PHRASE = /\b(before quoting|before concluding|read it every time|use it instead|(read|check) \S+ first|do not (quote|cite|use|call|trust))\b/i;
+const DIRECTIVE_OPENER = /^(Preserve|Prefer|Check|Always|ALWAYS|Never|NEVER|Do not|Don't|Make sure|Remember|Ensure|Treat|Use (this|it))\b/;
+const DIRECTIVE_PHRASE = /\b(before quoting|before concluding|read it every time|use it instead|(read|check) \S+ first|do not (quote|cite|use|call|trust)|(read|check) \S+ on every call)\b/i;
 
 const sentences = (text) => text.split(/(?<=[.;:])\s+/).map((s) => s.trim()).filter(Boolean);
 
@@ -38,6 +38,9 @@ describe('MCP tool descriptions describe only their own tool', () => {
     assert.equal(check('Returns scores; check underAudit before quoting scores.').length, 1);
     assert.equal(check('Returns prices. Preserve unavailable flags.').length, 1);
     assert.equal(check('Returns rows. Read hasScore first.').length, 1);
+    assert.equal(check('Returns rows. Read coverageState on every call: degraded means partial.').length, 1);
+    assert.equal(check('Returns shares. Use this to answer who supplies weapons.').length, 1);
+    assert.deepEqual(check('The route embeds your query on every call.'), []);
     assert.deepEqual(check('Returns rates; underAudit marks scores still under audit.'), []);
     assert.deepEqual(check('get_a returns its own rows.'), []);
   });

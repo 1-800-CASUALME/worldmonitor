@@ -1041,7 +1041,7 @@ export const RPC_TOOLS: ToolDef[] = [
     name: 'get_defense_industrial_base',
     title: 'Defense industrial base',
     _outputBudgetBytes: 16_384,
-    description: 'Return one country\'s latest World Bank military-capacity indicators and SIPRI-derived five-year arms-supplier shares and concentration. Use this to answer who supplies a country\'s major weapons and how concentrated that dependency is. TIV is a transfer-volume indicator, not money.',
+    description: 'Return one country\'s latest World Bank military-capacity indicators and SIPRI-derived five-year arms-supplier shares and concentration. Answers who supplies a country\'s major weapons and how concentrated that dependency is. TIV is a transfer-volume indicator, not money.',
     inputSchema: {
       type: 'object',
       properties: {
