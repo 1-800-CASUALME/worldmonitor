@@ -4,6 +4,266 @@ import { describe, it } from 'node:test';
 import { parseCountryBriefSources, renderEvidenceGroundedCountryBrief } from '../server/worldmonitor/intelligence/v1/get-country-intel-brief.ts';
 import { briefCitationGroundingGap, parseBriefSections } from '../scripts/crawlable-developments.mjs';
 
+describe('country assessment relationship grounding', () => {
+  const headline = 'Belize PM vows stronger support for Taiwan after China sanctions';
+  const urging = 'China urges Taliban authorities to take concrete action against terrorist groups';
+  const sources = [
+    { title: headline, source: 'Focus Taiwan', url: 'https://example.com/belize', publishedAt: '' },
+    { title: urging, source: 'Amu TV', url: 'https://amu.tv/254528/', publishedAt: '' },
+  ];
+  const cii = { id: 'E1', kind: 'cii', label: 'Country Instability Index', value: '71 of 100 (High)',
+    factText: 'China has a Country Instability Index score of 71 of 100 (High), in the High band, as of Oct 16, 2026.', asOf: '2026-10-16' };
+  const claim = (text, sources = [], evidence = []) => ({ text, sources, evidence });
+  const render = (overrides, inputSources = sources, evidence = [cii]) => renderEvidenceGroundedCountryBrief(JSON.stringify({
+    situation: [claim(headline, [1])], implications: [], risks: [], outlook: [], watch: [], ...overrides,
+  }), inputSources, evidence, 'China');
+
+  it('withholds the observed China/Taliban role inversion and retains the cited headline independently', () => {
+    const result = render({
+      situation: [claim(headline, [1]), claim(urging, [2])],
+      watch: [claim('Whether China will take concrete action against terrorist groups as urged by the Taliban authorities.', [2])],
+    });
+    assert.deepEqual(result.sections.map(section => section.key), ['situation']);
+    assert.equal(result.withheld, 1);
+    assert.deepEqual(result.sections[0].claims.map(entry => entry.text), [headline, urging]);
+    assert.deepEqual(result.sections[0].claims[1].sourceIndexes, [2]);
+  });
+
+  it('withholds the observed CII/Belize causal implication while keeping the headline and isolated CII fact', () => {
+    const result = render({
+      implications: [claim("China's high Country Instability Index score of 71 of 100 may be exacerbated by diplomatic disputes with Belize over Taiwan.", [1], ['E1'])],
+      risks: [claim(cii.factText, [], ['E1'])],
+    });
+    assert.deepEqual(result.sections.map(section => section.key), ['situation', 'risks']);
+    assert.equal(result.withheld, 1);
+    assert.equal(result.sections[0].claims[0].text, headline);
+    assert.equal(result.sections[1].claims[0].text, cii.factText);
+  });
+
+  it('preserves the same urging roles in active, passive and watch forms', () => {
+    for (const text of [
+      urging,
+      'China urged Taliban authorities to take concrete action against terrorist groups.',
+      'Taliban authorities were urged by China to take concrete action against terrorist groups.',
+      'Whether the Taliban authorities will take concrete action against terrorist groups as urged by China.',
+      'Whether Taliban authorities will take concrete action against terrorist groups, as urged by China.',
+    ]) {
+      const result = render({ watch: [claim(text, [2])] });
+      assert.deepEqual(result.sections.map(section => section.key), ['situation', 'watch'], text);
+      assert.equal(result.sections[1].claims[0].text, text);
+      assert.equal(result.withheld, 0);
+    }
+  });
+
+  it('withholds changed actors, recipients and actions across claim sections', () => {
+    for (const text of [
+      'Taliban authorities urge China to take concrete action against terrorist groups.',
+      'China was urged by Taliban authorities to take concrete action against terrorist groups.',
+      'Whether Taliban authorities will take action against China as urged by China.',
+    ]) {
+      for (const section of ['situation', 'watch']) {
+        const result = render({ [section]: [claim(headline, [1]), claim(text, [2])] });
+        assert.equal(result.withheld, 1, `${section}: ${text}`);
+        assert.doesNotMatch(result.text, /Taliban/);
+      }
+    }
+  });
+
+  it('uses the cited roles for another actor pair without country-specific rules', () => {
+    const other = [{ ...sources[0], title: 'France urges Germany to reopen border crossings' }];
+    for (const text of [
+      'France urges Germany to reopen border crossings.',
+      'Germany is urged by France to reopen border crossings.',
+      'Whether Germany will reopen border crossings as urged by France.',
+    ]) {
+      const result = render({ situation: [claim(other[0].title, [1])], watch: [claim(text, [1])] }, other);
+      assert.equal(result.withheld, 0, text);
+      assert.deepEqual(result.sections.map(section => section.key), ['situation', 'watch']);
+    }
+    const reversed = render({ situation: [claim(other[0].title, [1])], watch: [claim('Whether France will reopen border crossings as urged by Germany.', [1])] }, other);
+    assert.deepEqual(reversed.sections.map(section => section.key), ['situation']);
+    assert.equal(reversed.withheld, 1);
+  });
+
+  it('fails closed on ambiguous and conflicting urging titles regardless of citation order', () => {
+    const text = 'Whether Taliban authorities will take concrete action against terrorist groups as urged by China.';
+    const conflict = [...sources, { ...sources[1], title: 'Taliban authorities urge China to take concrete action against terrorist groups' }];
+    for (const indexes of [[2, 3], [3, 2]]) {
+      const result = render({ watch: [claim(text, indexes)] }, conflict);
+      assert.deepEqual(result.sections.map(section => section.key), ['situation']);
+      assert.equal(result.withheld, 1);
+    }
+    const ambiguous = [sources[0], { ...sources[1], title: 'China urges action against terrorist groups' }];
+    const result = render({ watch: [claim(text, [2])] }, ambiguous);
+    assert.deepEqual(result.sections.map(section => section.key), ['situation']);
+    assert.equal(result.withheld, 1);
+  });
+
+  it('does not turn a negated request into an affirmative watch item', () => {
+    const title = 'France urges Germany not to reopen border crossings';
+    const other = [{ ...sources[0], title }];
+    const result = render({
+      situation: [claim(title, [1])],
+      watch: [claim('Whether Germany will reopen border crossings as urged by France.', [1])],
+    }, other);
+    assert.deepEqual(result.sections.map(section => section.key), ['situation']);
+    assert.equal(result.sections[0].claims[0].text, title);
+    assert.equal(result.withheld, 1);
+  });
+
+  it('cannot combine an actor, recipient and action from different cited titles', () => {
+    const other = [sources[0],
+      { ...sources[1], title: 'France urges Germany to reopen border crossings' },
+      { ...sources[1], title: 'China urges Taliban authorities to take concrete action against terrorist groups' },
+    ];
+    for (const indexes of [[2, 3], [3, 2]]) {
+      for (const text of [
+        'Whether Germany will take concrete action against terrorist groups as urged by France.',
+        'Whether Taliban authorities will reopen border crossings as urged by China.',
+        'Whether Germany will reopen border crossings as urged by China.',
+      ]) {
+        const result = render({ watch: [claim(text, indexes)] }, other);
+        assert.deepEqual(result.sections.map(section => section.key), ['situation'], text);
+        assert.equal(result.withheld, 1);
+      }
+    }
+  });
+
+  it('preserves an independently cited market question about urging', () => {
+    const market = { id: 'E10', kind: 'market', label: 'Kalshi', value: '80%',
+      factText: "Kalshi prices 'Will China urge Taliban authorities to act?' at 80% (closes Jan 1, 2029).", asOf: '2026-10-16' };
+    const result = render({ outlook: [claim(market.factText, [], ['E10'])] }, sources, [market]);
+    assert.deepEqual(result.sections.map(section => section.key), ['situation', 'outlook']);
+    assert.equal(result.sections[1].claims[0].text, market.factText);
+    assert.equal(result.withheld, 0);
+  });
+
+  it('retains an exact independent priced market proposition naming CII', () => {
+    const market = { id: 'E10', kind: 'market', label: 'Kalshi prediction market', value: '80%',
+      factText: "A Kalshi market related to China, 'Will China have a high CII?', priced Yes at 80% on Oct 16, 2026; it closes Jan 1, 2029.", asOf: '2026-10-16' };
+    const result = render({ outlook: [claim(market.factText, [], ['E10'])] }, sources, [market]);
+    assert.deepEqual(result.sections.map(section => section.key), ['situation', 'outlook']);
+    assert.equal(result.sections[1].claims[0].text, market.factText);
+    assert.deepEqual(result.sections[1].claims[0].evidenceIds, ['E10']);
+    assert.deepEqual(result.evidence.map(item => item.id), ['E10']);
+    assert.equal(result.withheld, 0);
+  });
+
+  it('retains a complete attributed forecast about CII without asserting its outcome', () => {
+    const forecast = { id: 'E10', kind: 'forecast', label: 'World Monitor forecast', value: '80%',
+      factText: 'A World Monitor forecast related to China, "Will China have a high Country Instability Index?", gives a 80% probability by Jan 1, 2029, as of Oct 16, 2026.', asOf: '2026-10-16' };
+    const result = render({ outlook: [claim(forecast.factText, [], ['E10'])] }, sources, [forecast]);
+    assert.deepEqual(result.sections.map(section => section.key), ['situation', 'outlook']);
+    assert.equal(result.sections[1].claims[0].text, forecast.factText);
+    assert.deepEqual(result.evidence.map(item => item.id), ['E10']);
+    assert.equal(result.withheld, 0);
+    for (const text of [
+      'China has a high Country Instability Index.',
+      forecast.factText.replace('80%', '81%'),
+      forecast.factText.replace(', as of Oct 16, 2026', ''),
+      `${forecast.factText} China has a high Country Instability Index.`,
+    ]) {
+      const rejected = render({ outlook: [claim(text, [], ['E10'])] }, sources, [forecast]);
+      assert.deepEqual(rejected.sections.map(section => section.key), ['situation'], text);
+      assert.equal(rejected.withheld, 1);
+    }
+  });
+
+  it('does not let a forward evidence kind license an asserted CII score or incomplete proposition', () => {
+    for (const kind of ['market', 'forecast']) {
+      for (const text of ['China has a high CII.', cii.factText]) {
+        const mislabeled = { ...cii, kind, factText: text };
+        const result = render({ outlook: [claim(text, [], ['E1'])] }, sources, [mislabeled]);
+        assert.deepEqual(result.sections.map(section => section.key), ['situation']);
+        assert.equal(result.withheld, 1);
+      }
+    }
+    const market = { id: 'E10', kind: 'market', label: 'Kalshi prediction market', value: '80%',
+      factText: 'A Kalshi market related to China, "Will China have a high CII?", priced Yes at 80% on Oct 16, 2026; it closes Jan 1, 2029.', asOf: '2026-10-16' };
+    for (const text of [
+      'China has a high CII.',
+      'Will China have a high CII?',
+      market.factText.replace('80%', '81%'),
+      market.factText.replace('; it closes Jan 1, 2029', ''),
+      `${market.factText} China has a high CII.`,
+    ]) {
+      const result = render({ outlook: [claim(text, [], ['E10'])] }, sources, [market]);
+      assert.deepEqual(result.sections.map(section => section.key), ['situation'], text);
+      assert.equal(result.withheld, 1);
+    }
+    for (const [indexes, evidenceIds] of [[[1], ['E10']], [[], ['E10', 'E1']]]) {
+      const result = render({ watch: [claim(market.factText, indexes, evidenceIds)] }, sources, [market, cii]);
+      assert.deepEqual(result.sections.map(section => section.key), ['situation']);
+      assert.equal(result.withheld, 1);
+    }
+  });
+
+  it('cannot rescue a reversed relation with evidence or an unrelated headline', () => {
+    const text = 'Whether China will take concrete action against terrorist groups as urged by the Taliban authorities.';
+    const extra = { id: 'E5', kind: 'chokepoint', value: 'Taiwan', factText: 'China is linked to Taiwan.' };
+    const result = render({ watch: [claim(text, [1, 2], ['E5'])] }, sources, [extra]);
+    assert.deepEqual(result.sections.map(section => section.key), ['situation']);
+    assert.equal(result.withheld, 1);
+    assert.deepEqual(result.evidence, []);
+    assert.equal(render({ situation: [claim(text, [2])] }), null);
+  });
+
+  it('retains isolated CII facts with optional trailing band and date disclosure', () => {
+    for (const text of [
+      cii.factText,
+      'China has a Country Instability Index score of 71 of 100 (High), in the High band.',
+      'China has a Country Instability Index score of 71 of 100 (High).',
+      'China has a Country Instability Index score of 71 of 100.',
+    ]) {
+      const result = render({ risks: [claim(text, [], ['E1'])] });
+      assert.deepEqual(result.sections.map(section => section.key), ['situation', 'risks'], text);
+      assert.equal(result.withheld, 0);
+    }
+  });
+
+  it('cannot bypass the isolated CII rule with renumbering, another section or companion evidence', () => {
+    const renumbered = { ...cii, id: 'E7' };
+    const extra = { id: 'E5', kind: 'chokepoint', value: 'Taiwan', factText: 'China is linked to Taiwan.' };
+    for (const section of ['situation', 'implications', 'risks', 'watch']) {
+      for (const [indexes, evidenceIds] of [[[1], ['E7']], [[], ['E7', 'E5']]]) {
+        const claims = [claim(cii.factText, indexes, evidenceIds)];
+        if (section === 'situation') claims.unshift(claim(headline, [1]));
+        const result = render({ [section]: claims }, sources, [renumbered, extra]);
+        assert.equal(result.withheld, 1, section);
+        assert.deepEqual(result.evidence, []);
+      }
+    }
+    for (const text of [
+      `${cii.factText} This may worsen China instability.`,
+      'China has a Country Instability Index score of 70 of 100.',
+      'China has a Country Instability Index score of 71 of 100 (Low).',
+    ]) {
+      const result = render({ risks: [claim(text, [], ['E1'])] });
+      assert.deepEqual(result.sections.map(section => section.key), ['situation']);
+      assert.equal(result.withheld, 1);
+    }
+  });
+
+  it('requires typed CII evidence even for nonnumeric claims and matching headline text', () => {
+    for (const text of [cii.factText, 'China has a high Country Instability Index.', 'China has a high CII.']) {
+      const matchingSources = [...sources, { ...sources[0], title: text }];
+      const absent = render({ watch: [claim(text, [3])] }, matchingSources, []);
+      assert.deepEqual(absent.sections.map(section => section.key), ['situation'], text);
+      assert.equal(absent.withheld, 1);
+      const wrongKind = { ...cii, kind: 'chokepoint', factText: text };
+      const wrong = render({ risks: [claim(text, [], ['E1'])] }, matchingSources, [wrongKind]);
+      assert.deepEqual(wrong.sections.map(section => section.key), ['situation'], text);
+      assert.equal(wrong.withheld, 1);
+      assert.deepEqual(wrong.evidence, []);
+    }
+    for (const text of ['China has a high Country Instability Index.', 'China has a high CII.']) {
+      const result = render({ risks: [claim(text, [], ['E1'])] });
+      assert.deepEqual(result.sections.map(section => section.key), ['situation'], text);
+      assert.equal(result.withheld, 1);
+    }
+  });
+});
+
 describe('sanctions aggregate claim publication', () => {
   const headline = 'Belize PM vows stronger support for Taiwan after China sanctions';
   const sources = [{ title: headline, source: 'Focus Taiwan', url: '', publishedAt: '' }];
