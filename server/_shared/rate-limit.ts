@@ -1,7 +1,7 @@
-import { SUB_REQUEST_MARKER_HEADER } from './sub-request-admission';
+import { SUB_REQUEST_MARKER_HEADER } from './sub-request-admission.js';
 import { Ratelimit, type Duration } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
-import { getClientIp, getClientRateLimitKey, hasUnprovenCloudflareClientIp, UNKNOWN_CLIENT_IP } from './client-ip';
+import { getClientIp, getClientRateLimitKey, hasUnprovenCloudflareClientIp, UNKNOWN_CLIENT_IP } from './client-ip.js';
 // @ts-expect-error — JS module, no declaration file
 import { captureSilentError } from '../../api/_sentry-edge.js';
 // @ts-expect-error — JS module, no declaration file
@@ -13,7 +13,7 @@ import { durationToSeconds, limitWithFallback, resetRateLimitFallbackForTest } f
 // the helpers' original home and existing callers import them from this
 // module (getClientIp: api/ask.ts, api/a2a.ts, api/mcp-proxy.ts;
 // UNKNOWN_CLIENT_IP: turnstile.ts; plus the rate-limit test suites).
-export { getClientIp, getClientRateLimitKey, hasCloudflareTransitProof, hasUnprovenCloudflareClientIp, rateLimitKeyForIp, UNKNOWN_CLIENT_IP } from './client-ip';
+export { getClientIp, getClientRateLimitKey, hasCloudflareTransitProof, hasUnprovenCloudflareClientIp, rateLimitKeyForIp, UNKNOWN_CLIENT_IP } from './client-ip.js';
 
 // @upstash/redis defaults to 5 retries with exponential backoff (~4.3s total)
 // before surfacing an unreachable-Redis error. The node test runner sets
@@ -325,7 +325,7 @@ export type EndpointRateLimitOptions = RateLimitOptions;
 export const TRUSTED_RATE_LIMIT_PRINCIPAL_HEADER = 'x-wm-rl-principal';
 
 /** Opaque single-use admission, authenticated by consumeSubRequestAdmission. */
-export { SUB_REQUEST_MARKER_HEADER } from './sub-request-admission';
+export { SUB_REQUEST_MARKER_HEADER } from './sub-request-admission.js';
 
 export function formatTrustedRateLimitPrincipal(
   principalUserId: string,
@@ -604,6 +604,7 @@ interface EndpointRatePolicy {
 // for tooling, not new runtime callers.
 export const ENDPOINT_RATE_POLICIES: Record<string, EndpointRatePolicy> = {
   '/api/aviation/v1/track-aircraft': { limit: 30, window: '60 s' },
+  '/api/aviation/v1/list-aircraft-emergencies': { limit: 20, window: '60 s' },
   '/api/aviation/v1/search-google-flights': { limit: 30, window: '60 s' },
   '/api/aviation/v1/search-google-dates': { limit: 10, window: '60 s' },
   '/api/aviation/v1/list-aviation-news': { limit: 30, window: '60 s' },
@@ -890,6 +891,9 @@ export const FAIL_CLOSED_ENDPOINT_RATE_POLICY_REQUIRED: Record<string, RateLimit
   '/api/news/v1/list-feed-digest': { reason: 'Cold digest builds fan out to RSS providers and require a fail-closed caller budget.' },
   '/api/aviation/v1/track-aircraft': {
     reason: 'Distinct aircraft viewports call Wingbits on cache misses and can fall back to authenticated OpenSky quota.',
+  },
+  '/api/aviation/v1/list-aircraft-emergencies': {
+    reason: 'Public emergency aircraft reads fan out to three provider queries on shared cache misses.',
   },
   '/api/aviation/v1/search-google-flights': { reason: 'Public flight searches perform a live Google shopping request on each cache miss.' },
   '/api/aviation/v1/search-google-dates': { reason: 'Public date searches can trigger up to six Google calendar requests per cache miss.' },
