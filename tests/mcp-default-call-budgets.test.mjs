@@ -143,4 +143,33 @@ describe('argument-free calls fit their output budget on production-size data', 
     }
     assert.ok(coverage.records, 'the duplicate combined list is the first one shed');
   });
+
+  // A projection runs on the fitted payload, so it can select trimmed lists
+  // and drop the coverage record beside them. The record rides outside the
+  // projection, the way the attribution rider does.
+  it('a projection of a fitted IMD response still reports the trimmed lists', async () => {
+    const result = await invoke('get_imd_cyclone_marine', { jmespath: 'data.imd_cyclone_marine' });
+    const payload = result.structuredContent;
+    assert.notEqual(payload._budget_exceeded, true, JSON.stringify(payload).slice(0, 300));
+    assert.deepEqual(JSON.parse(result.content[0].text), payload);
+    assert.equal(payload.data.marineBulletins.length, 29);
+    assert.ok(payload._attribution, 'the attribution rider is unchanged');
+    assert.deepEqual(payload.transportCoverage.collections.marineBulletins,
+      { original_count: 30, returned_count: 29, omitted_count: 1, omission_reason: 'output_budget' });
+  });
+
+  it('a projection of fitted forecasts still reports the omitted case files', async () => {
+    const result = await invoke('generate_forecasts', { jmespath: 'forecasts' });
+    const payload = result.structuredContent;
+    assert.deepEqual(JSON.parse(result.content[0].text), payload);
+    assert.equal(payload.projection.length, 7);
+    assert.ok(payload.projection.every(row => row.caseFile === undefined));
+    assert.equal(payload.transportCoverage.omitted_count, 7);
+  });
+
+  it('a projection that fits unfitted carries no coverage record', async () => {
+    const result = await invoke('generate_forecasts', { domain: 'market', jmespath: 'forecasts' });
+    assert.ok(result.structuredContent.projection.every(row => row.caseFile));
+    assert.equal(result.structuredContent.transportCoverage, undefined);
+  });
 });
