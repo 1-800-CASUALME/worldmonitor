@@ -74,7 +74,7 @@ Not for facility monitoring under an enterprise SLA. World Monitor replaces the 
 
 **Which option costs less?**
 
-World Monitor's map is free, and alerts, the API and MCP are on paid plans whose prices are published on the [plans page](https://www.worldmonitor.app/pro#pricing). Dataminr does not publish list prices, so request a quote for the package you need. This guide does not invent a competitor price.
+World Monitor's map is free, and alerts, the REST API and full MCP access are on paid plans whose prices are published on the [plans page](https://www.worldmonitor.app/pro#pricing). Dataminr does not publish list prices, so request a quote for the package you need. This guide does not invent a competitor price.
 
 **Did you measure which tool is faster?**
 
