@@ -2478,6 +2478,9 @@ export async function runSeed(domain, resource, canonicalKey, fetchFn, opts = {}
     // Keys written outside runSeed's normal extra-key phase that still need
     // last-good TTL protection when the primary fetch fails or is skipped.
     preserveKeys = [],
+    // Some sources must keep their original absolute expiry after a failed
+    // refresh. Opt out of renewal without changing the stored value or clock.
+    extendTtlOnFailure = true,
     // Opt-in companion keys whose write TTL differs from the canonical key.
     // Each declaration is preserved at its own TTL; preserveKeys keeps its
     // existing canonical-TTL behavior for backward compatibility.
@@ -2643,6 +2646,7 @@ export async function runSeed(domain, resource, canonicalKey, fetchFn, opts = {}
   // keeps one Redis pipeline per TTL while allowing explicit declarations to
   // override a key that also appears in the default canonical-TTL cohort.
   const preserveExistingKeys = async (targets) => {
+    if (extendTtlOnFailure === false) return false;
     const ttlByKey = new Map();
     if (targets) {
       for (const target of targets) ttlByKey.set(target.key, target.ttlSeconds);
