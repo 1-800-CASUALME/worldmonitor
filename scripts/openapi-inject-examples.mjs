@@ -915,6 +915,63 @@ function getYoutubeLiveStreamInfoExample() {
   };
 }
 
+// SearchFactChecks (#9094) returns a fixed caveat and one of three states; the
+// generic builder published a timestamp caveat and state "example". The
+// fact-check is synthetic: no real fact-checker, rating or article is cited.
+// tests/fact-checks.test.mts holds the caveat to FACT_CHECK_CAVEAT.
+function getSearchFactChecksExample() {
+  return {
+    factChecks: [{
+      publisher: 'Example Fact-Checker (synthetic)',
+      site: 'example.com',
+      rating: 'Example rating',
+      reviewedAt: '2026-01-15T12:00:00.000Z',
+      url: 'https://example.com/fact-check/synthetic-example',
+      title: 'Synthetic example fact-check',
+      claimReviewed: 'A synthetic example claim, similar to the claim checked',
+    }],
+    state: 'ok',
+    caveat: 'Ratings are the fact-checkers\' own, quoted with attribution from IFCN-verified signatories. WorldMonitor does not rate claims, and a rating never changes the coverage result above.',
+  };
+}
+
+// A synthetic story moving from one publisher to two, with counts whose parts
+// add up to the total (the reader drops counts that do not). The generic
+// builder filled state and field with "example" and gave counts that summed
+// to 77 stories under stories: 1.
+function getListLabelChangesExample() {
+  return {
+    changes: [{
+      storyId: 'a'.repeat(64),
+      field: 'corroboration',
+      previous: 'single-publisher',
+      next: 'corroborated',
+      previousPublishers: 1,
+      nextPublishers: 2,
+      at: 1767182400000,
+      trigger: 'digest',
+      reason: '2 publisher families now carry this story (was 1).',
+      sources: [
+        { name: 'Example Wire (synthetic)', tier: 1 },
+        { name: 'Example Daily (synthetic)', tier: 2 },
+      ],
+      title: 'Synthetic example story',
+      link: 'https://example.com/news/synthetic-example',
+      credibilityScore: 72,
+    }],
+    state: 'ok',
+    retentionDays: 7,
+    counts: {
+      at: 1767182400000,
+      stories: 120,
+      corroborated: 64,
+      singlePublisher: 51,
+      tier4Only: 3,
+      unknown: 2,
+    },
+  };
+}
+
 // The served US <- Mexico passenger-car answer captured from WITS
 // (tests/fixtures/wits-trains/), trimmed to one group preference. The served
 // UNSPECIFIED unavailableReason is left out, as for GetTariffTrends: the
@@ -1051,6 +1108,20 @@ function exampleForSchema(schema, spec, context = {}, depth = 0, seen = new Set(
     && String(context.name ?? '').toLowerCase().endsWith('response')
   ) {
     return getYoutubeLiveStreamInfoExample();
+  }
+  if (
+    depth === 0
+    && String(context.operationId ?? '').toLowerCase() === 'searchfactchecks'
+    && String(context.name ?? '').toLowerCase().endsWith('response')
+  ) {
+    return getSearchFactChecksExample();
+  }
+  if (
+    depth === 0
+    && String(context.operationId ?? '').toLowerCase() === 'listlabelchanges'
+    && String(context.name ?? '').toLowerCase().endsWith('response')
+  ) {
+    return getListLabelChangesExample();
   }
   const ref = original.$ref;
   if (ref) {

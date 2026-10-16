@@ -597,6 +597,7 @@ paths:
             summary: ListLabelChanges
             description: ListLabelChanges returns stories whose corroboration label moved between single-publisher and corroborated in the last seven days, with the publishers behind each change.
             operationId: ListLabelChanges
+            security: []
             parameters:
                 - name: story_id
                   in: query
@@ -628,13 +629,32 @@ paths:
                         application/json:
                             example:
                                 "changes":
-                                    - "at": 1717200000000
-                                      "credibilityScore": 42
-                                      "field": "example"
-                                      "link": "https://example.com/worldmonitor"
-                                      "next": "example"
+                                    - "at": 1767182400000
+                                      "credibilityScore": 72
+                                      "field": "corroboration"
+                                      "link": "https://example.com/news/synthetic-example"
+                                      "next": "corroborated"
+                                      "nextPublishers": 2
+                                      "previous": "single-publisher"
+                                      "previousPublishers": 1
+                                      "reason": "2 publisher families now carry this story (was 1)."
+                                      "sources":
+                                          - "name": "Example Wire (synthetic)"
+                                            "tier": 1
+                                          - "name": "Example Daily (synthetic)"
+                                            "tier": 2
+                                      "storyId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                      "title": "Synthetic example story"
+                                      "trigger": "digest"
+                                "counts":
+                                    "at": 1767182400000
+                                    "corroborated": 64
+                                    "singlePublisher": 51
+                                    "stories": 120
+                                    "tier4Only": 3
+                                    "unknown": 2
                                 "retentionDays": 7
-                                "state": "example"
+                                "state": "ok"
                             schema:
                                 $ref: '#/components/schemas/ListLabelChangesResponse'
                 "400":
@@ -645,23 +665,6 @@ paths:
                                 oneOf:
                                     - $ref: '#/components/schemas/ValidationError'
                                     - $ref: '#/components/schemas/JmespathProjectionError'
-                "401":
-                    description: Missing or invalid API key.
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/UnauthorizedError'
-                "403":
-                    description: API access requires an active subscription (the API key's subscription is inactive or expired).
-                    headers:
-                        X-Billing-Verification:
-                            description: Present when the 403 is a billing-provider-confirmed subscription lapse (value subscription_lapsed, matching the body `code`).
-                            schema:
-                                type: string
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ForbiddenError'
                 "429":
                     description: Rate limit exceeded.
                     headers:
@@ -687,31 +690,6 @@ paths:
                                 oneOf:
                                     - $ref: '#/components/schemas/Error'
                                     - $ref: '#/components/schemas/RateLimitError'
-                "503":
-                    description: Service unavailable. Billing-verification responses include code and X-Billing-Verification; other gateway infrastructure failures use the generic GatewayError shape.
-                    headers:
-                        Retry-After:
-                            description: Seconds to wait before retrying (1-60).
-                            schema:
-                                type: string
-                        X-Billing-Verification:
-                            description: Billing-verification state that produced this response (matches the body `code`).
-                            schema:
-                                type: string
-                        X-Validation-Mode:
-                            description: Present with value degraded when user API-key validation is temporarily unavailable.
-                            schema:
-                                type: string
-                        X-RateLimit-Mode:
-                            description: Present with value degraded when a fail-closed rate-limit dependency is unavailable.
-                            schema:
-                                type: string
-                    content:
-                        application/json:
-                            schema:
-                                oneOf:
-                                    - $ref: '#/components/schemas/BillingVerificationError'
-                                    - $ref: '#/components/schemas/GatewayError'
                 default:
                     description: Gateway or handler error response.
                     content:
@@ -738,6 +716,7 @@ paths:
             summary: SubmitErrorReport
             description: SubmitErrorReport stores a reader's report that a label or story is wrong, for an operator to review. No account required; rate-limited; never applied automatically.
             operationId: SubmitErrorReport
+            security: []
             requestBody:
                 content:
                     application/json:
@@ -827,23 +806,6 @@ paths:
                                         type: string
                                     message:
                                         type: string
-                "401":
-                    description: Missing or invalid API key.
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/UnauthorizedError'
-                "403":
-                    description: API access requires an active subscription (the API key's subscription is inactive or expired).
-                    headers:
-                        X-Billing-Verification:
-                            description: Present when the 403 is a billing-provider-confirmed subscription lapse (value subscription_lapsed, matching the body `code`).
-                            schema:
-                                type: string
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ForbiddenError'
                 "429":
                     description: Rate limit exceeded.
                     headers:
@@ -869,31 +831,6 @@ paths:
                                 oneOf:
                                     - $ref: '#/components/schemas/Error'
                                     - $ref: '#/components/schemas/RateLimitError'
-                "503":
-                    description: Service unavailable. Billing-verification responses include code and X-Billing-Verification; other gateway infrastructure failures use the generic GatewayError shape.
-                    headers:
-                        Retry-After:
-                            description: Seconds to wait before retrying (1-60).
-                            schema:
-                                type: string
-                        X-Billing-Verification:
-                            description: Billing-verification state that produced this response (matches the body `code`).
-                            schema:
-                                type: string
-                        X-Validation-Mode:
-                            description: Present with value degraded when user API-key validation is temporarily unavailable.
-                            schema:
-                                type: string
-                        X-RateLimit-Mode:
-                            description: Present with value degraded when a fail-closed rate-limit dependency is unavailable.
-                            schema:
-                                type: string
-                    content:
-                        application/json:
-                            schema:
-                                oneOf:
-                                    - $ref: '#/components/schemas/BillingVerificationError'
-                                    - $ref: '#/components/schemas/GatewayError'
                 default:
                     description: Gateway or handler error response.
                     content:
@@ -907,8 +844,12 @@ paths:
             tags:
                 - NewsService
             summary: ListErrorReports
-            description: ListErrorReports lists stored reports for review. Operators only.
+            description: |-
+                ListErrorReports lists stored reports for review. Operators only.
+                 Requires the X-Trust-Review-Key header (the server's TRUST_REVIEW_SECRET), not an API key; without it the response is 401.
             operationId: ListErrorReports
+            security:
+                - TrustReviewKey: []
             parameters:
                 - name: status
                   in: query
@@ -949,22 +890,11 @@ paths:
                                     - $ref: '#/components/schemas/ValidationError'
                                     - $ref: '#/components/schemas/JmespathProjectionError'
                 "401":
-                    description: Missing or invalid API key.
+                    description: Missing or invalid X-Trust-Review-Key, or review is not configured on the server.
                     content:
                         application/json:
                             schema:
-                                $ref: '#/components/schemas/UnauthorizedError'
-                "403":
-                    description: API access requires an active subscription (the API key's subscription is inactive or expired).
-                    headers:
-                        X-Billing-Verification:
-                            description: Present when the 403 is a billing-provider-confirmed subscription lapse (value subscription_lapsed, matching the body `code`).
-                            schema:
-                                type: string
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ForbiddenError'
+                                $ref: '#/components/schemas/Error'
                 "429":
                     description: Rate limit exceeded.
                     headers:
@@ -990,31 +920,6 @@ paths:
                                 oneOf:
                                     - $ref: '#/components/schemas/Error'
                                     - $ref: '#/components/schemas/RateLimitError'
-                "503":
-                    description: Service unavailable. Billing-verification responses include code and X-Billing-Verification; other gateway infrastructure failures use the generic GatewayError shape.
-                    headers:
-                        Retry-After:
-                            description: Seconds to wait before retrying (1-60).
-                            schema:
-                                type: string
-                        X-Billing-Verification:
-                            description: Billing-verification state that produced this response (matches the body `code`).
-                            schema:
-                                type: string
-                        X-Validation-Mode:
-                            description: Present with value degraded when user API-key validation is temporarily unavailable.
-                            schema:
-                                type: string
-                        X-RateLimit-Mode:
-                            description: Present with value degraded when a fail-closed rate-limit dependency is unavailable.
-                            schema:
-                                type: string
-                    content:
-                        application/json:
-                            schema:
-                                oneOf:
-                                    - $ref: '#/components/schemas/BillingVerificationError'
-                                    - $ref: '#/components/schemas/GatewayError'
                 default:
                     description: Gateway or handler error response.
                     content:
@@ -1028,8 +933,12 @@ paths:
             tags:
                 - NewsService
             summary: ReviewErrorReport
-            description: ReviewErrorReport accepts or rejects a report. An accepted report's public note is added to the label log. Operators only.
+            description: |-
+                ReviewErrorReport accepts or rejects a report. An accepted report's public note is added to the label log. Operators only.
+                 Requires the X-Trust-Review-Key header (the server's TRUST_REVIEW_SECRET), not an API key; without it the response is 401.
             operationId: ReviewErrorReport
+            security:
+                - TrustReviewKey: []
             requestBody:
                 content:
                     application/json:
@@ -1063,22 +972,11 @@ paths:
                                     - $ref: '#/components/schemas/ValidationError'
                                     - $ref: '#/components/schemas/InvalidRequestBodyError'
                 "401":
-                    description: Missing or invalid API key.
+                    description: Missing or invalid X-Trust-Review-Key, or review is not configured on the server.
                     content:
                         application/json:
                             schema:
-                                $ref: '#/components/schemas/UnauthorizedError'
-                "403":
-                    description: API access requires an active subscription (the API key's subscription is inactive or expired).
-                    headers:
-                        X-Billing-Verification:
-                            description: Present when the 403 is a billing-provider-confirmed subscription lapse (value subscription_lapsed, matching the body `code`).
-                            schema:
-                                type: string
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ForbiddenError'
+                                $ref: '#/components/schemas/Error'
                 "429":
                     description: Rate limit exceeded.
                     headers:
@@ -1104,31 +1002,89 @@ paths:
                                 oneOf:
                                     - $ref: '#/components/schemas/Error'
                                     - $ref: '#/components/schemas/RateLimitError'
-                "503":
-                    description: Service unavailable. Billing-verification responses include code and X-Billing-Verification; other gateway infrastructure failures use the generic GatewayError shape.
+                default:
+                    description: Gateway or handler error response.
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/Error'
+                                    - $ref: '#/components/schemas/GatewayError'
+    /api/news/v1/search-fact-checks:
+        get:
+            tags:
+                - NewsService
+            summary: SearchFactChecks
+            description: SearchFactChecks returns ratings that IFCN-verified fact-checkers published about claims similar to the one given, for citation with attribution.
+            operationId: SearchFactChecks
+            security: []
+            parameters:
+                - name: claim
+                  in: query
+                  description: The claim or headline, up to 300 characters.
+                  required: false
+                  example: "example"
+                  schema:
+                    type: string
+                - name: jmespath
+                  in: query
+                  description: |-
+                    Optional JMESPath expression applied server-side to project or reduce the JSON response before it is returned (mirrors the MCP jmespath argument). Invalid expressions, expressions larger than 1024 UTF-8 bytes, or projections that exceed the 256 KB output cap return HTTP 400 with a {_jmespath_error, original_keys} envelope. Grammar and worked examples: https://www.worldmonitor.app/docs/mcp-jmespath.
+                  required: false
+                  example: "keys(@)"
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            example:
+                                "caveat": "Ratings are the fact-checkers' own, quoted with attribution from IFCN-verified signatories. WorldMonitor does not rate claims, and a rating never changes the coverage result above."
+                                "factChecks":
+                                    - "claimReviewed": "A synthetic example claim, similar to the claim checked"
+                                      "publisher": "Example Fact-Checker (synthetic)"
+                                      "rating": "Example rating"
+                                      "reviewedAt": "2026-01-15T12:00:00.000Z"
+                                      "site": "example.com"
+                                      "title": "Synthetic example fact-check"
+                                      "url": "https://example.com/fact-check/synthetic-example"
+                                "state": "ok"
+                            schema:
+                                $ref: '#/components/schemas/SearchFactChecksResponse'
+                "400":
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/ValidationError'
+                                    - $ref: '#/components/schemas/JmespathProjectionError'
+                "429":
+                    description: Rate limit exceeded.
                     headers:
+                        X-RateLimit-Limit:
+                            description: Maximum requests allowed in the active rate-limit window.
+                            schema:
+                                type: string
+                        X-RateLimit-Remaining:
+                            description: Requests remaining in the active rate-limit window.
+                            schema:
+                                type: string
+                        X-RateLimit-Reset:
+                            description: Unix epoch milliseconds when the active rate-limit window resets.
+                            schema:
+                                type: string
                         Retry-After:
-                            description: Seconds to wait before retrying (1-60).
-                            schema:
-                                type: string
-                        X-Billing-Verification:
-                            description: Billing-verification state that produced this response (matches the body `code`).
-                            schema:
-                                type: string
-                        X-Validation-Mode:
-                            description: Present with value degraded when user API-key validation is temporarily unavailable.
-                            schema:
-                                type: string
-                        X-RateLimit-Mode:
-                            description: Present with value degraded when a fail-closed rate-limit dependency is unavailable.
+                            description: Seconds to wait before retrying the request.
                             schema:
                                 type: string
                     content:
                         application/json:
                             schema:
                                 oneOf:
-                                    - $ref: '#/components/schemas/BillingVerificationError'
-                                    - $ref: '#/components/schemas/GatewayError'
+                                    - $ref: '#/components/schemas/Error'
+                                    - $ref: '#/components/schemas/RateLimitError'
                 default:
                     description: Gateway or handler error response.
                     content:
@@ -1149,6 +1105,11 @@ components:
             in: header
             name: X-Api-Key
             description: Alias header for the WorldMonitor API key (X-WorldMonitor-Key).
+        TrustReviewKey:
+            type: apiKey
+            in: header
+            name: X-Trust-Review-Key
+            description: Operator review key (the server TRUST_REVIEW_SECRET). Required by the error-report review operations; a WorldMonitor API key does not authorize them.
     schemas:
         JmespathProjectionError:
             description: Returned when a REST jmespath projection is invalid or exceeds the expression/output byte limits.
@@ -1765,6 +1726,8 @@ components:
                     type: integer
                     format: int32
                     description: Retention window in days.
+                counts:
+                    $ref: '#/components/schemas/LabelCounts'
             description: ListLabelChangesResponse lists changes from the last seven days, newest first.
         LabelChange:
             type: object
@@ -1830,6 +1793,34 @@ components:
                     format: int32
                     description: Declared source tier 1-4; 0 when no feed label declares one.
             description: LabelChangePublisher is one publisher family behind the new label.
+        LabelCounts:
+            type: object
+            properties:
+                at:
+                    type: integer
+                    format: int64
+                    description: 'When the digest counted, Unix epoch milliseconds.. Warning: Values > 2^53 may lose precision in JavaScript'
+                stories:
+                    type: integer
+                    format: int32
+                    description: Stories counted.
+                corroborated:
+                    type: integer
+                    format: int32
+                    description: Two or more publisher families, not all tier 4.
+                singlePublisher:
+                    type: integer
+                    format: int32
+                    description: One publisher family.
+                tier4Only:
+                    type: integer
+                    format: int32
+                    description: Two or more families, every one a declared tier-4 outlet.
+                unknown:
+                    type: integer
+                    format: int32
+                    description: No evidence to judge.
+            description: LabelCounts is how many stories in the latest full English digest carry each label.
         SubmitErrorReportRequest:
             type: object
             properties:
@@ -1939,3 +1930,50 @@ components:
                 report:
                     $ref: '#/components/schemas/ErrorReport'
             description: ReviewErrorReportResponse returns the reviewed report.
+        SearchFactChecksRequest:
+            type: object
+            properties:
+                claim:
+                    type: string
+                    maxLength: 300
+                    description: The claim or headline, up to 300 characters.
+            description: SearchFactChecksRequest names the claim to look up published fact-checks for.
+        SearchFactChecksResponse:
+            type: object
+            properties:
+                factChecks:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/FactCheck'
+                state:
+                    type: string
+                    description: ok | unavailable | not-configured. Only ok means the search ran; an empty list is then no published fact-check found.
+                caveat:
+                    type: string
+                    description: Fixed reminder that ratings are the fact-checkers' own and never change the coverage result.
+            description: SearchFactChecksResponse lists published fact-checks of claims similar to the one searched.
+        FactCheck:
+            type: object
+            properties:
+                publisher:
+                    type: string
+                    description: The fact-checker's name as it publishes it.
+                site:
+                    type: string
+                    description: The IFCN-allowlisted domain the link belongs to.
+                rating:
+                    type: string
+                    description: The fact-checker's own rating, verbatim. WorldMonitor does not rate claims.
+                reviewedAt:
+                    type: string
+                    description: When the fact-check was published, ISO 8601.
+                url:
+                    type: string
+                    description: Link to the fact-check.
+                title:
+                    type: string
+                    description: The fact-check's headline; empty when the feed gives none.
+                claimReviewed:
+                    type: string
+                    description: 'The claim the fact-checker rated: similar to the claim searched, not necessarily the same.'
+            description: FactCheck is one rating an IFCN-verified fact-checker published about a similar claim, cited with attribution.

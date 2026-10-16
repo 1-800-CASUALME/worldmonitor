@@ -415,6 +415,8 @@ const RPC_CACHE_TIER: Record<string, CacheTier> = {
   '/api/news/v1/list-label-changes': 'fast',
   // #9093 operator queue: never cached, it is gated by a secret header.
   '/api/news/v1/list-error-reports': 'no-store',
+  // #9094: per-claim fact-check lookup; the CDN key includes the claim.
+  '/api/news/v1/search-fact-checks': 'slow',
   '/api/intelligence/v1/get-country-facts': 'daily',
   '/api/intelligence/v1/list-security-advisories': 'slow',
   '/api/intelligence/v1/list-satellites': 'static',
@@ -557,6 +559,10 @@ export const PUBLIC_NO_AUTH_RPC_PATHS = new Set<string>([
   // endpoint limit (server/_shared/rate-limit.ts), and a bounded review queue
   // that refuses rather than evicts. Reports are never applied automatically.
   '/api/news/v1/submit-error-report',
+  // #9093 /trust page: public label history and today's counts. Read-only,
+  // public coverage metadata; a visitor who lands on /trust directly has no
+  // session cookie. Bounded by a per-IP endpoint limit and the 'fast' CDN tier.
+  '/api/news/v1/list-label-changes',
   // #9093 operator review. The gate is TRUST_REVIEW_SECRET, checked in the
   // handler (X-Trust-Review-Key, constant-time): unset → every call is 401.
   // A browser session would add nothing an operator secret does not already
@@ -564,6 +570,10 @@ export const PUBLIC_NO_AUTH_RPC_PATHS = new Set<string>([
   // bound guessing; list-error-reports is no-store.
   '/api/news/v1/list-error-reports',
   '/api/news/v1/review-error-report',
+  // #9094 /verify: published fact-checks for a claim, cited with attribution.
+  // Free like /verify (owner decision), which needs no account; bounded by a
+  // fail-closed per-IP limit and a day-long per-claim cache of the upstream.
+  '/api/news/v1/search-fact-checks',
 ]);
 
 // Cacheable, non-premium RPC endpoints the Railway relay periodically warm-pings

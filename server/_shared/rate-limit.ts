@@ -603,6 +603,9 @@ interface EndpointRatePolicy {
 // using checkEndpointRateLimit / hasEndpointRatePolicy below — the export is
 // for tooling, not new runtime callers.
 export const ENDPOINT_RATE_POLICIES: Record<string, EndpointRatePolicy> = {
+  // #9094 /verify fact-check lookup: public, and a cache miss spends the
+  // Google Fact Check Tools API quota.
+  '/api/news/v1/search-fact-checks': { limit: 20, window: '60 s' },
   '/api/aviation/v1/track-aircraft': { limit: 30, window: '60 s' },
   '/api/aviation/v1/list-aircraft-emergencies': { limit: 20, window: '60 s' },
   '/api/aviation/v1/search-google-flights': { limit: 30, window: '60 s' },
@@ -760,6 +763,8 @@ export const ENDPOINT_RATE_POLICIES: Record<string, EndpointRatePolicy> = {
   '/api/leads/v1/register-interest': { limit: 5, window: '1 h' },
   // #9093 reader error reports: anonymous writes to the review queue.
   '/api/news/v1/submit-error-report': { limit: 5, window: '1 h' },
+  // #9093 /trust page read: public and CDN-cached, bounded per IP.
+  '/api/news/v1/list-label-changes': { limit: 60, window: '60 s' },
   // Operator review: secret-gated, but still bounded against secret guessing.
   '/api/news/v1/list-error-reports': { limit: 60, window: '60 s' },
   '/api/news/v1/review-error-report': { limit: 60, window: '60 s' },
@@ -1003,6 +1008,9 @@ export const FAIL_CLOSED_ENDPOINT_RATE_POLICY_REQUIRED: Record<string, RateLimit
   },
   '/api/sanctions/v1/lookup-sanction-entity': {
     reason: 'Live sanctions lookup proxies an external provider.',
+  },
+  '/api/news/v1/search-fact-checks': {
+    reason: 'Public fact-check lookup proxies the quota-limited Google Fact Check Tools API on cache misses (#9094).',
   },
   '/api/leads/v1/submit-contact': {
     reason: 'Lead capture writes to Convex and sends email.',

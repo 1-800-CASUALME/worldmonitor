@@ -131,6 +131,7 @@ export interface ListLabelChangesResponse {
   changes: LabelChange[];
   state: string;
   retentionDays: number;
+  counts?: LabelCounts;
 }
 
 export interface LabelChange {
@@ -152,6 +153,15 @@ export interface LabelChange {
 export interface LabelChangePublisher {
   name: string;
   tier: number;
+}
+
+export interface LabelCounts {
+  at: number;
+  stories: number;
+  corroborated: number;
+  singlePublisher: number;
+  tier4Only: number;
+  unknown: number;
 }
 
 export interface SubmitErrorReportRequest {
@@ -196,6 +206,26 @@ export interface ReviewErrorReportRequest {
 
 export interface ReviewErrorReportResponse {
   report?: ErrorReport;
+}
+
+export interface SearchFactChecksRequest {
+  claim: string;
+}
+
+export interface SearchFactChecksResponse {
+  factChecks: FactCheck[];
+  state: string;
+  caveat: string;
+}
+
+export interface FactCheck {
+  publisher: string;
+  site: string;
+  rating: string;
+  reviewedAt: string;
+  url: string;
+  title: string;
+  claimReviewed: string;
 }
 
 export type StoryPhase = "STORY_PHASE_UNSPECIFIED" | "STORY_PHASE_BREAKING" | "STORY_PHASE_DEVELOPING" | "STORY_PHASE_SUSTAINED" | "STORY_PHASE_FADING";
@@ -257,6 +287,7 @@ export interface NewsServiceHandler {
   submitErrorReport(ctx: ServerContext, req: SubmitErrorReportRequest): Promise<SubmitErrorReportResponse>;
   listErrorReports(ctx: ServerContext, req: ListErrorReportsRequest): Promise<ListErrorReportsResponse>;
   reviewErrorReport(ctx: ServerContext, req: ReviewErrorReportRequest): Promise<ReviewErrorReportResponse>;
+  searchFactChecks(ctx: ServerContext, req: SearchFactChecksRequest): Promise<SearchFactChecksResponse>;
 }
 
 export function createNewsServiceRoutes(
@@ -609,6 +640,53 @@ export function createNewsServiceRoutes(
 
           const result = await handler.reviewErrorReport(ctx, body);
           return new Response(JSON.stringify(result as ReviewErrorReportResponse), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        } catch (err: unknown) {
+          if (err instanceof ValidationError) {
+            return new Response(JSON.stringify({ violations: err.violations }), {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          if (options?.onError) {
+            return options.onError(err, req);
+          }
+          const message = err instanceof Error ? err.message : String(err);
+          return new Response(JSON.stringify({ message }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/news/v1/search-fact-checks",
+      handler: async (req: Request): Promise<Response> => {
+        try {
+          const pathParams: Record<string, string> = {};
+          const url = new URL(req.url, "http://localhost");
+          const params = url.searchParams;
+          const body: SearchFactChecksRequest = {
+            claim: params.get("claim") ?? "",
+          };
+          if (options?.validateRequest) {
+            const bodyViolations = options.validateRequest("searchFactChecks", body);
+            if (bodyViolations) {
+              throw new ValidationError(bodyViolations);
+            }
+          }
+
+          const ctx: ServerContext = {
+            request: req,
+            pathParams,
+            headers: Object.fromEntries(req.headers.entries()),
+          };
+
+          const result = await handler.searchFactChecks(ctx, body);
+          return new Response(JSON.stringify(result as SearchFactChecksResponse), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });

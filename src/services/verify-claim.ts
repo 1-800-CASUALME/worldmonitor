@@ -9,6 +9,7 @@
  * through runtime.ts, public-rpc-fetch.ts and news-digest-items.ts.
  */
 import type { NewsItemCore } from '../../shared/news-clustering-core.js';
+import type { FactCheck } from '../../server/_shared/fact-checks';
 import { CLAIM_MAX_CHARS, buildClaimCard, type ClaimCard, type ClaimCardHeadline } from '../../server/_shared/claim-match';
 
 export { CLAIM_MAX_CHARS, type ClaimCard, type ClaimCardHeadline };
@@ -99,4 +100,42 @@ export function normalizeClaim(text: string): string {
 
 export function checkClaim(text: string, digest: ClaimDigest): ClaimCard {
   return buildClaimCard(normalizeClaim(text), digest.items);
+}
+
+export type { FactCheck };
+
+/** Published fact-checks for a claim (#9094): ok means the lookup ran; anything else means it did not. */
+export type FactCheckResult = {
+  readonly state: 'ok' | 'unavailable' | 'not-configured';
+  readonly factChecks: FactCheck[];
+  readonly caveat: string;
+};
+
+export const FACT_CHECKS_URL = '/api/news/v1/search-fact-checks';
+const FACT_CHECKS_TIMEOUT_MS = 10_000;
+
+function isFactCheck(value: unknown): value is FactCheck {
+  const v = value as Record<string, unknown> | null;
+  return !!v && ['publisher', 'site', 'rating', 'reviewedAt', 'url', 'title', 'claimReviewed']
+    .every((field) => typeof v[field] === 'string');
+}
+
+/** Never throws: a failed lookup is `unavailable`, which the page shows as "could not be checked", never as none found. */
+export async function fetchFactChecks(claim: string, signal?: AbortSignal): Promise<FactCheckResult> {
+  try {
+    const res = await globalThis.fetch(`${FACT_CHECKS_URL}?claim=${encodeURIComponent(normalizeClaim(claim))}`, {
+      credentials: 'omit',
+      signal: signal ?? AbortSignal.timeout(FACT_CHECKS_TIMEOUT_MS),
+    });
+    if (!res.ok) return { state: 'unavailable', factChecks: [], caveat: '' };
+    const body = await res.json() as { state?: unknown; factChecks?: unknown; caveat?: unknown };
+    const state = body.state === 'ok' || body.state === 'not-configured' ? body.state : 'unavailable';
+    return {
+      state,
+      factChecks: state === 'ok' && Array.isArray(body.factChecks) ? body.factChecks.filter(isFactCheck) : [],
+      caveat: typeof body.caveat === 'string' ? body.caveat : '',
+    };
+  } catch {
+    return { state: 'unavailable', factChecks: [], caveat: '' };
+  }
 }

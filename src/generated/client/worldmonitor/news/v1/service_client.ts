@@ -131,6 +131,7 @@ export interface ListLabelChangesResponse {
   changes: LabelChange[];
   state: string;
   retentionDays: number;
+  counts?: LabelCounts;
 }
 
 export interface LabelChange {
@@ -152,6 +153,15 @@ export interface LabelChange {
 export interface LabelChangePublisher {
   name: string;
   tier: number;
+}
+
+export interface LabelCounts {
+  at: number;
+  stories: number;
+  corroborated: number;
+  singlePublisher: number;
+  tier4Only: number;
+  unknown: number;
 }
 
 export interface SubmitErrorReportRequest {
@@ -196,6 +206,26 @@ export interface ReviewErrorReportRequest {
 
 export interface ReviewErrorReportResponse {
   report?: ErrorReport;
+}
+
+export interface SearchFactChecksRequest {
+  claim: string;
+}
+
+export interface SearchFactChecksResponse {
+  factChecks: FactCheck[];
+  state: string;
+  caveat: string;
+}
+
+export interface FactCheck {
+  publisher: string;
+  site: string;
+  rating: string;
+  reviewedAt: string;
+  url: string;
+  title: string;
+  claimReviewed: string;
 }
 
 export type StoryPhase = "STORY_PHASE_UNSPECIFIED" | "STORY_PHASE_BREAKING" | "STORY_PHASE_DEVELOPING" | "STORY_PHASE_SUSTAINED" | "STORY_PHASE_FADING";
@@ -449,6 +479,31 @@ export class NewsServiceClient {
     }
 
     return await resp.json() as ReviewErrorReportResponse;
+  }
+
+  async searchFactChecks(req: SearchFactChecksRequest, options?: NewsServiceCallOptions): Promise<SearchFactChecksResponse> {
+    let path = "/api/news/v1/search-fact-checks";
+    const params = new URLSearchParams();
+    if (req.claim != null && req.claim !== "") params.set("claim", String(req.claim));
+    const url = this.baseURL + path + (params.toString() ? "?" + params.toString() : "");
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...this.defaultHeaders,
+      ...options?.headers,
+    };
+
+    const resp = await this.fetchFn(url, {
+      method: "GET",
+      headers,
+      signal: options?.signal,
+    });
+
+    if (!resp.ok) {
+      return this.handleError(resp);
+    }
+
+    return await resp.json() as SearchFactChecksResponse;
   }
 
   private async handleError(resp: Response): Promise<never> {
