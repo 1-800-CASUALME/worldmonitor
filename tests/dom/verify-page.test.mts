@@ -387,6 +387,7 @@ describe('/verify page media flow (#9096)', () => {
     (document.querySelector('[data-media-signin]') as HTMLButtonElement).click();
     expect(openSignIn).toHaveBeenCalledOnce();
     expect((document.getElementById('claimInput') as HTMLTextAreaElement).value).toBe('https://example.com/a.jpg');
+    expect(document.getElementById('verifySubmit')?.textContent).toBe('Check image or video');
   });
 
   it('shows the result for a signed-in caller', async () => {

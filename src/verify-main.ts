@@ -39,6 +39,11 @@ const MEDIA_URL_MAX_CHARS = 2048;
 // A claim is at most CLAIM_MAX_CHARS; a pasted media link may be longer (#9096).
 function syncInputLimit(): void {
   input.maxLength = /^https?:\/\//i.test(input.value.trim()) ? MEDIA_URL_MAX_CHARS : CLAIM_MAX_CHARS;
+  if (!submit.disabled) submit.textContent = idleLabel();
+}
+
+function idleLabel(): string {
+  return isMediaCheckInput(input.value) ? 'Check image or video' : 'Check coverage';
 }
 syncInputLimit();
 input.addEventListener('input', syncInputLimit);
@@ -65,7 +70,7 @@ function describeDigest(loaded: ClaimDigest): string {
 
 function resetSubmit(): void {
   submit.disabled = false;
-  submit.textContent = 'Check coverage';
+  submit.textContent = idleLabel();
 }
 
 /**
