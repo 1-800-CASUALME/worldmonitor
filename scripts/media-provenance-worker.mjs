@@ -173,18 +173,30 @@ export async function sweepExpiredMedia({ redisCmd: cmd, deleteObject, now = Dat
  * crashed or lost its final write. A live worker's job keeps its lease and is
  * left alone; LREM decides which of two recovering workers re-queues a job.
  */
-export async function recoverAbandonedJobs(cmd) {
-  const claimed = await cmd('lrange', [MEDIA_PROCESSING_KEY, 0, -1]);
-  let recovered = 0;
-  for (const raw of Array.isArray(claimed) ? claimed : []) {
-    const job = parseJob(raw);
-    if (!job) {
-      await cmd('lrem', [MEDIA_PROCESSING_KEY, 1, String(raw)]);
-      continue;
+export async function recoverAbandonedJobs(cmd, { settleMs = 5_000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  const leaseless = async () => {
+    const claimed = await cmd('lrange', [MEDIA_PROCESSING_KEY, 0, -1]);
+    const found = [];
+    for (const raw of Array.isArray(claimed) ? claimed : []) {
+      const job = parseJob(raw);
+      if (!job) {
+        await cmd('lrem', [MEDIA_PROCESSING_KEY, 1, String(raw)]);
+        continue;
+      }
+      if (Number(await cmd('exists', [mediaLeaseKey(job.jobId)])) === 0) found.push({ raw: String(raw), job });
     }
+    return found;
+  };
+  // A worker claims with BLMOVE, then sets the lease: a blocking move cannot
+  // run inside a script. Look twice, a few seconds apart, so a job caught in
+  // that gap is never taken from a live worker.
+  if ((await leaseless()).length === 0) return 0;
+  await sleep(settleMs);
+  let recovered = 0;
+  for (const { raw, job } of await leaseless()) {
     // One script: the job leaves processing only if it goes back on the queue,
     // and only while its lease is still absent.
-    if (Number(await cmd('eval', [REQUEUE_SCRIPT, 3, MEDIA_PROCESSING_KEY, MEDIA_QUEUE_KEY, mediaLeaseKey(job.jobId), String(raw)])) === 1) {
+    if (Number(await cmd('eval', [REQUEUE_SCRIPT, 3, MEDIA_PROCESSING_KEY, MEDIA_QUEUE_KEY, mediaLeaseKey(job.jobId), raw])) === 1) {
       recovered += 1;
     }
   }

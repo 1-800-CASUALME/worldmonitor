@@ -400,10 +400,22 @@ describe('a whole check (worker)', () => {
     const live = JSON.stringify({ jobId: `media:1760616000000:${'1'.repeat(32)}`, url: 'https://example.com/a.jpg', owner: 'b'.repeat(64) });
     const lapsed = JSON.stringify({ jobId: `media:1760616000000:${'2'.repeat(32)}`, url: 'https://example.com/b.jpg', owner: 'b'.repeat(64) });
     const redis = luaRedis({ [mediaLeaseKey(JSON.parse(live).jobId)]: 'token' }, { [MEDIA_PROCESSING_KEY]: [live, lapsed, 'garbage'], [MEDIA_QUEUE_KEY]: [] });
-    assert.equal(await recoverAbandonedJobs(redis.cmd), 1);
+    const noWait = { sleep: async () => {} };
+    assert.equal(await recoverAbandonedJobs(redis.cmd, noWait), 1);
     assert.deepEqual(redis.lists.get(MEDIA_PROCESSING_KEY), [live], 'a live worker keeps its job; garbage is dropped');
     assert.deepEqual(redis.lists.get(MEDIA_QUEUE_KEY), [lapsed]);
-    assert.equal(await recoverAbandonedJobs(redis.cmd), 0, 'nothing is re-queued twice');
+    assert.equal(await recoverAbandonedJobs(redis.cmd, noWait), 0, 'nothing is re-queued twice');
+  });
+
+  it('leaves a job alone when its lease appears between the two looks (claimed just now)', async () => {
+    const jobId = `media:1760616000000:${'4'.repeat(32)}`;
+    const fresh = JSON.stringify({ jobId, url: 'https://example.com/d.jpg', owner: 'b'.repeat(64) });
+    const redis = luaRedis({}, { [MEDIA_PROCESSING_KEY]: [fresh], [MEDIA_QUEUE_KEY]: [] });
+    // BLMOVE has moved the job; the claiming worker sets its lease while recovery waits.
+    const recovered = await recoverAbandonedJobs(redis.cmd, { sleep: async () => { redis.strings.set(mediaLeaseKey(jobId), 'token'); } });
+    assert.equal(recovered, 0);
+    assert.deepEqual(redis.lists.get(MEDIA_PROCESSING_KEY), [fresh]);
+    assert.deepEqual(redis.lists.get(MEDIA_QUEUE_KEY), []);
     assert.ok(redis.log.every(([name]) => name !== 'lpush'), 'the move happens inside the script, never as a separate push');
   });
 
