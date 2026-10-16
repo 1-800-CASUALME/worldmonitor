@@ -104,6 +104,7 @@ const GLOBAL_CSP_INLINE_SCRIPT_HTML_FILES = [
   'settings.html',
   'live-channels.html',
   'mcp-grant.html',
+  'verify.html',
   'public/offline.html',
   'public/pro/index.html',
   'public/pro/welcome.html',
@@ -113,6 +114,7 @@ const GLOBAL_CSP_EXTERNAL_SCRIPT_HTML_FILES = [
   'settings.html',
   'live-channels.html',
   'mcp-grant.html',
+  'verify.html',
   'public/pro/index.html',
   'public/pro/welcome.html',
 ];
@@ -664,6 +666,9 @@ describe('crawlable content corpus deployment contracts', () => {
       'scripts/generate-inventory-facts.mjs',
       'scripts/docs-stats.mjs',
       'scripts/source-attribution.mjs',
+      'scripts/country-related-links.mjs',
+      'scripts/data/country-centroids.json',
+      'scripts/related-reading.mjs',
     ]) {
       assert.equal(vercelIgnoreSource.split(`'${path}'`).length - 1, 2, `${path} must trigger main and preview builds`);
     }
@@ -699,6 +704,9 @@ describe('crawlable content corpus deployment contracts', () => {
         'scripts/generate-inventory-facts.mjs',
         'scripts/docs-stats.mjs',
         'scripts/source-attribution.mjs',
+        'scripts/country-related-links.mjs',
+        'scripts/data/country-centroids.json',
+        'scripts/related-reading.mjs',
       ]) {
         const previous = git('rev-parse', 'HEAD').trim();
         mkdirSync(dirname(join(fixture, path)), { recursive: true });
@@ -2502,7 +2510,7 @@ describe('security header guardrails', () => {
       const location = locationBlock.match(/^ {4}location ([^{]+)\{/)?.[1].trim() ?? '<unknown>';
       assert.match(
         locationBlock,
-        /include \/etc\/nginx\/(?:embed_)?security_headers\.conf;/,
+        /include \/etc\/nginx\/(?:embed_|oauth_authorize_|youtube_embed_)?security_headers\.conf;/,
         `docker/nginx.conf.template ${location} must include an origin-keying header set`,
       );
     }
