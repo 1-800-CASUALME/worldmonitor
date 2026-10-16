@@ -155,10 +155,11 @@ function clip(text: unknown, max: number): string {
 export function selectFactChecks(claim: string, apiClaims: readonly FactCheckApiClaim[]): FactCheck[] {
   const seen = new Set<string>();
   const out: FactCheck[] = [];
-  for (const apiClaim of apiClaims) {
+  // The input is a cache read, so any shape is possible; a malformed entry selects nothing.
+  for (const apiClaim of Array.isArray(apiClaims) ? apiClaims : []) {
     const claimReviewed = whole(apiClaim?.text, REVIEWED_CLAIM_MAX_CHARS);
     if (!claimReviewed || !isStrongFactCheckMatch(claim, claimReviewed)) continue;
-    for (const review of apiClaim.claimReview ?? []) {
+    for (const review of Array.isArray(apiClaim.claimReview) ? apiClaim.claimReview : []) {
       const url = whole(review?.url, 2048);
       const site = factCheckerDomainFor(url);
       if (!site || seen.has(url)) continue;

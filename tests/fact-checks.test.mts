@@ -164,6 +164,13 @@ describe('selectFactChecks', () => {
     const selected = selectFactChecks(CLAIM, [apiClaim(CLAIM, [review()]), apiClaim(CLAIM, [review()])]);
     assert.equal(selected.length, 1);
   });
+
+  it('selects nothing from a malformed cache entry instead of throwing', () => {
+    const malformed = [null, { text: CLAIM, claimReview: 'not a list' }, { text: CLAIM, claimReview: [null] }];
+    assert.deepEqual(selectFactChecks(CLAIM, malformed as never), []);
+    assert.deepEqual(selectFactChecks(CLAIM, undefined as never), []);
+    assert.deepEqual(selectFactChecks(CLAIM, { claims: [] } as never), []);
+  });
 });
 
 describe('uniform application (#9094)', () => {
@@ -278,6 +285,13 @@ describe('SearchFactChecks handler', () => {
     assert.deepEqual(Object.keys(compact!).sort(), ['claimReview', 'text']);
     assert.deepEqual(Object.keys(compact!.claimReview![0]!).sort(), ['languageCode', 'publisher', 'reviewDate', 'textualRating', 'title', 'url']);
     assert.deepEqual(compactApiClaims({}), []);
+  });
+
+  it('documents the real caveat and a real state in the OpenAPI 200 example', () => {
+    const spec = JSON.parse(readFileSync(new URL('../docs/api/NewsService.openapi.json', import.meta.url), 'utf8'));
+    const example = spec.paths['/api/news/v1/search-fact-checks'].get.responses['200'].content['application/json'].example;
+    assert.equal(example.caveat, FACT_CHECK_CAVEAT);
+    assert.ok(['ok', 'unavailable', 'not-configured'].includes(example.state));
   });
 
   it('builds the documented request', () => {

@@ -25673,14 +25673,16 @@ paths:
                     content:
                         application/json:
                             example:
-                                "caveat": "2026-01-15T12:00:00Z"
+                                "caveat": "Ratings are the fact-checkers' own, quoted with attribution from IFCN-verified signatories. WorldMonitor does not rate claims, and a rating never changes the coverage result above."
                                 "factChecks":
-                                    - "claimReviewed": "example"
-                                      "publisher": "example"
-                                      "rating": "example"
-                                      "reviewedAt": "2026-01-15T12:00:00Z"
-                                      "site": "example"
-                                "state": "example"
+                                    - "claimReviewed": "A synthetic example claim, similar to the claim checked"
+                                      "publisher": "Example Fact-Checker (synthetic)"
+                                      "rating": "Example rating"
+                                      "reviewedAt": "2026-01-15T12:00:00.000Z"
+                                      "site": "example.com"
+                                      "title": "Synthetic example fact-check"
+                                      "url": "https://example.com/fact-check/synthetic-example"
+                                "state": "ok"
                             schema:
                                 $ref: '#/components/schemas/worldmonitor_news_v1_SearchFactChecksResponse'
                 "400":
