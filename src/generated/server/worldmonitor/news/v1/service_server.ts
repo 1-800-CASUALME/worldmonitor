@@ -122,6 +122,38 @@ export interface CountryHeadline {
   publishedAt: number;
 }
 
+export interface ListLabelChangesRequest {
+  storyId: string;
+  limit: number;
+}
+
+export interface ListLabelChangesResponse {
+  changes: LabelChange[];
+  state: string;
+  retentionDays: number;
+}
+
+export interface LabelChange {
+  storyId: string;
+  field: string;
+  previous: string;
+  next: string;
+  previousPublishers: number;
+  nextPublishers: number;
+  at: number;
+  trigger: string;
+  reason: string;
+  sources: LabelChangePublisher[];
+  title: string;
+  link: string;
+  credibilityScore: number;
+}
+
+export interface LabelChangePublisher {
+  name: string;
+  tier: number;
+}
+
 export type StoryPhase = "STORY_PHASE_UNSPECIFIED" | "STORY_PHASE_BREAKING" | "STORY_PHASE_DEVELOPING" | "STORY_PHASE_SUSTAINED" | "STORY_PHASE_FADING";
 
 export type SummarizeStatus = "SUMMARIZE_STATUS_UNSPECIFIED" | "SUMMARIZE_STATUS_SUCCESS" | "SUMMARIZE_STATUS_CACHED" | "SUMMARIZE_STATUS_SKIPPED" | "SUMMARIZE_STATUS_ERROR";
@@ -177,6 +209,7 @@ export interface NewsServiceHandler {
   getSummarizeArticleCache(ctx: ServerContext, req: GetSummarizeArticleCacheRequest): Promise<SummarizeArticleResponse>;
   listFeedDigest(ctx: ServerContext, req: ListFeedDigestRequest): Promise<ListFeedDigestResponse>;
   listCountryHeadlines(ctx: ServerContext, req: ListCountryHeadlinesRequest): Promise<ListCountryHeadlinesResponse>;
+  listLabelChanges(ctx: ServerContext, req: ListLabelChangesRequest): Promise<ListLabelChangesResponse>;
 }
 
 export function createNewsServiceRoutes(
@@ -348,6 +381,54 @@ export function createNewsServiceRoutes(
 
           const result = await handler.listCountryHeadlines(ctx, body);
           return new Response(JSON.stringify(result as ListCountryHeadlinesResponse), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        } catch (err: unknown) {
+          if (err instanceof ValidationError) {
+            return new Response(JSON.stringify({ violations: err.violations }), {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          if (options?.onError) {
+            return options.onError(err, req);
+          }
+          const message = err instanceof Error ? err.message : String(err);
+          return new Response(JSON.stringify({ message }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/news/v1/list-label-changes",
+      handler: async (req: Request): Promise<Response> => {
+        try {
+          const pathParams: Record<string, string> = {};
+          const url = new URL(req.url, "http://localhost");
+          const params = url.searchParams;
+          const body: ListLabelChangesRequest = {
+            storyId: params.get("story_id") ?? "",
+            limit: Number(params.get("limit") ?? "0"),
+          };
+          if (options?.validateRequest) {
+            const bodyViolations = options.validateRequest("listLabelChanges", body);
+            if (bodyViolations) {
+              throw new ValidationError(bodyViolations);
+            }
+          }
+
+          const ctx: ServerContext = {
+            request: req,
+            pathParams,
+            headers: Object.fromEntries(req.headers.entries()),
+          };
+
+          const result = await handler.listLabelChanges(ctx, body);
+          return new Response(JSON.stringify(result as ListLabelChangesResponse), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });
