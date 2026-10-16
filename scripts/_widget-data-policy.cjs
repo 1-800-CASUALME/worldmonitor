@@ -210,7 +210,7 @@ const EXCLUDED_BOOTSTRAP_KEYS = {
   manitobaRoads: "Road/traffic event feed (Manitoba 511); not widget data",
   torontoRoads: "Road/traffic feed, ~2 MB (2,342 records); unusable in a widget",
   bcOpen511: "Road/traffic event feed (DriveBC); not widget data",
-  imdCycloneMarine: "Disabled in production (IMD_API_KEY missing); no data",
+  imdCycloneMarine: "IMD marine bulletin text by sea area; map-layer feed, not widget data",
   temporalAnomalies: "Internal anomaly detector output; usually empty",
   aaiiSentiment: "Stale fallback data (fallback=true, last update 2026-04-03)",
 };
@@ -323,6 +323,8 @@ const EXCLUDED_RPC_ROUTES = {
   "/api/military/v1/list-military-bases": "Map viewport feed; needs a bounding box and zoom",
   "/api/military/v1/list-military-flights": "Map viewport feed; needs a bounding box",
   "/api/natural/v1/list-natural-events": "Same data as bootstrap key naturalEvents",
+  "/api/news/v1/list-error-reports": "Operator review queue (#9093), secret-gated",
+  "/api/news/v1/list-label-changes": "Trust-page label history (#9093), not a widget data source",
   "/api/news/v1/summarize-article-cache": "Blocked by relay widget endpoint policy",
   "/api/positive-events/v1/list-positive-geo-events": "Same data as bootstrap key positiveGeoEvents",
   "/api/radiation/v1/list-radiation-observations": "Same data as bootstrap key radiationWatch",

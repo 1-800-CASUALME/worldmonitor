@@ -1,7 +1,7 @@
-import { SUB_REQUEST_MARKER_HEADER } from './sub-request-admission';
+import { SUB_REQUEST_MARKER_HEADER } from './sub-request-admission.js';
 import { Ratelimit, type Duration } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
-import { getClientIp, getClientRateLimitKey, hasUnprovenCloudflareClientIp, UNKNOWN_CLIENT_IP } from './client-ip';
+import { getClientIp, getClientRateLimitKey, hasUnprovenCloudflareClientIp, UNKNOWN_CLIENT_IP } from './client-ip.js';
 // @ts-expect-error — JS module, no declaration file
 import { captureSilentError } from '../../api/_sentry-edge.js';
 // @ts-expect-error — JS module, no declaration file
@@ -13,7 +13,7 @@ import { durationToSeconds, limitWithFallback, resetRateLimitFallbackForTest } f
 // the helpers' original home and existing callers import them from this
 // module (getClientIp: api/ask.ts, api/a2a.ts, api/mcp-proxy.ts;
 // UNKNOWN_CLIENT_IP: turnstile.ts; plus the rate-limit test suites).
-export { getClientIp, getClientRateLimitKey, hasCloudflareTransitProof, hasUnprovenCloudflareClientIp, rateLimitKeyForIp, UNKNOWN_CLIENT_IP } from './client-ip';
+export { getClientIp, getClientRateLimitKey, hasCloudflareTransitProof, hasUnprovenCloudflareClientIp, rateLimitKeyForIp, UNKNOWN_CLIENT_IP } from './client-ip.js';
 
 // @upstash/redis defaults to 5 retries with exponential backoff (~4.3s total)
 // before surfacing an unreachable-Redis error. The node test runner sets
@@ -325,7 +325,7 @@ export type EndpointRateLimitOptions = RateLimitOptions;
 export const TRUSTED_RATE_LIMIT_PRINCIPAL_HEADER = 'x-wm-rl-principal';
 
 /** Opaque single-use admission, authenticated by consumeSubRequestAdmission. */
-export { SUB_REQUEST_MARKER_HEADER } from './sub-request-admission';
+export { SUB_REQUEST_MARKER_HEADER } from './sub-request-admission.js';
 
 export function formatTrustedRateLimitPrincipal(
   principalUserId: string,
@@ -758,6 +758,13 @@ export const ENDPOINT_RATE_POLICIES: Record<string, EndpointRatePolicy> = {
   // these hit Convex + Resend per request.
   '/api/leads/v1/submit-contact': { limit: 3, window: '1 h' },
   '/api/leads/v1/register-interest': { limit: 5, window: '1 h' },
+  // #9093 reader error reports: anonymous writes to the review queue.
+  '/api/news/v1/submit-error-report': { limit: 5, window: '1 h' },
+  // #9093 /trust page read: public and CDN-cached, bounded per IP.
+  '/api/news/v1/list-label-changes': { limit: 60, window: '60 s' },
+  // Operator review: secret-gated, but still bounded against secret guessing.
+  '/api/news/v1/list-error-reports': { limit: 60, window: '60 s' },
+  '/api/news/v1/review-error-report': { limit: 60, window: '60 s' },
   // Scenario engine: legacy /api/scenario/v1/run capped at 10 jobs/min/IP via
   // inline Upstash INCR. Gateway preserves the same budget while using a
   // trusted paid-user principal when available, otherwise the client IP.
@@ -1004,6 +1011,15 @@ export const FAIL_CLOSED_ENDPOINT_RATE_POLICY_REQUIRED: Record<string, RateLimit
   },
   '/api/leads/v1/register-interest': {
     reason: 'Lead capture writes to Convex and sends email.',
+  },
+  '/api/news/v1/submit-error-report': {
+    reason: 'Anonymous error reports write to the review queue (#9093).',
+  },
+  '/api/news/v1/list-error-reports': {
+    reason: 'Operator review is gated by a shared secret; the limit bounds guessing (#9093).',
+  },
+  '/api/news/v1/review-error-report': {
+    reason: 'Operator review is gated by a shared secret; the limit bounds guessing (#9093).',
   },
   '/api/scenario/v1/run-scenario': {
     reason: 'Scenario runs are mutation-like jobs with a historical 10/min cap.',
