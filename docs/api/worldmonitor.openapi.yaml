@@ -25520,6 +25520,7 @@ paths:
             summary: ListLabelChanges
             description: ListLabelChanges returns stories whose corroboration label moved between single-publisher and corroborated in the last seven days, with the publishers behind each change.
             operationId: ListLabelChanges
+            security: []
             parameters:
                 - name: story_id
                   in: query
@@ -25551,13 +25552,32 @@ paths:
                         application/json:
                             example:
                                 "changes":
-                                    - "at": 1717200000000
-                                      "credibilityScore": 42
-                                      "field": "example"
-                                      "link": "https://example.com/worldmonitor"
-                                      "next": "example"
+                                    - "at": 1767182400000
+                                      "credibilityScore": 72
+                                      "field": "corroboration"
+                                      "link": "https://example.com/news/synthetic-example"
+                                      "next": "corroborated"
+                                      "nextPublishers": 2
+                                      "previous": "single-publisher"
+                                      "previousPublishers": 1
+                                      "reason": "2 publisher families now carry this story (was 1)."
+                                      "sources":
+                                          - "name": "Example Wire (synthetic)"
+                                            "tier": 1
+                                          - "name": "Example Daily (synthetic)"
+                                            "tier": 2
+                                      "storyId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                      "title": "Synthetic example story"
+                                      "trigger": "digest"
+                                "counts":
+                                    "at": 1767182400000
+                                    "corroborated": 64
+                                    "singlePublisher": 51
+                                    "stories": 120
+                                    "tier4Only": 3
+                                    "unknown": 2
                                 "retentionDays": 7
-                                "state": "example"
+                                "state": "ok"
                             schema:
                                 $ref: '#/components/schemas/worldmonitor_news_v1_ListLabelChangesResponse'
                 "400":
@@ -25568,23 +25588,6 @@ paths:
                                 oneOf:
                                     - $ref: '#/components/schemas/ValidationError'
                                     - $ref: '#/components/schemas/JmespathProjectionError'
-                "401":
-                    description: Missing or invalid API key.
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/UnauthorizedError'
-                "403":
-                    description: API access requires an active subscription (the API key's subscription is inactive or expired).
-                    headers:
-                        X-Billing-Verification:
-                            description: Present when the 403 is a billing-provider-confirmed subscription lapse (value subscription_lapsed, matching the body `code`).
-                            schema:
-                                type: string
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ForbiddenError'
                 "429":
                     description: Rate limit exceeded.
                     headers:
@@ -25610,31 +25613,6 @@ paths:
                                 oneOf:
                                     - $ref: '#/components/schemas/Error'
                                     - $ref: '#/components/schemas/RateLimitError'
-                "503":
-                    description: Service unavailable. Billing-verification responses include code and X-Billing-Verification; other gateway infrastructure failures use the generic GatewayError shape.
-                    headers:
-                        Retry-After:
-                            description: Seconds to wait before retrying (1-60).
-                            schema:
-                                type: string
-                        X-Billing-Verification:
-                            description: Billing-verification state that produced this response (matches the body `code`).
-                            schema:
-                                type: string
-                        X-Validation-Mode:
-                            description: Present with value degraded when user API-key validation is temporarily unavailable.
-                            schema:
-                                type: string
-                        X-RateLimit-Mode:
-                            description: Present with value degraded when a fail-closed rate-limit dependency is unavailable.
-                            schema:
-                                type: string
-                    content:
-                        application/json:
-                            schema:
-                                oneOf:
-                                    - $ref: '#/components/schemas/BillingVerificationError'
-                                    - $ref: '#/components/schemas/GatewayError'
                 default:
                     description: Gateway or handler error response.
                     content:
@@ -25789,7 +25767,9 @@ paths:
             tags:
                 - NewsService
             summary: ListErrorReports
-            description: ListErrorReports lists stored reports for review. Operators only.
+            description: |-
+                ListErrorReports lists stored reports for review. Operators only.
+                 Requires the X-Trust-Review-Key header (the server's TRUST_REVIEW_SECRET), not an API key; without it the response is 401.
             operationId: ListErrorReports
             security: []
             parameters:
@@ -25869,7 +25849,9 @@ paths:
             tags:
                 - NewsService
             summary: ReviewErrorReport
-            description: ReviewErrorReport accepts or rejects a report. An accepted report's public note is added to the label log. Operators only.
+            description: |-
+                ReviewErrorReport accepts or rejects a report. An accepted report's public note is added to the label log. Operators only.
+                 Requires the X-Trust-Review-Key header (the server's TRUST_REVIEW_SECRET), not an API key; without it the response is 401.
             operationId: ReviewErrorReport
             security: []
             requestBody:
@@ -53978,6 +53960,8 @@ components:
                     type: integer
                     format: int32
                     description: Retention window in days.
+                counts:
+                    $ref: '#/components/schemas/worldmonitor_news_v1_LabelCounts'
             description: ListLabelChangesResponse lists changes from the last seven days, newest first.
         worldmonitor_news_v1_LabelChange:
             type: object
@@ -54043,6 +54027,34 @@ components:
                     format: int32
                     description: Declared source tier 1-4; 0 when no feed label declares one.
             description: LabelChangePublisher is one publisher family behind the new label.
+        worldmonitor_news_v1_LabelCounts:
+            type: object
+            properties:
+                at:
+                    type: integer
+                    format: int64
+                    description: 'When the digest counted, Unix epoch milliseconds.. Warning: Values > 2^53 may lose precision in JavaScript'
+                stories:
+                    type: integer
+                    format: int32
+                    description: Stories counted.
+                corroborated:
+                    type: integer
+                    format: int32
+                    description: Two or more publisher families, not all tier 4.
+                singlePublisher:
+                    type: integer
+                    format: int32
+                    description: One publisher family.
+                tier4Only:
+                    type: integer
+                    format: int32
+                    description: Two or more families, every one a declared tier-4 outlet.
+                unknown:
+                    type: integer
+                    format: int32
+                    description: No evidence to judge.
+            description: LabelCounts is how many stories in the latest full English digest carry each label.
         worldmonitor_news_v1_SubmitErrorReportRequest:
             type: object
             properties:

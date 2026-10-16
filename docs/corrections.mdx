@@ -45,7 +45,8 @@ automatically. Each entry records:
 - the headline and a representative link;
 - the time.
 
-Entries are kept for seven days. Read them through
+Entries are kept for seven days. The [trust page](https://www.worldmonitor.app/trust/)
+shows them, with today's count of stories under each label. Read them through
 [`GET /api/news/v1/list-label-changes`](/api-reference/newsservice/listlabelchanges), for every story or
 for one story with `story_id`. The history starts when this shipped. Earlier
 changes were not recorded, and a story's first label is not an entry.
@@ -57,7 +58,8 @@ happened to keep.
 
 ## Reporting an error
 
-Anyone can report that a label or story is wrong, without an account, through
+Anyone can report that a label or story is wrong, without an account, from the
+[trust page](https://www.worldmonitor.app/trust/) or through
 [`POST /api/news/v1/submit-error-report`](/api-reference/newsservice/submiterrorreport).
 A report holds a message, and optionally the story it concerns, a URL and an
 email for a reply.
