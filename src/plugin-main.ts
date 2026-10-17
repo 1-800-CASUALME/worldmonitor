@@ -10,7 +10,7 @@ import './styles/plugin.css';
 import { SearchModal } from '@/components/SearchModal';
 import type { NewsItem } from '@/types';
 import { NewsPanel } from '@/components/NewsPanel';
-import { MapContainer, ViewportTransitionError } from '@/components/MapContainer';
+import { MapContainer, ViewportTransitionError, type MapRendererSwitchResult } from '@/components/MapContainer';
 import { DEFAULT_MAP_LAYERS, DEFAULT_PANELS } from '@/config';
 import type { MapLayers } from '@/types';
 import type { ListFeedDigestResponse } from '@/generated/client/worldmonitor/news/v1/service_client';
@@ -56,6 +56,9 @@ function mountPlugin(): void {
   let digest: ListFeedDigestResponse | undefined;
   let view: PluginNewsView = { time_range: 'all' };
   let viewQueue: Promise<unknown> = Promise.resolve();
+  let viewportObservation = 0;
+  let observedViewportAuthority = 0;
+  let mapClosed = false;
   let renderGeneration = 0;
   let applyingTimeRange = false;
   let modelContext = false;
@@ -272,33 +275,31 @@ function mountPlugin(): void {
     let renderer: object | undefined;
     if (next.renderer) {
       const authority = map.getViewportAuthorityToken();
-      const result = next.renderer === 'globe' ? await map.switchToGlobe() : await map.switchToFlat();
-      let interruptedByHuman = false;
-      try { await map.whenViewportSettled(); }
+      let result: MapRendererSwitchResult;
+      try {
+        result = next.renderer === 'globe' ? await map.switchToGlobe() : await map.switchToFlat();
+        await map.whenViewportSettled();
+      }
       catch (error) {
-        if (!(error instanceof ViewportTransitionError) || error.reason !== 'viewport_interrupted') throw error;
-        // OrbitControls can settle inside the wheel listener, before the same
-        // event bubbles to MapContainer's human-authority listener.
-        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        if (error instanceof ViewportTransitionError && error.reason === 'viewport_interrupted') {
+          // OrbitControls can settle before the wheel event reaches the authority listener.
+          await new Promise<void>(resolve => setTimeout(resolve, 0));
+        }
         if (superseded()) return { applied: false, superseded: true };
-        await map.whenRendererReady();
-        const effectiveRenderer = map.isGlobeMode() ? 'globe' : map.isDeckGLActive() ? 'deck' : 'svg';
-        if (effectiveRenderer !== result.renderer) throw new ViewportTransitionError('renderer_changed');
-        if (authority === map.getViewportAuthorityToken()) throw error;
-        interruptedByHuman = true;
+        try { await map.whenRendererReady(); }
+        catch { throw error; }
+        if (superseded()) return { applied: false, superseded: true };
+        result = reconcileReadyRenderer(next.renderer);
+        const interruptedByHuman = error instanceof ViewportTransitionError && error.reason === 'viewport_interrupted' && authority !== map.getViewportAuthorityToken();
+        if (!interruptedByHuman) status.textContent = 'The map is available, but the requested view did not finish.';
+        const receipt = { applied: false, reason: error instanceof ViewportTransitionError ? error.reason : 'renderer_transition_failed', view, categoryLabel: visibleCategoryLabel(), latestInteraction, renderer: result, center: map.getCenter(), map: map.getState(), viewport: { settled: false, ...(interruptedByHuman ? { interruptedBy: 'human' } : {}) } };
+        publishContext(receipt);
+        return receipt;
       }
       if (superseded()) return { applied: false, superseded: true };
       renderer = result;
       intended.renderer = result.mode;
-      for (const control of document.querySelectorAll<HTMLButtonElement>('#mapDimensionToggle button')) {
-        control.classList.toggle('active', control.dataset.mode === result.mode);
-      }
-      if (interruptedByHuman) {
-        view = { ...view, renderer: result.mode };
-        const receipt = { applied: false, view, categoryLabel: visibleCategoryLabel(), latestInteraction, renderer: result, center: map.getCenter(), map: map.getState(), viewport: { settled: false, interruptedBy: 'human' } };
-        publishContext(receipt);
-        return receipt;
-      }
+      reconcileReadyRenderer(next.renderer);
     }
     if (next.time_range) {
       applyingTimeRange = true;
@@ -362,8 +363,22 @@ function mountPlugin(): void {
     return view.category ? DEFAULT_PANELS[view.category]?.name ?? view.category : 'All news panels';
   }
 
-  function publishContext(receipt: object): void {
+  function publishContext(receipt: object, { preserveViewportObservation = false } = {}): void {
+    if (!preserveViewportObservation) {
+      viewportObservation++;
+      observedViewportAuthority = map.getViewportAuthorityToken();
+    }
     if (modelContext) void request('ui/update-model-context', { content: [{ type: 'text', text: JSON.stringify(receipt) }] }).catch(() => {});
+  }
+
+  function reconcileReadyRenderer(requested?: 'globe' | 'flat'): MapRendererSwitchResult {
+    const mode = map.isGlobeMode() ? 'globe' : 'flat';
+    const renderer = map.isGlobeMode() ? 'globe' : map.isDeckGLActive() ? 'deck' : 'svg';
+    view = { ...view, renderer: mode };
+    for (const control of document.querySelectorAll<HTMLButtonElement>('#mapDimensionToggle button')) {
+      control.classList.toggle('active', control.dataset.mode === mode);
+    }
+    return { renderer, mode, fallback: requested !== undefined && requested !== mode };
   }
 
   function recordNewsInteraction(article: Pick<NewsItem, 'link' | 'title' | 'source'>, displayLabel: string): boolean {
@@ -447,10 +462,28 @@ function mountPlugin(): void {
       } catch { status.textContent = 'The requested map renderer is unavailable.'; }
     });
     map.onCountryClicked(country => { if (country.code) void applyView({ country: country.code }).catch(() => { status.textContent = 'Country view could not be applied.'; }); });
+    map.onStateChanged(() => {
+      const observation = ++viewportObservation;
+      setTimeout(() => {
+        if (mapClosed || observation !== viewportObservation) return;
+        const authority = map.getViewportAuthorityToken();
+        if (authority === observedViewportAuthority) return;
+        void (async () => {
+          await map.whenViewportSettled();
+          await viewQueue;
+          if (mapClosed || observation !== viewportObservation) return;
+          await map.whenRendererReady();
+          if (mapClosed || observation !== viewportObservation) return;
+          observedViewportAuthority = authority;
+          const renderer = reconcileReadyRenderer();
+          publishContext({ view, categoryLabel: visibleCategoryLabel(), latestInteraction, renderer, center: map.getCenter(), map: map.getState(), viewport: { settled: true } });
+        })().catch(() => {});
+      }, 0);
+    });
     map.onNewsClicked(item => {
       const article = item.article;
       if (!article || !visibleMarkers.some(marker => marker.title === item.title && marker.article?.link === article.link && marker.article.title === article.title && marker.article.source === article.source) || !recordNewsInteraction(article, item.title)) return;
-      publishContext({ view, categoryLabel: visibleCategoryLabel(), latestInteraction, center: map.getCenter(), map: map.getState() });
+      publishContext({ view, categoryLabel: visibleCategoryLabel(), latestInteraction, center: map.getCenter(), map: map.getState() }, { preserveViewportObservation: true });
     });
     map.onTimeRangeChanged(time_range => {
       if (applyingTimeRange) return;
@@ -557,6 +590,8 @@ function mountPlugin(): void {
     const observer = new ResizeObserver(() => send({ method: 'ui/notifications/size-changed', params: { height: document.documentElement.scrollHeight } }));
     observer.observe(document.body);
     window.addEventListener('pagehide', () => {
+      mapClosed = true;
+      viewportObservation++;
       observer.disconnect();
       for (const call of pending.values()) { clearTimeout(call.timer); call.reject(new Error('WorldMonitor view closed.')); }
       pending.clear();
