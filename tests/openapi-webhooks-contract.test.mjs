@@ -56,12 +56,16 @@ describe('OpenAPI webhooks contract', () => {
     assert.deepEqual(webhook.security, [], 'outbound webhook must document security: []');
   });
 
-  it('names every registry event in the X-WM-Event header (one webhooks entry; the public JSON budget has no room for more)', () => {
+  it('names every other registry event in the X-WM-Event header description (one webhooks entry; the public JSON budget has no room for more)', () => {
     assert.deepEqual(Object.keys(registry.events).sort(), [...WEBHOOK_EVENTS].sort(), 'registry and injector must list the same events');
     const eventHeader = webhook.parameters.find((p) => p.name === EVENT_HEADER);
-    assert.deepEqual([...eventHeader.schema.enum].sort(), [...WEBHOOK_EVENTS].sort(), 'the header enum must list every registry event');
+    // The enum must stay truthful to the documented body: this entry's schema
+    // is the chokepoint payload, so only that event is enumerated here.
+    assert.deepEqual(eventHeader.schema.enum, [WEBHOOK_EVENT]);
     const desc = eventHeader.description.replace(/\s+/g, ' ');
-    assert.ok(desc.includes(RISK_SURGE_WEBHOOK_EVENT), 'the header description must name the risk-surge event');
+    for (const event of WEBHOOK_EVENTS.filter((name) => name !== WEBHOOK_EVENT)) {
+      assert.ok(desc.includes(event), `the header description must name ${event}`);
+    }
     assert.ok(desc.includes('api-shipping-v2#delivery-format'), 'and point at the documented payload');
   });
 

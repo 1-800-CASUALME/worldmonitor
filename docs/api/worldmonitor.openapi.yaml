@@ -29611,7 +29611,7 @@ paths:
                                       "chokepointIds":
                                           - "suez"
                                       "countries":
-                                          - "example"
+                                          - "US"
                             schema:
                                 $ref: '#/components/schemas/worldmonitor_shipping_v2_ListWebhooksResponse'
                 "400":
@@ -29729,9 +29729,7 @@ paths:
                             "callbackUrl": "https://example.com/worldmonitor-webhook"
                             "chokepointIds":
                                 - "suez"
-                            "countries":
-                                - "example"
-                            "eventType": "all"
+                            "eventType": "chokepoint.disruption"
                             "minLiveSignal": 1
                         schema:
                             $ref: '#/components/schemas/worldmonitor_shipping_v2_RegisterWebhookRequest'
@@ -35455,13 +35453,13 @@ webhooks:
                   in: header
                   required: true
                   description: |-
-                      `chokepoint.disruption` here; `country.risk_surge` shares these
-                      headers, payload at https://www.worldmonitor.app/docs/api-shipping-v2#delivery-format.
+                      Always `chokepoint.disruption` for this body. A `country.risk_surge`
+                      subscription sends the same headers with the payload documented at
+                      https://www.worldmonitor.app/docs/api-shipping-v2#delivery-format.
                   schema:
                       type: string
                       enum:
                           - chokepoint.disruption
-                          - country.risk_surge
                 - name: X-WM-Delivery-Id
                   in: header
                   required: true

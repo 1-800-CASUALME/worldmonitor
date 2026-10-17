@@ -373,10 +373,38 @@ describe('country.risk_surge state machine', () => {
     assert.equal('suez' in states, false, 'a risk-surge record never evaluates chokepoints');
   });
 
-  it('narrows to the subscribed countries and uses the previous evaluation score when it has one', () => {
-    const { deliveries } = planRisk({ overrides: { countries: ['UA'] }, state: { 'cii:UA': { armed: true, lastScore: 70 } } });
+  it('narrows to the subscribed countries and reports the index 24h earlier, not the previous tick', () => {
+    const { deliveries } = planRisk({ overrides: { countries: ['UA'] }, state: { 'cii:UA': { armed: true, lastScore: 98 } } });
     assert.deepEqual(deliveries.map((d) => d.payload.countryCode), ['UA']);
-    assert.equal(deliveries[0].payload.previousScore, 70);
+    assert.equal(deliveries[0].payload.previousScore, 99 - 27, 'score minus delta24h; the 5-minute-old lastScore would read as a 1-point move');
+  });
+
+  it('leaves the state untouched when the feed has no usable 24h movement', () => {
+    // deriveCiiTrendDelta reports 0 / UNSPECIFIED with no prior snapshot.
+    const delivered = { armed: false, lastScore: 84, lastDelta: 24, lastDeliveredAt: new Date(NOW - 3_600_000).toISOString() };
+    const unknown = nextCountryState(delivered, cii('IR', 85, 0, { trend: 'TREND_DIRECTION_UNSPECIFIED' }), NOW);
+    assert.equal(unknown.fire, false);
+    assert.deepEqual(unknown.state, delivered, 'a placeholder zero must not re-arm a delivered surge');
+    assert.equal(nextCountryState(undefined, cii('IR', 85, 0, { trend: 'TREND_DIRECTION_UNSPECIFIED' }), NOW).state.armed, true);
+    // A genuine zero movement with a known trend does settle the surge.
+    assert.equal(nextCountryState(delivered, cii('IR', 85, 0, { trend: 'TREND_DIRECTION_STABLE' }), NOW).state.armed, true);
+  });
+
+  it('leaves chokepoint records untouched when the chokepoint feed is unreadable, while risk-surge records proceed', () => {
+    const risk = record({ eventType: 'country.risk_surge', countries: [] });
+    const cp = record({ subscriberId: 'wh_bbbbbbbbbbbbbbbbbbbbbbbb' });
+    const { deliveries, nextStates } = planTick({
+      chokepoints: null,
+      riskScores,
+      records: [risk, cp],
+      states: new Map(),
+      now: NOW,
+      scoresFetchedAt: null,
+      riskFetchedAt: 'r',
+      makeId: () => 'whd_fixed',
+    });
+    assert.deepEqual(deliveries.map((d) => d.event), ['country.risk_surge', 'country.risk_surge']);
+    assert.equal(nextStates.has(cp.subscriberId), false);
   });
 
   it('leaves risk-surge records untouched when the risk feed is unreadable, while chokepoint records proceed', () => {
@@ -875,6 +903,19 @@ describe('runTick', () => {
     await tick(fake, deliver);
     assert.equal(sent.length, 1);
     assert.equal(JSON.parse(fake.store.get(stateKey(SUB))['cii:IR']).armed, false);
+  });
+
+  it('still delivers country.risk_surge when the chokepoint feed is down for the tick', async () => {
+    const rec = record({ eventType: 'country.risk_surge', countries: ['IR'] });
+    const fake = seeded({ rec });
+    fake.store.delete(CHOKEPOINT_STATUS_KEY);
+    fake.store.set(RISK_SCORES_KEY, JSON.stringify({ ciiScores: [{ region: 'IR', combinedScore: 84, dynamicScore: 24, computedAt: NOW }] }));
+    const { sent, deliver } = deliverStub([]);
+    const summary = await tick(fake, deliver);
+    assert.equal(summary.sourceState, 'error');
+    assert.equal(summary.riskSourceState, 'ok');
+    assert.equal(sent.length, 1, 'a chokepoint outage must not hold a surge that may settle before the feed returns');
+    assert.equal(summary.subscribers, 1);
   });
 
   it('prefers the live risk key and falls back to the RPC when both Redis copies are gone', async () => {

@@ -80,7 +80,8 @@ module.exports = {
   noun: EVENT.noun,
   display: {
     label: 'New Chokepoint Disruption',
-    description: EVENT.description,
+    // The registry names the API field; Zapier users see the input's label.
+    description: EVENT.description.replace('minLiveSignal', 'the Minimum Live Signal Points'),
   },
   operation: {
     type: 'hook',

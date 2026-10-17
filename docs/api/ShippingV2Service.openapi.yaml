@@ -208,7 +208,7 @@ paths:
                                       "chokepointIds":
                                           - "suez"
                                       "countries":
-                                          - "example"
+                                          - "US"
                             schema:
                                 $ref: '#/components/schemas/ListWebhooksResponse'
                 "400":
@@ -326,9 +326,7 @@ paths:
                             "callbackUrl": "https://example.com/worldmonitor-webhook"
                             "chokepointIds":
                                 - "suez"
-                            "countries":
-                                - "example"
-                            "eventType": "all"
+                            "eventType": "chokepoint.disruption"
                             "minLiveSignal": 1
                         schema:
                             $ref: '#/components/schemas/RegisterWebhookRequest'

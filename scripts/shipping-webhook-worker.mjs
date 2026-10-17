@@ -212,6 +212,11 @@ export function nextCountryState(previous, cii, nowMs, rule = RISK_SURGE_RULE) {
   const rise = Number(cii?.dynamicScore);
   const score = Number(cii?.combinedScore);
   if (!Number.isFinite(rise) || !Number.isFinite(score)) return { fire: false, state: previous ?? { armed: true } };
+  // deriveCiiTrendDelta reports 0 with TREND_DIRECTION_UNSPECIFIED when it has
+  // no prior snapshot. That is unknown movement, not a settled surge: it must
+  // neither fire nor re-arm, or a delivered surge could be reported again once
+  // history returns.
+  if (rise === 0 && cii?.trend === 'TREND_DIRECTION_UNSPECIFIED') return { fire: false, state: previous ?? { armed: true } };
   const baseline = Number.isFinite(cii?.staticBaseline) ? cii.staticBaseline : null;
   // A changed static baseline is a methodology or baseline edit, not an event
   // (Brazil and Mexico stepped 50 to 70 in one tick in the backtest). It
@@ -328,7 +333,9 @@ function planRiskSurgeRecord({ record, previous, next, ciiByCountry, now, trigge
         countryCode,
         countryName: RISK_SURGE_COUNTRY_NAMES[countryCode] ?? countryCode,
         score,
-        previousScore: Number.isFinite(previous[field]?.lastScore) ? previous[field].lastScore : score - delta,
+        // The index about 24 h earlier, as the registry documents; the previous
+        // tick's score is 5 minutes old and would read as a 1-point movement.
+        previousScore: score - delta,
         delta24h: delta,
         trend: typeof cii.trend === 'string' ? cii.trend : 'TREND_DIRECTION_UNSPECIFIED',
         advisoryLevel: typeof cii.advisoryLevel === 'string' ? cii.advisoryLevel : null,
@@ -350,9 +357,10 @@ function planRiskSurgeRecord({ record, previous, next, ciiByCountry, now, trigge
 
 /**
  * Pure. `records` are active, parsed subscriber records; `states` maps
- * subscriberId to its stored per-entity state. `riskScores` may be null when
- * the risk feed was unreadable this tick: risk-surge records are then left
- * untouched (no state write, nothing fired) while chokepoint records proceed.
+ * subscriberId to its stored per-entity state. `chokepoints` or `riskScores`
+ * may be null when that feed was unreadable this tick: records on that event
+ * are then left untouched (no state write, nothing fired) while records on
+ * the other event proceed.
  */
 export function planTick({ chokepoints, riskScores = null, records, states, now, scoresFetchedAt, riskFetchedAt = null, makeId = makeDeliveryId }) {
   const byId = new Map((chokepoints ?? [])
@@ -369,6 +377,7 @@ export function planTick({ chokepoints, riskScores = null, records, states, now,
     const next = {};
     const eventType = recordEventType(record);
     if (eventType === CHOKEPOINT_EVENT) {
+      if (!chokepoints) continue;
       planChokepointRecord({ record, previous, next, byId, triggeredAt, scoresFetchedAt, makeId, deliveries });
     } else if (eventType === RISK_SURGE_EVENT) {
       if (!riskScores) continue;
@@ -650,8 +659,11 @@ async function evaluate({ redis, lock, deliver, fetchImpl, env, now }) {
     source: status?.source ?? null,
     riskSource: riskScores?.source ?? null,
   };
-  if (!status) {
-    summary.sourceState = 'error';
+  // Each event is evaluated against its own feed: a chokepoint outage must not
+  // hold back a country.risk_surge that could settle before the feed returns.
+  // Only when neither feed is readable is there nothing to do this tick.
+  if (!status) summary.sourceState = 'error';
+  if (!status && !riskScores) {
     await writeWorkerStatus(redis, fence, summary, now);
     return summary;
   }
@@ -681,7 +693,7 @@ async function evaluate({ redis, lock, deliver, fetchImpl, env, now }) {
   const states = new Map(records.map((record, index) => [record.subscriberId, parseStateHash(stateRows[index])]));
 
   const { deliveries, nextStates } = planTick({
-    chokepoints: status.chokepoints,
+    chokepoints: status?.chokepoints ?? null,
     riskScores,
     records,
     states,

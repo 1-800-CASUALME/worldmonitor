@@ -119,13 +119,13 @@ const WEBHOOKS_BLOCK = `webhooks:
                   in: header
                   required: true
                   description: |-
-                      \`${WEBHOOK_EVENT}\` here; \`${RISK_SURGE_WEBHOOK_EVENT}\` shares these
-                      headers, payload at https://www.worldmonitor.app/docs/api-shipping-v2#delivery-format.
+                      Always \`${WEBHOOK_EVENT}\` for this body. A \`${RISK_SURGE_WEBHOOK_EVENT}\`
+                      subscription sends the same headers with the payload documented at
+                      https://www.worldmonitor.app/docs/api-shipping-v2#delivery-format.
                   schema:
                       type: string
                       enum:
                           - ${WEBHOOK_EVENT}
-                          - ${RISK_SURGE_WEBHOOK_EVENT}
                 - name: ${DELIVERY_ID_HEADER}
                   in: header
                   required: true
