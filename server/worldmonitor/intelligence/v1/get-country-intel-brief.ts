@@ -18,7 +18,7 @@ import { ENERGY_SPINE_KEY_PREFIX } from '../../../_shared/cache-keys';
 import { deriveCountryIntelCacheKey, fetchSharedCountryContext } from './_country-brief-context';
 import { buildCountryBriefEvidence } from './_country-brief-evidence';
 import { isBriefRelevantTitle } from '../../../../shared/brief-relevance.js';
-import { evidenceNumbersGrounded, isEvidenceLimitClaim } from '../../../../shared/brief-claim-rules.js';
+import { evidenceNumbersGrounded, isEvidenceLimitClaim, sanctionsEvidenceGrounded } from '../../../../shared/brief-claim-rules.js';
 import { briefSectionHeading, type BriefSectionKey } from '../../../../shared/brief-sections.js';
 import {
   resolveEnergyImportDependency,
@@ -127,6 +127,47 @@ function parseEvidenceCitations(value: unknown, byId: Map<string, CountryBriefEv
 
 const comparable = (value: string) => value.normalize('NFKD').replace(/\p{M}/gu, '');
 
+const normalizedClaim = (value: string) => value.replace(/[’‘]/g, "'").replace(/\s+/g, ' ').trim().replace(/[.!?]$/, '').toLowerCase();
+
+function ciiClaimGrounded(text: string, titles: string[], evidence: CountryBriefEvidenceInput[]): boolean {
+  const cii = evidence.find(item => item.kind === 'cii');
+  if (!cii) {
+    if (!/\b(?:Country Instability Index|CII)\b/i.test(text)) return true;
+    const item = titles.length === 0 && evidence.length === 1 ? evidence[0] : undefined;
+    if (!item || text.trim() !== item.factText.trim()) return false;
+    if (item.kind === 'market') return /^A (?:Kalshi|Polymarket) market related to .+, (["']).+\1, priced Yes at .+ on .+; it closes .+\.$/.test(text.trim());
+    if (item.kind === 'forecast') return /^A World Monitor forecast related to .+, (["']).+\1, gives a .+ probability by .+, as of .+\.$/.test(text.trim());
+    return false;
+  }
+  if (titles.length > 0 || evidence.length !== 1) return false;
+  const claim = normalizedClaim(text);
+  const fact = normalizedClaim(cii.factText);
+  return fact.startsWith(claim)
+    && /^(?:\s+\([^()]+\))?(?:,?\s+in the [\p{L} -]+ band)?(?:,?\s+as of .+)?$/u.test(fact.slice(claim.length));
+}
+
+function urgingRolesGrounded(text: string, titles: string[]): boolean {
+  if (titles.length === 0) return true;
+  const claim = normalizedClaim(text);
+  const urging = /\burg(?:e|es|ed|ing)\b/;
+  const directed = titles.map(normalizedClaim).filter(title => urging.test(title));
+  if (directed.length === 0) return !urging.test(claim);
+  return directed.every(title => {
+    if (claim === title) return true;
+    const relation = title.match(/^(.+?) urg(?:es|ed) (.+?) to (.+)$/);
+    if (!relation) return false;
+    const [, actor, recipient, action] = relation;
+    const forms = (name: string) => [name, name.startsWith('the ') ? name.slice(4) : `the ${name}`];
+    return forms(actor!).some(by => forms(recipient!).some(who => [
+      `${by} urges ${who} to ${action}`,
+      `${by} urged ${who} to ${action}`,
+      ...['is', 'are', 'was', 'were'].map(verb => `${who} ${verb} urged by ${by} to ${action}`),
+      `whether ${who} will ${action} as urged by ${by}`,
+      `whether ${who} will ${action}, as urged by ${by}`,
+    ].includes(claim)));
+  });
+}
+
 // Each claim is checked only against what it cites. Numbers bind to the cited
 // data point whenever evidence is cited (shared/brief-claim-rules.js): a
 // headline's "85 killed" or an as-of day must never license "the Country
@@ -136,6 +177,8 @@ const comparable = (value: string) => value.normalize('NFKD').replace(/\p{M}/gu,
 // not establish this") is not a claim about the country.
 function claimIsGrounded(text: string, titles: string[], evidence: CountryBriefEvidenceInput[]): boolean {
   if (isEvidenceLimitClaim(text)) return false;
+  if (!sanctionsEvidenceGrounded(text, titles.length, evidence)) return false;
+  if (!ciiClaimGrounded(text, titles, evidence) || !urgingRolesGrounded(text, titles)) return false;
   const factTexts = evidence.map((item) => item.factText);
   const grounds = [...titles, ...factTexts];
   if (!validateNoHallucinatedProperNouns(comparable(text), comparable(grounds.join(' . ')), { failClosed: true }).ok) return false;
@@ -466,6 +509,9 @@ Sections:
 - watch: an unresolved event from a headline, or a market or forecast question. Do not predict its outcome.
 
 Rules:
+- A sanctions data point supports only its exact factText, cited alone without a headline or another data point. Do not use it for an implication or infer a sanctioning actor, target, cause or impact.
+- A Country Instability Index data point supports only its descriptive factText, cited alone. Do not infer drivers or changes from a headline. You may omit its trailing band or as-of disclosure.
+- Preserve who urges whom. For a headline saying A urges B to act, keep that direction or write "Whether B will act as urged by A" using the exact supplied names and action. Do not paraphrase an ambiguous urging relation.
 - In a sentence that cites a data point, copy every number, percentage and date exactly from the cited data points; never use a number from a headline in that sentence.
 - A sentence that states a number may cite only one data point that has a value. Put each data point's number in its own sentence.
 - In a sentence that cites only headlines, copy numbers exactly from the cited headlines.

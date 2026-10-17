@@ -13,6 +13,7 @@ import { resendWebhookHandler } from "./resendWebhookHandler";
 import { clerkWebhookHandler } from "./accountDeletion/clerkWebhook";
 import { USER_PREFS_WRITE_RATE_LIMIT } from "./constants";
 import { isPreferenceVariant } from "../shared/cloud-preferences-contract";
+import { verifyDunningPortalToken } from "./lib/identitySigning";
 import {
   INTEL_HISTORY_EMBED_DIMS,
   INTEL_HISTORY_MAX_APPEND_RECORDS,
@@ -1368,6 +1369,19 @@ function touchIsDue(lastUsedAt: unknown): boolean {
   return typeof lastUsedAt !== "number" || lastUsedAt <= Date.now() - TOUCH_DEBOUNCE_MS;
 }
 
+// The gate cannot stop a burst: every parallel validation that lands before
+// the first touch commits still sees a stale lastUsedAt, and touches scheduled
+// for the same instant conflict N-1 times (560 OCC conflicts in 72h across
+// userApiKeys + mcpProTokens, Convex Insights 2026-10). A random delay makes
+// the rest start after the first commits, read it, and no-op, except a touch
+// that lands within its ~20ms run: about (N-1) x 20ms / 30s per burst. On a
+// local backend, herds of 5 went from 4 conflicts each to 0.
+const TOUCH_SPREAD_MS = 30_000;
+
+function touchDelayMs(): number {
+  return Math.floor(Math.random() * TOUCH_SPREAD_MS);
+}
+
 // Service-to-service: validate a user API key by its SHA-256 hash.
 // Called by the Vercel edge gateway to look up user-owned keys.
 http.route({
@@ -1405,7 +1419,7 @@ http.route({
 
     if (result && touchIsDue(result.lastUsedAt)) {
       try {
-        await ctx.scheduler.runAfter(0, (internal as any).apiKeys.touchKeyLastUsed, { keyId: result.id });
+        await ctx.scheduler.runAfter(touchDelayMs(), (internal as any).apiKeys.touchKeyLastUsed, { keyId: result.id });
       } catch (err) {
         // sentry-coverage-ok: re-throwing here would 500 the gateway, which coerces to null
         // and stamps a 60s negative-cache sentinel for a valid key. lastUsedAt is best-effort telemetry.
@@ -1507,7 +1521,7 @@ http.route({
 
     if (result && touchIsDue(result.lastUsedAt)) {
       try {
-        await ctx.scheduler.runAfter(0, (internal as any).embedKeys.touchKeyLastUsed, { keyId: result.id });
+        await ctx.scheduler.runAfter(touchDelayMs(), (internal as any).embedKeys.touchKeyLastUsed, { keyId: result.id });
       } catch (err) {
         // sentry-coverage-ok: re-throwing here would 500 the edge validator, which
         // coerces to null and stamps a negative-cache sentinel for a valid key.
@@ -1636,7 +1650,7 @@ http.route({
       if (result && touchIsDue(result.lastUsedAt)) {
         try {
           await ctx.scheduler.runAfter(
-            0,
+            touchDelayMs(),
             (internal as any).mcpProTokens.touchProMcpTokenLastUsed,
             { tokenId: body.tokenId },
           );
@@ -1861,9 +1875,6 @@ http.route({
   }),
 });
 
-// Service-to-service: Vercel edge gateway creates Dodo customer portal sessions.
-// Authenticated via CONVEX_TENANT_RELAY_SECRET; edge endpoint validates Clerk JWT
-// and forwards the verified userId.
 http.route({
   path: "/relay/customer-portal",
   method: "POST",
@@ -1871,7 +1882,7 @@ http.route({
     const unauthorized = await authorizeTenantRelay(request, ["gateway"]);
     if (unauthorized) return unauthorized;
 
-    const body = await parseJsonObjectBody<{ userId?: string }>(request);
+    const body = await parseJsonObjectBody<{ userId?: string; portalToken?: string }>(request);
     if (!body) {
       return new Response(JSON.stringify({ error: "INVALID_JSON" }), {
         status: 400,
@@ -1879,7 +1890,29 @@ http.route({
       });
     }
 
-    if (!body.userId) {
+    let userId = typeof body.userId === "string" ? body.userId : "";
+    if (typeof body.portalToken === "string" && body.portalToken.length > 0) {
+      // A token never falls back to body.userId. It mints only while the
+      // signed user still has an open hold, so recovery or cancellation
+      // revokes every outstanding email link.
+      const rejectToken = (reason: "invalid_or_expired" | "no_open_hold") => {
+        console.log(JSON.stringify({ event: "dunning_portal_token_rejected", reason }));
+        return new Response(JSON.stringify({ error: "INVALID_PORTAL_TOKEN" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      };
+      const tokenUserId = await verifyDunningPortalToken(body.portalToken, Date.now());
+      if (!tokenUserId) return rejectToken("invalid_or_expired");
+      const hasOpenHold = await ctx.runQuery(
+        internal.payments.subscriptionEmails.hasOpenDunningHold,
+        { userId: tokenUserId },
+      );
+      if (!hasOpenHold) return rejectToken("no_open_hold");
+      userId = tokenUserId;
+    }
+
+    if (!userId) {
       return new Response(
         JSON.stringify({ error: "MISSING_FIELDS", required: ["userId"] }),
         { status: 400, headers: { "Content-Type": "application/json" } },
@@ -1889,7 +1922,7 @@ http.route({
     try {
       const result = await ctx.runAction(
         internal.payments.billing.internalGetCustomerPortalUrl,
-        { userId: body.userId },
+        { userId },
       );
       return new Response(JSON.stringify(result), {
         status: 200,

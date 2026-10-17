@@ -83,6 +83,38 @@ async function mount(wire, check) {
 const groups = document => document.getElementById('groups').textContent;
 
 describe('Natural Disasters actual-handler resource source truth', () => {
+  it('discloses supplied event units and preserves measured zero without typing unitless values', async () => {
+    const wire = await result({ dataset: ['other'] }, 'other', sources => {
+      sources.get('natural:events:v1').data.events = [
+        { title: 'Wind', magnitude: 75, magnitudeUnit: 'kt' },
+        { title: 'Calm', magnitude: 0, magnitudeUnit: ' kt ' },
+        { title: 'Placeholder or observation', magnitude: 0, magnitudeUnit: '' },
+        { title: 'Untyped value', magnitude: 6 },
+        { title: 'Literal unit', magnitude: 4, magnitudeUnit: '<img src=x onerror=alert(1)>' },
+      ];
+    });
+    await mount(wire, async (document, send) => {
+      assert.match(groups(document), /Wind.*Measurement: 75 kt/);
+      assert.match(groups(document), /Calm.*Measurement: 0 kt/);
+      assert.match(groups(document), /Placeholder or observation.*Reported value: 0; unit unavailable; measurement status unavailable/);
+      assert.match(groups(document), /Untyped value.*Reported value: 6; unit unavailable/);
+      assert.match(groups(document), /Literal unit.*Measurement: 4 <img src=x onerror=alert\(1\)>/);
+      assert.equal(document.querySelector('img'), null);
+      assert.doesNotMatch(groups(document), /Magnitude /);
+      await send(await result({ dataset: ['other'] }, 'empty'));
+      assert.doesNotMatch(groups(document), /Measurement:|Reported value:|Literal unit/);
+    });
+  });
+  it('keeps absent, nonfinite and nonnumeric event measurements unavailable', async () => {
+    for (const magnitude of [undefined, null, NaN, Infinity, -Infinity, '', true, false, '75']) {
+      await mount({ structuredContent: { data: { events: { events: [
+        { title: 'Unknown measurement', magnitude, magnitudeUnit: 'kt' },
+      ] } } } }, document => {
+        assert.match(groups(document), /Unknown measurement.*Measurement unavailable/);
+        assert.doesNotMatch(groups(document), /Measurement:|Reported value:|Magnitude /);
+      });
+    }
+  });
   it('shows explicit detail limits and counts safely without changing source dates, links or recovery', async () => {
     const wire = await result();
     const coverage = { count_scope: 'post_filter_snapshot', details: [
@@ -180,7 +212,8 @@ describe('Natural Disasters actual-handler resource source truth', () => {
     const empty = await result({}, 'empty');
     const missing = await result({ dataset: ['other'] }, 'other', sources => sources.set('natural:events:v1', null));
     await mount(healthy, async (document, send) => {
-      assert.doesNotMatch(groups(document), /partial|unavailable/);
+      assert.doesNotMatch(groups(document), /partial|coverage is unavailable|temporarily unavailable/);
+      assert.match(groups(document), /Reported value: 6; unit unavailable/);
       await send(empty);
       assert.match(groups(document), /No natural-hazard events available/);
       await send(missing);
