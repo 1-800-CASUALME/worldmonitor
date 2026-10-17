@@ -281,7 +281,9 @@ Railway helper, the runner, or the workflow. The job resolves the current `main`
 revision before checkout and applies that, not the pushed SHA. A run that main
 outpaced, or a re-run of an older attempt, therefore applies the newest
 registry: it can neither restore an older one nor skip a change when the next
-`main` commit leaves these paths alone (#9274). The apply changes only registry-managed fields. The final step starts a fresh
+`main` commit leaves these paths alone (#9274). A re-run keeps its original
+workflow file, so an attempt created before #9274 still refuses a stale
+checkout; dispatch a new run for those. The apply changes only registry-managed fields. The final step starts a fresh
 read budget, uses the separate Viewer identity, and fails unless live Railway
 matches the repository. That read also reports `source.branch` and
 `source.checkSuites` drift, which the apply step never writes: a run that stays
