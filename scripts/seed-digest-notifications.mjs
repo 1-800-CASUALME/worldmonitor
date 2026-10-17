@@ -51,6 +51,7 @@ const {
   listUnsubscribeHeaders,
   unsubscribeUrlFor,
 } = require('./lib/email-unsubscribe.cjs');
+const { sendResendEmail } = require('./lib/resend-send.cjs');
 import { readRawJsonFromUpstash, redisPipeline } from '../api/_upstash-json.js';
 import { classifyFeelGood } from '../server/_shared/feelgood-classifier.js';
 import { classifyEphemeralLiveCoverage } from '../shared/ephemeral-live-classifier.js';
@@ -1417,24 +1418,17 @@ async function sendDiscord(userId, webhookEnvelope, text) {
 }
 
 async function sendEmail(email, subject, text, html, channel = null) {
-  if (!resend) { console.warn('[digest] Email: RESEND_API_KEY not set — skipping'); return false; }
-  try {
-    // One-click unsubscribe (RFC 8058) header + visible footer link, from the
-    // pre-signed URL /relay/channels put on the email channel. Without one the
-    // footer falls back to the Settings page.
-    const unsubscribeUrl = unsubscribeUrlFor(channel, 'brief');
-    const label = 'Unsubscribe from the daily brief';
-    const payload = { from: RESEND_FROM, to: email, subject, text: appendUnsubscribeText(text, unsubscribeUrl, label) };
-    if (html) payload.html = injectUnsubscribeFooterHtml(html, unsubscribeUrl, label);
-    const headers = listUnsubscribeHeaders(unsubscribeUrl);
-    if (headers) payload.headers = headers;
-    await resend.emails.send(payload);
-    console.log(`[digest] Email delivered to ${email}`);
-    return true;
-  } catch (err) {
-    console.warn('[digest] Resend failed:', err.message);
-    return false;
-  }
+  const unsubscribeUrl = unsubscribeUrlFor(channel, 'brief');
+  const label = 'Unsubscribe from the daily brief';
+  const payload = {
+    from: RESEND_FROM, to: email, subject,
+    text: appendUnsubscribeText(text, unsubscribeUrl, label),
+    html: injectUnsubscribeFooterHtml(html, unsubscribeUrl, label),
+    headers: listUnsubscribeHeaders(unsubscribeUrl),
+  };
+  const result = await sendResendEmail(resend, payload, { logPrefix: '[digest]' });
+  if (result.ok) console.log(`[digest] Email delivered to ${email}`);
+  return result.ok;
 }
 
 async function sendWebhook(userId, webhookEnvelope, stories, aiSummary, webhookSecretEnvelope) {

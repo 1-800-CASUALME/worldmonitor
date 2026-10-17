@@ -3,6 +3,7 @@
 const { createHash } = require('node:crypto');
 const { Resend } = require('resend');
 const { appendUnsubscribeText, listUnsubscribeHeaders, unsubscribeUrlFor } = require('./lib/email-unsubscribe.cjs');
+const { sendResendEmail } = require('./lib/resend-send.cjs');
 const { decrypt } = require('./lib/crypto.cjs');
 const {
   assertNotificationWebhookDeliveryUrlSafe,
@@ -738,22 +739,13 @@ async function sendDiscord(userId, webhookEnvelope, text, retryCount = 0) {
 // ── Delivery: Email ───────────────────────────────────────────────────────────
 
 async function sendEmail(email, subject, text, unsubscribeUrl) {
-  if (!resend) { console.warn('[relay] RESEND_API_KEY not set — skipping email'); return false; }
-  try {
-    const payload = { from: RESEND_FROM, to: email, subject, text };
-    // Recurring alert mail: one-click unsubscribe (RFC 8058) + footer line.
-    // The one-off "connected" confirmation passes `undefined` and stays as is.
-    if (unsubscribeUrl !== undefined) {
-      payload.text = appendUnsubscribeText(text, unsubscribeUrl, 'Unsubscribe from alert emails');
-      const headers = listUnsubscribeHeaders(unsubscribeUrl);
-      if (headers) payload.headers = headers;
-    }
-    await resend.emails.send(payload);
-    return true;
-  } catch (err) {
-    console.warn('[relay] Resend send failed:', err.message);
-    return false;
+  const payload = { from: RESEND_FROM, to: email, subject, text };
+  if (unsubscribeUrl !== undefined) {
+    payload.text = appendUnsubscribeText(text, unsubscribeUrl, 'Unsubscribe from alert emails');
+    payload.headers = listUnsubscribeHeaders(unsubscribeUrl);
   }
+  const result = await sendResendEmail(resend, payload, { logPrefix: '[relay]' });
+  return result.ok;
 }
 
 async function sendWebhook(userId, webhookEnvelope, event, webhookSecretEnvelope) {
