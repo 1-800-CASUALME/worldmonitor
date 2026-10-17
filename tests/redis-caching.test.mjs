@@ -2431,6 +2431,38 @@ describe('country intel brief caching behavior', { concurrency: 1 }, () => {
     }
   });
 
+  it('rejects an unassigned code from a premium caller before Redis or the LLM', async () => {
+    const { module, cleanup } = await importCountryIntelBrief({ premium: true });
+    const restoreEnv = withEnv(INTEL_TEST_ENV);
+    const originalFetch = globalThis.fetch;
+    const counters = { llmCalls: 0 };
+    const setKeys = [];
+    installIntelFetchMock({ store: new Map(), setKeys, userPrompts: [], counters });
+    const mockedFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = (...args) => {
+      fetchCalls += 1;
+      return mockedFetch(...args);
+    };
+    const context = 'Source [1]: ' + JSON.stringify({ title: 'Government announces new border controls', source: 'Reuters', url: 'https://reuters.com/zz' });
+    try {
+      await assert.rejects(
+        module.getCountryIntelBrief(
+          makeCtx(`https://example.com/api/intelligence/v1/get-country-intel-brief?country_code=ZZ&context=${encodeURIComponent(context)}`),
+          { countryCode: 'ZZ' },
+        ),
+        (error) => error?.name === 'ValidationError' && error.violations?.[0]?.field === 'country_code',
+      );
+      assert.equal(counters.llmCalls, 0);
+      assert.equal(fetchCalls, 0, 'an unassigned code must not reach Redis or any upstream');
+      assert.deepEqual(setKeys, []);
+    } finally {
+      globalThis.fetch = originalFetch;
+      restoreEnv();
+      await cleanup?.();
+    }
+  });
+
   it('writes no English brief from sports-only caller context', async () => {
     const { module, cleanup } = await importCountryIntelBrief({ premium: true });
     const restoreEnv = withEnv(INTEL_TEST_ENV);
