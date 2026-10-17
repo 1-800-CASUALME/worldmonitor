@@ -164,6 +164,15 @@ async function readCappedBody(resp, signal) {
   return new TextDecoder().decode(bytes.subarray(0, total));
 }
 
+// The start of a rejected response body, for the failure log: it is what
+// tells a WAF block page from an outage.
+async function withBodySnippet(err, resp, signal) {
+  try {
+    err.snippet = (await readCappedBody(resp, signal)).replace(/\s+/g, ' ').slice(0, 200);
+  } catch { /* the log goes without it */ }
+  return err;
+}
+
 // One deadline covers the request and the body, so a server that sends
 // headers promptly and then trickles the body is still cut off.
 async function fetchDocument(clientId, fetchImpl) {
@@ -194,9 +203,9 @@ async function fetchDocument(clientId, fetchImpl) {
       // a blip at the vendor's edge, and treating it as permanent would answer
       // a refresh with invalid_client and sign every user of that client out.
       if (resp.status === 404 || resp.status === 410) throw new ClientMetadataError('document_not_found');
-      if (resp.status !== 200) throw new ClientMetadataError('document_fetch_failed', true);
+      if (resp.status !== 200) throw await withBodySnippet(new ClientMetadataError('document_fetch_failed', true), resp, controller.signal);
       if (!/^application\/(?:[\w.+-]+\+)?json\b/i.test(resp.headers.get('content-type') ?? '')) {
-        throw new ClientMetadataError('document_not_json', true);
+        throw await withBodySnippet(new ClientMetadataError('document_not_json', true), resp, controller.signal);
       }
       const text = await readCappedBody(resp, controller.signal);
       let doc;
@@ -213,7 +222,9 @@ async function fetchDocument(clientId, fetchImpl) {
         status: resp.status,
         content_type: resp.headers.get('content-type'),
         cf_mitigated: resp.headers.get('cf-mitigated'),
+        cf_ray: resp.headers.get('cf-ray'),
         server: resp.headers.get('server'),
+        ...(err.snippet !== undefined ? { body: err.snippet } : {}),
       };
     }
     throw err;
@@ -292,7 +303,13 @@ export async function resolveOAuthClient(clientId, deps) {
 
   const urlProblem = checkClientIdUrl(clientId);
   if (urlProblem) return { ok: false, reason: urlProblem, transient: false };
-  if (!trustedEntry(clientId)) return { ok: false, reason: 'untrusted_client_id', transient: false };
+  if (!trustedEntry(clientId)) {
+    // A client that prefers CIMD does not fall back to DCR, so this is a
+    // client that cannot connect at all until its URL is listed. Never
+    // fetched; the URL is only recorded.
+    console.warn('[oauth/cimd] untrusted client_id', JSON.stringify({ client_id: clientId.slice(0, 300) }));
+    return { ok: false, reason: 'untrusted_client_id', transient: false };
+  }
 
   const cacheKey = `${CLIENT_METADATA_CACHE_PREFIX}${clientId}`;
   try {

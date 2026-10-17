@@ -684,11 +684,27 @@ describe('CIMD — rejected documents and client_ids', () => {
     assert.equal(warned[0][0], '[oauth/cimd] client document unusable');
     assert.deepEqual(JSON.parse(warned[0][1]), {
       client_id: LINEAR, reason: 'document_fetch_failed', transient: true,
-      status: 403, content_type: 'text/html', cf_mitigated: 'challenge', server: 'cloudflare',
+      status: 403, content_type: 'text/html', cf_mitigated: 'challenge', cf_ray: null, server: 'cloudflare',
+      body: '<html>challenge</html>',
     });
     assert.deepEqual(JSON.parse(warned[1][1]), {
       client_id: LINEAR, reason: 'document_fetch_failed', transient: true, error: 'TypeError: fetch failed',
     });
+  });
+
+  it('logs an unlisted client_id without fetching it', async () => {
+    const warned = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => { warned.push(args); };
+    let result;
+    try {
+      result = await resolveOAuthClient('https://new-client.example/oauth/client.json', deps());
+    } finally {
+      console.warn = originalWarn;
+    }
+    assert.equal(result.reason, 'untrusted_client_id');
+    assert.equal(vendorFetches.length, 0);
+    assert.deepEqual(warned, [['[oauth/cimd] untrusted client_id', JSON.stringify({ client_id: 'https://new-client.example/oauth/client.json' })]]);
   });
 
   it('enforces a per-connector pinned callback on a cache hit too', async () => {
