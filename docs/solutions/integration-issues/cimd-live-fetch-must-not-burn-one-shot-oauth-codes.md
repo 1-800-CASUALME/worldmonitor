@@ -69,7 +69,7 @@ A one-shot artifact (a `GETDEL`ed code, a consumed nonce) can only be spent once
 - Default fetched-dependency failures to retryable; make an outcome permanent only when the response proves it.
 - Pin the behavior with tests that drive the real handler: `tests/oauth-cimd.test.mjs` has "a vendor outage at code exchange leaves the code redeemable on retry" and "a vendor 403 or HTML challenge during refresh is retryable and keeps the token" (the latter also covers a truncated JSON body).
 - Two related CIMD rules from the same review: the consent warning must key on whether the redirect in use is loopback (`clientDisplayInfo(client, redirectUri)`), not on whether the document lists only loopback callbacks, because any local app can send a published `client_id` with a loopback redirect. And `Cache-Control` values may be quoted (`max-age="300"`, RFC 9111); strip the quotes before parsing, or caching silently turns off.
-- Known residual: the consent POST and `authorize-pro` still consume their nonce before resolving the client, so a vendor blip there means restarting the connection from the MCP client (no token is lost).
+- The same rule applied to the consent POST and `authorize-pro` in #9285: the consent POST answers a transient CIMD failure with a fresh nonce (`retryConsent`), and `authorize-pro` reads `oauth:nonce:<n>` without consuming it and resolves a CIMD client before either GETDEL.
 
 ## Related Issues
 
