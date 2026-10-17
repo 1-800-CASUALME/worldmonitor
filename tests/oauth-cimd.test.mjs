@@ -508,6 +508,39 @@ describe('CIMD — Pro grant path', () => {
     assert.equal(JSON.parse(store.get('oauth:code:code_pro_retry')).client_id, CONNECTOR);
   });
 
+  it('a failed nonce read at authorize-pro answers 503 before consuming the link', async () => {
+    process.env.MCP_PRO_GRANT_HMAC_SECRET = 'x'.repeat(48);
+    const flow = await startFlow(CONNECTOR, CONNECTOR_CALLBACK);
+    const mintRes = await mintGrantHandler(new Request('https://worldmonitor.app/api/internal/mcp-grant-mint', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', cookie: flow.cookie }, body: JSON.stringify({ nonce: flow.nonce }),
+    }), {
+      resolveUserId: async () => 'user_pro',
+      redisGet,
+      redisSetEx: async (k, v) => { store.set(k, JSON.stringify(v)); return true; },
+      redisSetNxEx: async (k, v) => { if (store.has(k)) return false; store.set(k, JSON.stringify(v)); return true; },
+      getEntitlements: async () => PRO_ENT,
+      isAllowedRedirectUri,
+      signGrant: (p) => signGrant(p),
+      now: () => NOW,
+    });
+    const link = (await mintRes.json()).redirect;
+    const res = await authorizeProHandler(new Request(link), {
+      redisGetDel: async (k) => { const v = store.get(k); store.delete(k); return parseStored(v); },
+      // The peek times out; every other Redis call would succeed.
+      redisGet: async (k) => { if (k.startsWith('oauth:nonce:')) throw new Error('timeout'); return redisGet(k); },
+      redisSetEx: async (k, v) => { store.set(k, JSON.stringify(v)); return true; },
+      verifyGrant: (token, secret) => verifyGrant(token, secret, NOW),
+      getEntitlements: async () => PRO_ENT,
+      issueProMcpTokenForUser: async () => ({ tokenId: 'tok_1' }),
+      revokeProMcpToken: async () => ({ ok: true }),
+      randomCode: () => 'code_pro_peek',
+      now: () => NOW,
+    });
+    assert.equal(res.status, 503);
+    assert.ok(store.has(`mcp-grant:${flow.nonce}`), 'the grant is not consumed');
+    assert.ok(store.has(`oauth:nonce:${flow.nonce}`), 'the nonce is not consumed');
+  });
+
   it('mint refuses a redirect the document no longer lists', async () => {
     const flow = await startFlow(CHATGPT, REDIRECT);
     store.delete(`oauth:cimd:${CHATGPT}`);

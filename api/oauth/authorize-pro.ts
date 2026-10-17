@@ -371,7 +371,15 @@ export async function authorizeProHandler(req: Request, deps: AuthorizeProDeps):
   let peeked: NonceData | null = null;
   try {
     peeked = (await deps.redisGet(`oauth:nonce:${nonce}`)) as NonceData | null;
-  } catch { /* step 4 reports a storage failure */ }
+  } catch {
+    // Without the client_id there is no telling whether step 5 would fetch,
+    // so stop before anything is consumed.
+    return htmlError(
+      'Service Unavailable',
+      'Authorization service is temporarily unavailable. Please try again shortly.',
+      503,
+    );
+  }
   if (peeked && typeof peeked.client_id === 'string' && isClientMetadataDocumentId(peeked.client_id)) {
     const early = await resolveOAuthClient(peeked.client_id, {
       redisGet: deps.redisGet,
