@@ -165,6 +165,31 @@ describe('MCP RPC ValidationError preservation', () => {
     assert.equal(body.result, undefined);
   });
 
+  it('get_country_brief maps an unassigned country_code 400 to -32602 with data.violations', async () => {
+    const violation = {
+      field: 'country_code',
+      description: 'country_code must be an assigned ISO 3166-1 alpha-2 code, e.g. "IQ".',
+    };
+    let briefCalls = 0;
+    const res = await callTool(
+      'get_country_brief',
+      { country_code: 'ZZ' },
+      async (input) => {
+        const url = String(typeof input === 'string' ? input : input.url);
+        if (!url.includes('/api/intelligence/v1/get-country-intel-brief')) {
+          return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        briefCalls += 1;
+        return json400([violation]);
+      },
+    );
+    assert.equal(briefCalls, 1);
+    const body = await res.json();
+    assert.equal(body.error?.code, -32602);
+    assert.deepEqual(body.error?.data, { violations: [violation] });
+    assert.equal(body.result, undefined);
+  });
+
   it('POST analyze_situation 400 returns JSON-RPC -32602 with data.violations', async () => {
     const res = await callTool(
       'analyze_situation',
