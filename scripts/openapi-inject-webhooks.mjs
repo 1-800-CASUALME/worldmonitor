@@ -69,8 +69,11 @@ const WEBHOOKS_BLOCK = `webhooks:
                 RegisterWebhook when a subscribed chokepoint's disruption score rises
                 to or above your \`alertThreshold\`, and again only after it has fallen
                 below it. A failed delivery is retried every 5 minutes with the same
-                \`X-WM-Delivery-Id\`. Every delivery is signed so you can confirm it
-                genuinely came from WorldMonitor.
+                \`X-WM-Delivery-Id\` while the score stays at or above the threshold;
+                if the score falls below it first, that delivery is dropped. After 5
+                consecutive failed attempts the webhook is set to \`active: false\` and
+                delivery stops until you call \`reactivate\`. Every delivery is signed
+                so you can confirm it genuinely came from WorldMonitor.
 
                 Verification: the \`${SIGNATURE_HEADER}\` header is
                 \`sha256=<hex>\`, where \`<hex>\` is the lowercase hex HMAC-SHA256 of the
