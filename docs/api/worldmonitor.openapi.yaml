@@ -29610,7 +29610,8 @@ paths:
                                       "callbackUrl": "https://example.com/worldmonitor-webhook"
                                       "chokepointIds":
                                           - "suez"
-                                      "createdAt": "2026-01-15T12:00:00Z"
+                                      "countries":
+                                          - "example"
                             schema:
                                 $ref: '#/components/schemas/worldmonitor_shipping_v2_ListWebhooksResponse'
                 "400":
@@ -29728,6 +29729,10 @@ paths:
                             "callbackUrl": "https://example.com/worldmonitor-webhook"
                             "chokepointIds":
                                 - "suez"
+                            "countries":
+                                - "example"
+                            "eventType": "all"
+                            "minLiveSignal": 1
                         schema:
                             $ref: '#/components/schemas/worldmonitor_shipping_v2_RegisterWebhookRequest'
                 required: true
@@ -35412,14 +35417,13 @@ webhooks:
             description: |-
                 WorldMonitor POSTs this event to the `callbackUrl` you register via
                 RegisterWebhook when a subscribed chokepoint's disruption score is at or
-                above your `alertThreshold`, once per crossing, including one already
-                in progress at first evaluation. It re-arms below the threshold unless a
-                score input missing since the last delivery could explain the drop.
-                Failures retry every 5 minutes with the same `X-WM-Delivery-Id` while
-                the score holds; 5 failed ticks deactivate the webhook. Full rules at
+                above your `alertThreshold` (and its live signals above `minLiveSignal`
+                when set), once per crossing, including one already in progress at
+                first evaluation. It re-arms below the threshold unless a score input
+                missing since the last delivery could explain the drop. Failures retry
+                every 5 minutes with the same `X-WM-Delivery-Id` while the score holds;
+                5 failed ticks deactivate the webhook. Full rules at
                 https://www.worldmonitor.app/docs/api-shipping-v2#delivery-worker.
-                Every delivery is signed so you can confirm it genuinely came from
-                WorldMonitor.
 
                 Verification: the `X-WM-Signature` header is
                 `sha256=<hex>`, where `<hex>` is the lowercase hex HMAC-SHA256 of the
@@ -35430,11 +35434,6 @@ webhooks:
                 compare against `X-WM-Signature` in constant time. Use the
                 `secret` string verbatim as the HMAC key — do not hex-decode it.
                 Reject the delivery if the signatures differ.
-
-                A verifiable signed sample (fixed secret + exact raw body +
-                resulting signature) is published at
-                https://www.worldmonitor.app/.well-known/webhook-sample.json so you
-                can confirm your HMAC verification end-to-end before registering.
 
                 Respond with any 2xx to acknowledge receipt; a non-2xx response or a
                 timeout marks the delivery failed. `X-WM-Delivery-Id` uniquely
@@ -35455,10 +35454,14 @@ webhooks:
                 - name: X-WM-Event
                   in: header
                   required: true
-                  description: Event type. Currently always `chokepoint.disruption`.
+                  description: |-
+                      `chokepoint.disruption` here; `country.risk_surge` shares these
+                      headers, payload at https://www.worldmonitor.app/docs/api-shipping-v2#delivery-format.
                   schema:
                       type: string
-                      example: chokepoint.disruption
+                      enum:
+                          - chokepoint.disruption
+                          - country.risk_surge
                 - name: X-WM-Delivery-Id
                   in: header
                   required: true
@@ -35506,11 +35509,11 @@ webhooks:
                                         - navigational_warning
                                         - transit_drop
                                         - score_threshold
-                                    description: First matching rule, checked in order - AIS disruptions, then navigational warnings, then a transit drop; `score_threshold` when none matches.
+                                    description: First matching rule in this order; `score_threshold` when none matches.
                                 details:
                                     type: object
                                     additionalProperties: true
-                                    description: Chokepoint name, status, warning and AIS counts, congestion, war-risk tier, week-over-week transit change, previous score and feed time.
+                                    description: Name, status, warning and AIS counts, congestion, war-risk tier, transit change, previous score, feed time.
                         example:
                             "subscriberId": "wh_1a2b3c4d5e6f7a8b9c0d1e2f"
                             "chokepointId": "suez"
@@ -35518,8 +35521,6 @@ webhooks:
                             "alertThreshold": 50
                             "triggeredAt": "2026-07-04T12:34:56Z"
                             "reason": "navigational_warning"
-                            "details":
-                                "name": "Suez Canal"
             responses:
                 "2XX":
                     description: |-
@@ -56931,12 +56932,22 @@ components:
                     maximum: 100
                     minimum: 0
                     format: int32
-                    description: |-
-                        Disruption-score threshold for delivery, 0-100. Default 50.
-                         proto3 `optional` so the handler can distinguish "partner explicitly sent
-                         0 (deliver every alert)" from "partner omitted the field (apply default
-                         50)". Without `optional`, both serialise to the proto3 scalar default of
-                         0 and the handler can't tell them apart — flagged in #3242 review.
+                    description: Disruption-score threshold for delivery, 0-100. Default 50; an explicit 0 delivers every alert.
+                eventType:
+                    type: string
+                    maxLength: 64
+                    description: '`chokepoint.disruption` (default) or `country.risk_surge`.'
+                countries:
+                    type: array
+                    items:
+                        type: string
+                        description: '`country.risk_surge` scope: monitored ISO2 codes; empty = all.'
+                minLiveSignal:
+                    type: integer
+                    maximum: 40
+                    minimum: 0
+                    format: int32
+                    description: '`chokepoint.disruption` live-signal floor; 0 = score only.'
             required:
                 - callbackUrl
             description: |-
@@ -56989,6 +57000,16 @@ components:
                     description: ISO-8601 timestamp of registration.
                 active:
                     type: boolean
+                eventType:
+                    type: string
+                    description: As registered; see RegisterWebhookRequest.
+                countries:
+                    type: array
+                    items:
+                        type: string
+                minLiveSignal:
+                    type: integer
+                    format: int32
             description: |-
                 Single webhook record in the list response. `secret` is intentionally
                  omitted; use rotate-secret to obtain a new one.

@@ -25,7 +25,7 @@ export function makeDeliveryId() {
   return `whd_${randomBytes(16).toString('hex')}`;
 }
 
-export function buildShippingWebhookDelivery({ record, payload, deliveryId }) {
+export function buildShippingWebhookDelivery({ record, payload, deliveryId, event = SHIPPING_WEBHOOK_EVENT }) {
   const body = JSON.stringify(payload);
   const signature = createHmac('sha256', record.secret).update(body).digest('hex');
   return {
@@ -35,7 +35,7 @@ export function buildShippingWebhookDelivery({ record, payload, deliveryId }) {
       'user-agent': 'WorldMonitor-ShippingV2-Webhooks/1.0',
       'x-wm-signature': `sha256=${signature}`,
       'x-wm-delivery-id': deliveryId,
-      'x-wm-event': SHIPPING_WEBHOOK_EVENT,
+      'x-wm-event': event,
     },
   };
 }
@@ -80,7 +80,7 @@ async function attemptDelivery(record, payload, options, expired) {
     // The caller already counted this attempt as a timeout; a late DNS answer
     // must not start a POST it no longer tracks.
     if (expired.done) return TIMED_OUT;
-    const { body, headers } = buildShippingWebhookDelivery({ record, payload, deliveryId });
+    const { body, headers } = buildShippingWebhookDelivery({ record, payload, deliveryId, event: options.event });
     const response = options.fetchImpl
       ? await options.fetchImpl(url, { method: 'POST', headers, body })
       : await postJsonWithPinnedAddress(url, body, headers, resolvedAddresses);

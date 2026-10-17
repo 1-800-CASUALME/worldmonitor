@@ -7,6 +7,9 @@ const chokepointStatus = require('./searches/chokepoint-status');
 const latestEvents = require('./searches/latest-events');
 const newDiseaseOutbreak = require('./triggers/new-disease-outbreak');
 const chokepointList = require('./triggers/chokepoint-list');
+const countryList = require('./triggers/country-list');
+const chokepointDisruption = require('./triggers/chokepoint-disruption');
+const countryRiskSurge = require('./triggers/country-risk-surge');
 
 module.exports = {
   version: require('./package.json').version,
@@ -21,7 +24,10 @@ module.exports = {
     [latestEvents.key]: latestEvents,
   },
   triggers: {
+    [chokepointDisruption.key]: chokepointDisruption,
+    [countryRiskSurge.key]: countryRiskSurge,
     [newDiseaseOutbreak.key]: newDiseaseOutbreak,
     [chokepointList.key]: chokepointList,
+    [countryList.key]: countryList,
   },
 };

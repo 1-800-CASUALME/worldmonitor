@@ -377,6 +377,59 @@ describe('ShippingV2Service handlers', () => {
       assert.ok(record.chokepointIds.length > 0, 'empty list expands to registry');
       assert.equal(record.chokepointIds.length, webhookShared.VALID_CHOKEPOINT_IDS.size);
     });
+
+    it('eventType omitted stores the default chokepoint.disruption and no scope fields', async () => {
+      const calls = stubRedisOk();
+      await registerWebhook(proCtx(), { callbackUrl: 'https://93.184.216.34/wm', chokepointIds: [], countries: [] });
+      const record = JSON.parse(calls[0][0][2]);
+      assert.equal(record.eventType, 'chokepoint.disruption');
+      assert.equal('countries' in record, false);
+      assert.equal('minLiveSignal' in record, false);
+    });
+
+    it('rejects an eventType outside shared/event-triggers.json', async () => {
+      stubRedisOk();
+      await assert.rejects(
+        () => registerWebhook(proCtx(), { callbackUrl: 'https://93.184.216.34/wm', chokepointIds: [], countries: [], eventType: 'country.coup' }),
+        (err) => err instanceof ValidationError && err.violations[0].field === 'eventType',
+      );
+    });
+
+    it('country.risk_surge keeps an upper-cased, de-duplicated country scope and rejects unmonitored codes', async () => {
+      const calls = stubRedisOk();
+      await registerWebhook(proCtx(), {
+        callbackUrl: 'https://93.184.216.34/wm',
+        chokepointIds: [],
+        eventType: 'country.risk_surge',
+        countries: ['ir', 'IR', ' ua '],
+      });
+      const record = JSON.parse(calls[0][0][2]);
+      assert.equal(record.eventType, 'country.risk_surge');
+      assert.deepEqual(record.countries, ['IR', 'UA']);
+      await assert.rejects(
+        () => registerWebhook(proCtx(), { callbackUrl: 'https://93.184.216.34/wm', chokepointIds: [], eventType: 'country.risk_surge', countries: ['ZZ'] }),
+        (err) => err instanceof ValidationError && err.violations[0].field === 'countries',
+      );
+      await assert.rejects(
+        () => registerWebhook(proCtx(), { callbackUrl: 'https://93.184.216.34/wm', chokepointIds: [], countries: ['IR'] }),
+        (err) => err instanceof ValidationError && err.violations[0].field === 'countries',
+        'countries on a chokepoint subscription is a caller mistake, not silently ignored',
+      );
+    });
+
+    it('minLiveSignal is stored for chokepoint.disruption, bounded, and refused for other events', async () => {
+      const calls = stubRedisOk();
+      await registerWebhook(proCtx(), { callbackUrl: 'https://93.184.216.34/wm', chokepointIds: ['hormuz_strait'], countries: [], minLiveSignal: 15 });
+      assert.equal(JSON.parse(calls[0][0][2]).minLiveSignal, 15);
+      await assert.rejects(
+        () => registerWebhook(proCtx(), { callbackUrl: 'https://93.184.216.34/wm', chokepointIds: [], countries: [], minLiveSignal: 41 }),
+        (err) => err instanceof ValidationError && err.violations[0].field === 'minLiveSignal',
+      );
+      await assert.rejects(
+        () => registerWebhook(proCtx(), { callbackUrl: 'https://93.184.216.34/wm', chokepointIds: [], eventType: 'country.risk_surge', countries: [], minLiveSignal: 15 }),
+        (err) => err instanceof ValidationError && err.violations[0].field === 'minLiveSignal',
+      );
+    });
   });
 
   describe('listWebhooks', () => {
@@ -468,6 +521,11 @@ describe('ShippingV2Service handlers', () => {
       assert.equal(summary.subscriberId, record.subscriberId);
       assert.equal(summary.callbackUrl, record.callbackUrl);
       assert.ok(!('secret' in summary), '`secret` must never appear in ListWebhooks response');
+      // Records written before event types existed report the default event
+      // and empty scope fields, so partner clients see one shape.
+      assert.equal(summary.eventType, 'chokepoint.disruption');
+      assert.deepEqual(summary.countries, []);
+      assert.equal(summary.minLiveSignal, 0);
     });
   });
 
