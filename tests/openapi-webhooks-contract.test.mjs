@@ -4,6 +4,7 @@ import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { loadUnifiedOpenApiSpec } from './_lib/openapi-spec-cache.mjs';
 
 import {
@@ -20,15 +21,35 @@ import {
 // (public/openapi.json ← docs/api/worldmonitor.openapi.yaml) must name the
 // branded X-WM-Signature header and describe how to verify it, and that
 // documented contract must not drift from what the delivery worker actually
-// sends (server/worldmonitor/shipping/v2/deliver-webhook.ts).
+// sends (scripts/lib/shipping-webhook-dispatch.cjs, run by the AIS relay).
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const bundlePath = resolve(root, 'docs/api/worldmonitor.openapi.yaml');
-const deliverPath = resolve(root, 'server/worldmonitor/shipping/v2/deliver-webhook.ts');
 
 const bundleRaw = readFileSync(bundlePath, 'utf8');
 const bundle = loadUnifiedOpenApiSpec();
-const deliverSrc = readFileSync(deliverPath, 'utf8');
+const dispatch = createRequire(import.meta.url)('../scripts/lib/shipping-webhook-dispatch.cjs');
+
+const sampleRecord = {
+  subscriberId: 'wh_1a2b3c4d5e6f7a8b9c0d1e2f', callbackUrl: 'https://hooks.example.com/wm',
+  chokepointIds: ['suez'], alertThreshold: 50, active: true, secret: 'a'.repeat(64),
+};
+const sampleChokepoint = {
+  id: 'suez', name: 'Suez Canal', disruptionScore: 72, status: 'red', activeWarnings: 2,
+  aisDisruptions: 1, congestionLevel: 'elevated', warRiskTier: 'WAR_RISK_TIER_CRITICAL',
+  navigationalWarningsAvailable: true, aisSnapshotAvailable: true, description: 'test',
+};
+const samplePayload = dispatch.buildPayload(sampleRecord, sampleChokepoint, { score: 72, triggeredAt: '2026-07-04T12:34:56Z' });
+
+async function captureDelivery() {
+  const seen = {};
+  const outcome = await dispatch.sendDelivery(sampleRecord, samplePayload, 'whd_1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d', {
+    assertSafe: async (url) => ({ url: new URL(url), resolvedAddresses: ['93.184.216.34'] }),
+    post: async (_url, body, headers) => { Object.assign(seen, { body, headers }); return { status: 200 }; },
+  });
+  assert.equal(outcome.ok, true);
+  return seen;
+}
 
 const webhook = bundle.webhooks?.[WEBHOOK_EVENT]?.post;
 
@@ -71,47 +92,42 @@ describe('OpenAPI webhooks contract', () => {
     }
   });
 
-  it('payload schema matches the WebhookDeliveryPayload interface exactly', () => {
+  it('payload schema matches the payload the worker builds', () => {
     const schema = webhook.requestBody.content['application/json'].schema;
-
-    // Parse the source-of-truth interface: `name: type;` (required) or
-    // `name?: type;` (optional).
-    const block = deliverSrc.match(/interface WebhookDeliveryPayload \{([\s\S]*?)\n\}/);
-    assert.ok(block, 'could not locate WebhookDeliveryPayload interface');
-    const fields = [...block[1].matchAll(/^\s*(\w+)(\??):/gm)].map((m) => ({
-      name: m[1],
-      optional: m[2] === '?',
-    }));
-    assert.ok(fields.length >= 6, 'expected the interface to parse at least 6 fields');
-
-    const documented = Object.keys(schema.properties).sort();
-    const expected = fields.map((f) => f.name).sort();
-    assert.deepEqual(documented, expected, 'documented payload properties must match the interface');
-
-    const requiredExpected = fields.filter((f) => !f.optional).map((f) => f.name).sort();
-    assert.deepEqual([...schema.required].sort(), requiredExpected, 'required set must match non-optional interface fields');
+    assert.deepEqual(Object.keys(schema.properties).sort(), Object.keys(samplePayload).sort());
+    // details is the only optional field.
+    assert.deepEqual(
+      [...schema.required].sort(),
+      Object.keys(samplePayload).filter((name) => name !== 'details').sort(),
+    );
   });
 
-  it('documented headers match what the delivery worker actually sends', () => {
-    // The worker sends header names lowercase; the spec uses canonical casing.
-    const sent = [...deliverSrc.matchAll(/'(x-wm-[a-z-]+)'\s*:/g)].map((m) => m[1].toLowerCase());
-    const sentSet = new Set(sent);
+  it('documents the reason enum the worker emits', () => {
+    const schema = webhook.requestBody.content['application/json'].schema;
+    assert.deepEqual(schema.properties.reason.enum, [...dispatch.REASONS]);
+    assert.ok(dispatch.REASONS.includes(samplePayload.reason));
+    assert.ok(dispatch.REASONS.includes(webhook.requestBody.content['application/json'].example.reason));
+  });
+
+  it('documented headers match what the delivery worker actually sends', async () => {
+    const { headers } = await captureDelivery();
+    const sent = new Set(Object.keys(headers).map((name) => name.toLowerCase()));
     for (const name of [SIGNATURE_HEADER, EVENT_HEADER, DELIVERY_ID_HEADER]) {
-      assert.ok(sentSet.has(name.toLowerCase()), `worker must send the ${name} header it documents`);
+      assert.ok(sent.has(name.toLowerCase()), `worker must send the ${name} header it documents`);
     }
   });
 
-  it('the signing algorithm the worker uses backs the documented contract', () => {
-    assert.ok(/createHmac\(\s*'sha256'/.test(deliverSrc), 'worker must sign with HMAC-SHA256');
-    assert.ok(/`sha256=\$\{signature\}`/.test(deliverSrc), 'worker must prefix the signature with sha256=');
-    assert.ok(/\.digest\('hex'\)/.test(deliverSrc), 'worker must hex-encode the signature');
+  it('the worker signs with the documented HMAC-SHA256 recipe', async () => {
+    const { body, headers } = await captureDelivery();
+    const expected = 'sha256=' + createHmac('sha256', sampleRecord.secret).update(body).digest('hex');
+    assert.equal(headers[SIGNATURE_HEADER.toLowerCase()], expected);
+    assert.match(headers[SIGNATURE_HEADER.toLowerCase()], new RegExp(webhook.parameters.find((p) => p.name === SIGNATURE_HEADER).schema.pattern));
   });
 
-  it('the worker defaults the event header to the documented event name', () => {
-    assert.ok(
-      deliverSrc.includes(`?? '${WEBHOOK_EVENT}'`),
-      `worker must default the event header to '${WEBHOOK_EVENT}'`,
-    );
+  it('the worker sends the documented event name', async () => {
+    const { headers } = await captureDelivery();
+    assert.equal(headers[EVENT_HEADER.toLowerCase()], WEBHOOK_EVENT);
+    assert.equal(dispatch.WEBHOOK_EVENT, WEBHOOK_EVENT);
   });
 
   it('the committed bundle is up to date with the injector (idempotent)', () => {

@@ -115,6 +115,10 @@ export default async function handler(req: Request): Promise<Response> {
       alertThreshold: record.alertThreshold,
       createdAt: record.createdAt,
       active: record.active,
+      lastDeliveryAt: record.lastDeliveryAt ?? null,
+      lastStatus: record.lastStatus ?? null,
+      ...(record.lastError ? { lastError: record.lastError } : {}),
+      failureCount: record.failureCount ?? 0,
     }),
     { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } },
   );

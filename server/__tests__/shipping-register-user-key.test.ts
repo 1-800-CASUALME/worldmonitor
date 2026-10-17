@@ -118,6 +118,8 @@ for (const key of [keyA, keyB]) {
     expect(commands[1]).toEqual(['SADD', `webhook:owner:${hash(key)}:v1`, body.subscriberId]);
     expect(commands[2]).toEqual(['EXPIRE', `webhook:owner:${hash(key)}:v1`, String(86400 * 30)]);
     expect(commands[0].slice(3)).toEqual(['EX', String(86400 * 30)]);
+    expect(commands[3]).toEqual(['SADD', 'webhook:all:v1', body.subscriberId]);
+    expect(commands).toHaveLength(4);
   });
 }
 
@@ -282,6 +284,30 @@ test('rotate-secret refreshes the owner index with the record TTL', async () => 
   const commands = runRedisTransaction.mock.calls.at(-1)?.[0] as string[][];
   expect(commands[1]).toEqual(['SADD', `webhook:owner:${hash(keyA)}:v1`, own.subscriberId]);
   expect(commands[2]).toEqual(['EXPIRE', `webhook:owner:${hash(keyA)}:v1`, String(86400 * 30)]);
+  expect(commands[3]).toEqual(['SADD', 'webhook:all:v1', own.subscriberId]);
+});
+
+test('reactivate clears delivery failures and status shows delivery bookkeeping', async () => {
+  const own = await (await gateway(request(keyA), context)).json();
+  const storageKey = `webhook:sub:${own.subscriberId}:v1`;
+  const delivery = { lastDeliveryAt: '2026-10-17T12:00:00.000Z', lastStatus: 500, lastError: 'http_500', failureCount: 5 };
+  records.set(storageKey, { ...records.get(storageKey), ...delivery, active: false });
+  const status = await (await manage(own.subscriberId, '', keyA)).json();
+  expect(status).toMatchObject({ ...delivery, active: false });
+  expect(status).not.toHaveProperty('secret');
+
+  expect((await manage(own.subscriberId, 'reactivate', keyA)).status).toBe(200);
+  const revived = records.get(storageKey);
+  expect(revived).toMatchObject({ active: true, failureCount: 0, lastStatus: 500, lastDeliveryAt: delivery.lastDeliveryAt });
+  expect(revived).not.toHaveProperty('lastError');
+  const commands = runRedisTransaction.mock.calls.at(-1)?.[0] as string[][];
+  expect(commands[3]).toEqual(['SADD', 'webhook:all:v1', own.subscriberId]);
+});
+
+test('status reports zero failures for a subscription that has never been delivered', async () => {
+  const own = await (await gateway(request(keyA), context)).json();
+  const status = await (await manage(own.subscriberId, '', keyA)).json();
+  expect(status).toMatchObject({ failureCount: 0, lastDeliveryAt: null, lastStatus: null });
 });
 
 for (const failing of ['SADD', 'EXPIRE']) {

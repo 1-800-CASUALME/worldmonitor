@@ -55,6 +55,8 @@ COPY scripts/lib/llm-telemetry.cjs ./scripts/lib/llm-telemetry.cjs
 COPY scripts/lib/llm-model-policy.cjs ./scripts/lib/llm-model-policy.cjs
 # DNS-vetted, address-pinned lookup for the public /rss proxy.
 COPY scripts/lib/notification-webhook-ssrf.cjs ./scripts/lib/notification-webhook-ssrf.cjs
+# Shipping v2 chokepoint webhook dispatcher (#9217); requires notification-webhook-ssrf.cjs above.
+COPY scripts/lib/shipping-webhook-dispatch.cjs ./scripts/lib/shipping-webhook-dispatch.cjs
 # Curated X news-account helpers required by ais-relay.cjs (#6654).
 COPY scripts/lib/x-news-accounts.cjs ./scripts/lib/x-news-accounts.cjs
 COPY scripts/lib/poll-generation-guard.cjs ./scripts/lib/poll-generation-guard.cjs

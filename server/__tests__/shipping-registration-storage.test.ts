@@ -9,11 +9,13 @@ const owners = new Map<string, Set<string>>();
 let failCommand = -1;
 let replyOverride: unknown;
 const isRegistration = (commands: string[][]) => (
-  commands.length === 3
+  commands.length === 4
   && commands[0][0] === 'SET'
   && commands[1][0] === 'SADD'
   && commands[2][0] === 'EXPIRE'
+  && commands[3][0] === 'SADD' && commands[3][1] === 'webhook:all:v1'
 );
+const ownerSets = () => [...owners.keys()].filter(key => key.startsWith('webhook:owner:')).length;
 const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
   const commands = JSON.parse(String(init?.body)) as string[][];
   const results = commands.map((command, index) => {
@@ -64,20 +66,21 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
-for (const response of [{ invalid: true }, [], [{ result: 'OK' }], [{ result: 'OK' }, {}, { result: 1 }], [{ result: 'OK' }, { result: 1 }, { result: 0 }], null]) {
+for (const response of [{ invalid: true }, [], [{ result: 'OK' }], [{ result: 'OK' }, {}, { result: 1 }], [{ result: 'OK' }, { result: 1 }, { result: 0 }], [{ result: 'OK' }, { result: 1 }, { result: 1 }], [{ result: 'OK' }, { result: 1 }, { result: 1 }, {}], null]) {
   test(`unconfirmed pipeline cannot report success: ${JSON.stringify(response)}`, async () => {
     if (response === null) vi.stubEnv('UPSTASH_REDIS_REST_URL', '');
     else replyOverride = response;
     await expect(registerWebhook(context, payload)).rejects.toMatchObject({ statusCode: 503 });
   });
 }
-for (const failed of [0, 1, 2]) {
+for (const failed of [0, 1, 2, 3]) {
   test(`partial command ${failed} failure returns 503; retry retains credential ownership`, async () => {
     failCommand = failed;
     await expect(registerWebhook(context, payload)).rejects.toMatchObject({ statusCode: 503 });
     // Pipeline commands are independent: failed calls can leave records or index entries.
     expect(records.size).toBe(failed === 0 ? 0 : 1);
-    expect(owners.size).toBe(failed === 1 ? 0 : 1);
+    expect(ownerSets()).toBe(failed === 1 ? 0 : 1);
+    expect(owners.get('webhook:all:v1')?.size ?? 0).toBe(failed === 3 ? 0 : 1);
     failCommand = -1;
     const result = await registerWebhook(context, payload);
     const owner = createHash('sha256').update('tenant-a').digest('hex');
@@ -88,7 +91,10 @@ for (const failed of [0, 1, 2]) {
     expect(listed.webhooks.some(hook => hook.subscriberId === result.subscriberId)).toBe(true);
     // A SET failure leaves a dangling index member; the reader omits it.
     // An EXPIRE failure can leave the first record visible too; no rollback is claimed.
-    expect(listed.webhooks).toHaveLength(failed === 2 ? 2 : 1);
+    // A global-index SADD failure leaves the first record listed but undelivered
+    // until the relay's backfill or a reactivate/rotate re-adds it.
+    expect(listed.webhooks).toHaveLength(failed >= 2 ? 2 : 1);
+    expect(owners.get('webhook:all:v1')?.has(result.subscriberId)).toBe(true);
     expect(JSON.stringify(listed)).not.toContain(result.secret);
   });
 }
@@ -98,12 +104,12 @@ test('confirmed pipeline returns the persisted subscriber and secret', async () 
 });
 
 test.each([0, 1, '0', '1'])('accepts confirmed SADD result %s with string EXPIRE confirmation', async (added) => {
-  replyOverride = [{ result: 'OK' }, { result: added }, { result: '1' }];
+  replyOverride = [{ result: 'OK' }, { result: added }, { result: '1' }, { result: added }];
   const result = await registerWebhook(context, payload);
   expect(records.get(`webhook:sub:${result.subscriberId}:v1`)).toMatchObject(result);
 });
 
 test.each(['0', false, null, 'OK'])('rejects unconfirmed EXPIRE result %s', async (expiry) => {
-  replyOverride = [{ result: 'OK' }, { result: '1' }, { result: expiry }];
+  replyOverride = [{ result: 'OK' }, { result: '1' }, { result: expiry }, { result: 1 }];
   await expect(registerWebhook(context, payload)).rejects.toMatchObject({ statusCode: 503 });
 });

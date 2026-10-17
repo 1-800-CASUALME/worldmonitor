@@ -101,9 +101,9 @@ Registers a webhook for chokepoint disruption alerts. Returns `200 OK`.
 
 - `subscriberId` — `wh_` prefix + 24 hex chars (12 random bytes).
 - `secret` — raw 64-char lowercase hex (32 random bytes). There is no `whsec_` prefix. Persist it — the server never returns it again except on rotation.
-- **TTL**: 30 days on both the subscriber record and the per-owner index set. Only **re-registration** refreshes both, via a non-transactional pipeline (`SET` record with `EX`, `SADD` + `EXPIRE` on the owner index). `rotate-secret` and `reactivate` refresh the record's TTL only — they do not touch the owner-index set's expiry, so the owner index can expire independently if a caller only ever rotates or reactivates within a 30-day window. Re-register to keep both alive.
+- **TTL**: 30 days on both the subscriber record and the per-owner index set. Registration writes both in a non-transactional pipeline (`SET` record with `EX`, `SADD` + `EXPIRE` on the owner index, `SADD` to the delivery index). `rotate-secret` and `reactivate` rewrite the record with a fresh 30-day TTL and refresh the owner index in one transaction. Delivery bookkeeping does not extend the TTL. A subscription that is never re-registered, rotated or reactivated expires after 30 days and stops receiving deliveries.
 - Registration and listing each scan one owner-index page and check at most 100 subscriber records for expiry. Confirmed expired members are removed only if the record is still absent. Scan progress resumes on later calls. Redis may return more than 100 IDs in a scan page; listing still enumerates the full index. Redis read or cleanup failures return 503 and preserve ambiguous members.
-- Registration returns `503` if any of the three writes cannot be confirmed. Partial records or index entries can remain; a retry can create another registration. No rollback is guaranteed.
+- Registration returns `503` if any of the four writes cannot be confirmed. Partial records or index entries can remain; a retry can create another registration. No rollback is guaranteed.
 - Ownership is tracked via SHA-256 of the caller's API key (never secret — stored as `ownerTag`).
 
 Auth: `X-WorldMonitor-Key` (forceKey: true) + PRO. Returns `401` / `403` otherwise.
@@ -135,7 +135,16 @@ The three `{subscriberId}` sub-routes below are hand-written edge handlers, not 
 
 ### `GET /api/v2/shipping/webhooks/{subscriberId}`
 
-Status read for a single webhook. Returns the same record shape as in `GET /webhooks` (no `secret`). `404` if unknown, `403` if owned by a different API key.
+Status read for a single webhook. Returns the record shape from `GET /webhooks` (no `secret`) plus the delivery fields below. `404` if unknown, `403` if owned by a different API key.
+
+| Field | Meaning |
+|-------|---------|
+| `lastDeliveryAt` | ISO-8601 time of the last delivery attempt, or `null` before the first. |
+| `lastStatus` | HTTP status of the last attempt; `0` when no response arrived; `null` before the first. |
+| `lastError` | Present only after a failed attempt: `http_<status>`, `timeout`, `ssrf_blocked` or `network_error`. |
+| `failureCount` | Consecutive failed attempts. At 5 the subscription is deactivated (`active: false`). |
+
+`GET /webhooks` does not include the delivery fields.
 
 ### `POST /api/v2/shipping/webhooks/{subscriberId}/rotate-secret`
 
@@ -147,7 +156,7 @@ Generates and returns a **new** secret. The record's `secret` is replaced in pla
 
 ### `POST /api/v2/shipping/webhooks/{subscriberId}/reactivate`
 
-Flips `active: true` on the record (use after investigating and fixing a delivery failure that caused deactivation).
+Flips `active: true` on the record and resets `failureCount` to `0` (use after investigating and fixing a delivery failure that caused deactivation). A crossing that was still pending when the subscription was deactivated is delivered on the next dispatch if the score is still at or above the threshold.
 
 ```json
 { "subscriberId": "wh_...", "active": true }
@@ -169,11 +178,41 @@ X-WM-Event: chokepoint.disruption
   "alertThreshold": 60,
   "triggeredAt": "2026-04-19T12:03:00Z",
   "reason": "ais_congestion_spike",
-  "details": { ... }
+  "details": {
+    "name": "Strait of Hormuz",
+    "status": "red",
+    "warRiskTier": "WAR_RISK_TIER_WAR_ZONE",
+    "activeWarnings": 0,
+    "aisDisruptions": 1,
+    "congestionLevel": "high",
+    "components": { "threatLevel": 70, "navigationalWarnings": 0, "aisCongestion": 15, "transitDrop": 0 },
+    "description": "..."
+  }
 }
 ```
 
-The delivery worker re-resolves `callbackUrl` before each send and re-checks against `PRIVATE_HOSTNAME_PATTERNS` to mitigate DNS rebinding. Delivery is at-least-once — consumers must handle duplicates via `X-WM-Delivery-Id`.
+`score` is the chokepoint's `disruptionScore` (0-100) from the [chokepoint status feed](/methodology/chokepoints). It is the sum of the components in `details.components`, capped at 100: the baseline threat level (0-70), navigational warnings (5 each, up to 15), AIS congestion (up to 15) and a 10-point transit drop when traffic falls below its 30-day baseline.
+
+`reason` names the largest live signal in the score:
+
+| `reason` | Largest contributor |
+|----------|---------------------|
+| `ais_congestion_spike` | AIS congestion (`details.components.aisCongestion`) |
+| `navigational_warning` | Active navigational warnings (`details.components.navigationalWarnings`) |
+| `transit_drop` | Transit count below its 30-day baseline (`details.components.transitDrop`) |
+| `score_threshold` | None; the baseline threat level alone carries the score |
+
+Ties resolve in the order of the table.
+
+#### When deliveries are sent
+
+- The AIS relay checks every active subscription after each chokepoint status refresh, every 30 minutes. It reads the cached status and sends nothing while that status is more than 2 hours old.
+- One delivery is sent per subscribed chokepoint when its score rises to or above `alertThreshold` (a score equal to the threshold counts). A new subscription whose chokepoint is already at or above the threshold receives one delivery on the first check.
+- While the score stays at or above the threshold, nothing more is sent. The alert re-arms when a check sees the score below the threshold with both the navigational-warning and AIS sources available. A missing source can only lower the score, so a dip during a source outage does not re-arm.
+- A delivery succeeds on any 2xx response within 10 seconds. A failed delivery is retried on each later check, with the same `triggeredAt` and `X-WM-Delivery-Id`, until it succeeds or the score falls back below the threshold. After one failure, the rest of that subscription's crossings in the same check wait for the next one.
+- Timeouts, non-2xx responses, network errors and callbacks refused by the address guard all count as failures. After 5 consecutive failures the subscription is set to `active: false` and nothing more is sent until it is reactivated with `POST /api/v2/shipping/webhooks/{subscriberId}/reactivate`.
+
+The worker re-resolves `callbackUrl` before each send, refuses private, loopback, link-local, metadata and other reserved addresses, and connects only to the vetted address to mitigate DNS rebinding. Delivery is at-least-once — consumers must handle duplicates via `X-WM-Delivery-Id`.
 
 ### Verifying deliveries
 

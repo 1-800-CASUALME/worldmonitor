@@ -18,6 +18,7 @@ import { pruneOwnerWebhookIndex } from './webhook-owner-index';
 import { runRedisPipeline } from '../../../_shared/redis';
 import {
   WEBHOOK_TTL,
+  GLOBAL_WEBHOOK_INDEX_KEY,
   VALID_CHOKEPOINT_IDS,
   assertCallbackUrlRegistrationSafe,
   generateSecret,
@@ -116,12 +117,14 @@ export async function registerWebhook(
     ['SET', webhookKey(newSubscriberId), JSON.stringify(record), 'EX', String(WEBHOOK_TTL)],
     ['SADD', ownerIndexKey(ownerTag), newSubscriberId],
     ['EXPIRE', ownerIndexKey(ownerTag), String(WEBHOOK_TTL)],
+    ['SADD', GLOBAL_WEBHOOK_INDEX_KEY, newSubscriberId],
   ]);
 
-  if (!Array.isArray(results) || results.length !== 3 || results.some(result => !result || result.error)
+  if (!Array.isArray(results) || results.length !== 4 || results.some(result => !result || result.error)
     || results[0]?.result !== 'OK'
     || ![0, 1, '0', '1'].includes(results[1]?.result as number | string)
-    || (results[2]?.result !== 1 && results[2]?.result !== '1')) {
+    || (results[2]?.result !== 1 && results[2]?.result !== '1')
+    || ![0, 1, '0', '1'].includes(results[3]?.result as number | string)) {
     throw new ApiError(503, 'Webhook registration could not be confirmed', '');
   }
 

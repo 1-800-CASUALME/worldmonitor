@@ -20,6 +20,7 @@ import { resolvePremiumCallerIdentity } from '../../../../../server/_shared/prem
 import { getCachedJson, runRedisTransaction } from '../../../../../server/_shared/redis';
 import {
   WEBHOOK_TTL,
+  GLOBAL_WEBHOOK_INDEX_KEY,
   webhookKey,
   ownerIndexKey,
   callerFingerprint,
@@ -132,7 +133,10 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // action === 'reactivate'
-  const stored = await persistWebhook(subscriberId, { ...record, active: true }, record.ownerTag);
+  // Reset the failure count so the next failures are counted from zero
+  // toward the deactivation ceiling; keep the last status for diagnosis.
+  const { lastError: _lastError, ...rest } = record;
+  const stored = await persistWebhook(subscriberId, { ...rest, active: true, failureCount: 0 }, record.ownerTag);
   if (!stored) {
     return new Response(JSON.stringify({ error: 'Service temporarily unavailable' }), {
       status: 503,
@@ -153,11 +157,13 @@ async function persistWebhook(subscriberId: string, record: WebhookRecord, owner
     ['SET', webhookKey(subscriberId), JSON.stringify(record), 'EX', String(WEBHOOK_TTL)],
     ['SADD', ownerIndexKey(ownerTag), subscriberId],
     ['EXPIRE', ownerIndexKey(ownerTag), String(WEBHOOK_TTL)],
+    ['SADD', GLOBAL_WEBHOOK_INDEX_KEY, subscriberId],
   ]);
   return Array.isArray(results)
-    && results.length === 3
+    && results.length === 4
     && results.every((result) => result && !result.error)
     && results[0]?.result === 'OK'
     && [0, 1, '0', '1'].includes(results[1]?.result as number | string)
-    && (results[2]?.result === 1 || results[2]?.result === '1');
+    && (results[2]?.result === 1 || results[2]?.result === '1')
+    && [0, 1, '0', '1'].includes(results[3]?.result as number | string);
 }

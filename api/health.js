@@ -682,6 +682,7 @@ const STANDALONE_KEYS = {
   telegramFeed:                  'intelligence:telegram-feed:v1',
   xFeed:                         'intelligence:x-feed:v1',
   digestNotifications:           'digest:last-run',
+  shippingWebhookDelivery:       'shipping:webhook-delivery:last-run',
   webcams:                       'webcam:cameras:active',
   forecastResolutions:           'forecast:resolutions:v1',
   forecastScorecard:             'forecast:scorecard:v1',
@@ -1221,6 +1222,7 @@ const SEED_META = {
   telegramFeed:     { key: 'seed-meta:intelligence:telegram-feed:v1', maxStaleMin: 10 }, // 60s poll interval; 10min grace catches poll failures before they go stale in the panel
   xFeed:            { key: 'seed-meta:intelligence:x-feed:v1', maxStaleMin: 45 }, // Fixed 15min List slots; 45min = 3 missed slots. Freshness advances only after an accepted page is published.
   digestNotifications: { key: 'seed-meta:digest:last-run',          maxStaleMin: 90 }, // Railway digest-notifications cron runs every 30min; 90 = 3x cadence and detects a dead cron before daily digests are missed.
+  shippingWebhookDelivery: { key: 'seed-meta:shipping:webhook-delivery:last-run', maxStaleMin: 90 }, // AIS relay dispatches shipping v2 chokepoint webhooks after each 30-min chokepoint warm-ping (#9217); 90 = 3x cadence.
   forecasts:        { key: 'seed-meta:forecast:predictions',       maxStaleMin: 90 },
   forecastsBootstrap: { key: 'seed-meta:forecast:predictions-bootstrap', maxStaleMin: 90 }, // Same cron. Monitored separately: the fast tier now hydrates from the dashboard list, and a transform/write failure there must not hide behind a healthy canonical key (#5300).
   forecastResolutions: { key: 'seed-meta:forecast:resolutions',     maxStaleMin: 2160 }, // daily Bet-2 resolver; 36h catches a missed cron without flapping on normal daily jitter

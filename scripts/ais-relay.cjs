@@ -53,6 +53,7 @@ const { SAUDI_CIVIL_DEFENSE, MAX_POST_CHARS, publishSaudiCivilDefenseAlerts } = 
 const { createPollGenerationGuard } = require('./lib/poll-generation-guard.cjs');
 const { createXPollCycle, xPollSlot } = require('./lib/x-poll-cycle.cjs');
 const { createGuardedLookup, SSRF_BLOCKED_ERROR_CODE } = require('./lib/notification-webhook-ssrf.cjs');
+const shippingWebhookDispatch = require('./lib/shipping-webhook-dispatch.cjs');
 const {
   createXPostBudget,
   DEFAULT_X_CURATED_DAILY_COVERAGE_POSTS,
@@ -546,6 +547,41 @@ function upstashMGet(keys) {
     req.on('error', () => resolve(keys.map(() => null)));
     req.on('timeout', () => { req.destroy(); resolve(keys.map(() => null)); });
     req.end(body);
+  });
+}
+
+// Raw Upstash pipeline: resolves the per-command [{result}|{error}] array and
+// rejects on transport failure, so callers can tell "Redis said no" from
+// "Redis was unreachable".
+function upstashPipeline(commands) {
+  return new Promise((resolve, reject) => {
+    if (!UPSTASH_ENABLED) return reject(new Error('Upstash disabled'));
+    const url = new URL('/pipeline', UPSTASH_REDIS_REST_URL);
+    const req = UPSTASH_HTTP_MODULE.request(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 10000,
+    }, (resp) => {
+      let data = '';
+      resp.on('data', (chunk) => { data += chunk; });
+      resp.on('error', reject);
+      resp.on('end', () => {
+        if (resp.statusCode < 200 || resp.statusCode >= 300) return reject(new Error(`Upstash pipeline HTTP ${resp.statusCode}`));
+        try {
+          const parsed = JSON.parse(data);
+          if (!Array.isArray(parsed)) return reject(new Error('Upstash pipeline: non-array response'));
+          resolve(parsed);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(new Error('Upstash pipeline timeout')); });
+    req.end(JSON.stringify(commands));
   });
 }
 
@@ -6171,6 +6207,37 @@ async function seedChokepointWarmPing() {
   } catch (e) {
     console.warn('[Chokepoints] Warm-ping error:', e?.message || e);
   }
+  // Reads supply_chain:chokepoints:v4 from Redis itself, so a failed warm-ping
+  // still dispatches against the last cached scores while they are fresh.
+  await runShippingWebhookDispatchTick();
+}
+
+// ─────────────────────────────────────────────────────────────
+// Shipping v2 webhook delivery (#9217) — sends `chokepoint.disruption` to
+// subscribers registered via POST /api/v2/shipping/webhooks when a watched
+// chokepoint's disruptionScore crosses their alertThreshold. Heartbeat:
+// seed-meta:shipping:webhook-delivery:last-run (api/health.js).
+// ─────────────────────────────────────────────────────────────
+async function runShippingWebhookDispatchTick() {
+  if (!UPSTASH_ENABLED) return;
+  const startedAt = Date.now();
+  let summary = null;
+  let error = null;
+  try {
+    summary = await shippingWebhookDispatch.runShippingWebhookDispatch({
+      redis: upstashPipeline,
+      log: (message) => console.warn(message),
+    });
+    // Another relay instance holds the tick and writes its own heartbeat.
+    if (summary.skipped === 'locked') return;
+    console.log(`[ShippingWebhooks] subscribers=${summary.subscribers} active=${summary.active} delivered=${summary.delivered} failed=${summary.failed} deactivated=${summary.deactivated} expired=${summary.expired}${summary.backfilled ? ` backfilled=${summary.backfilled}` : ''}${summary.skipped ? ` skipped=${summary.skipped}` : ''}`);
+  } catch (e) {
+    error = e;
+    console.warn('[ShippingWebhooks] Dispatch error:', e?.message || e);
+  }
+  const run = shippingWebhookDispatch.buildLastRun(summary, startedAt, error);
+  await upstashPipeline(shippingWebhookDispatch.lastRunWrites(run))
+    .catch((e) => console.warn('[ShippingWebhooks] Heartbeat write failed:', e?.message || e));
 }
 
 function startChokepointWarmPingLoop() {

@@ -156,6 +156,13 @@ export function ownerIndexKey(ownerHash: string): string {
 }
 
 /**
+ * Every subscriber ID, so the relay's delivery worker
+ * (scripts/lib/shipping-webhook-dispatch.cjs) can enumerate subscriptions.
+ * The worker prunes members whose record has expired.
+ */
+export const GLOBAL_WEBHOOK_INDEX_KEY = 'webhook:all:v1';
+
+/**
  * SHA-256 hash of the resolved API credential — used as ownerTag and owner index key. Never secret.
  *
  * Every caller runs `validateApiKey(req, { forceKey: true })` first, so a
@@ -183,4 +190,10 @@ export interface WebhookRecord {
   createdAt: string;
   active: boolean;
   secret: string;
+  // Written by the delivery worker. lastStatus is the callback's HTTP status,
+  // or 0 when no response arrived (lastError then says why).
+  lastDeliveryAt?: string;
+  lastStatus?: number;
+  lastError?: string;
+  failureCount?: number;
 }

@@ -2,7 +2,10 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { isBlockedResolvedAddress } from '../server/_shared/ip-address-classification';
 import { assertCallbackUrlRegistrationSafe } from '../server/worldmonitor/shipping/v2/webhook-shared';
-import { assertWebhookDeliveryUrlSafe } from '../server/worldmonitor/shipping/v2/deliver-webhook';
+import { createRequire } from 'node:module';
+
+// The relay's delivery-time guard (scripts/lib/shipping-webhook-dispatch.cjs sends through it).
+const { assertNotificationWebhookDeliveryUrlSafe: assertWebhookDeliveryUrlSafe } = createRequire(import.meta.url)('../scripts/lib/notification-webhook-ssrf.cjs');
 
 const blocked = [
   '64:ff9b:1::', '64:ff9b:1:ffff:ffff:ffff:ffff:ffff', '0064:FF9B:0001:0000:0000:0000:0808:0808',
@@ -17,7 +20,7 @@ for (const address of blocked) {
     assert.equal(isBlockedResolvedAddress(address), true);
     assert.equal(isBlockedResolvedAddress(`[${address}]`), true);
     for (const check of [assertCallbackUrlRegistrationSafe, assertWebhookDeliveryUrlSafe]) {
-      await assert.rejects(() => check(`https://[${address}]/hook`, async () => [address]), /private\/reserved/);
+      await assert.rejects(() => check(`https://[${address}]/hook`, async () => [address]), /private\/(reserved|local)/);
       await assert.rejects(() => check('https://callback.example/hook', async () => ['93.184.216.34', address]), /private\/reserved/);
     }
   });

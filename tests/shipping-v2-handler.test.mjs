@@ -8,14 +8,20 @@
  *   - registerWebhook: PRO gate, SSRF guards (https-only, private IP, cloud
  *     metadata), chokepointIds whitelist, alertThreshold 0-100 range,
  *     subscriberId / secret format (wh_ + 24 hex / 64 hex), 30-day TTL
- *     pipeline (SET + SADD + EXPIRE).
+ *     pipeline (SET + SADD + EXPIRE + global-index SADD).
  *   - listWebhooks: PRO gate, owner-filter isolation, `secret` never in response.
- *   - deliverWebhook: delivery-time DNS re-resolution blocks private/reserved
- *     addresses before fetch to prevent DNS rebinding SSRF.
+ *   - deliverWebhook (relay sender, scripts/lib/shipping-webhook-dispatch.cjs):
+ *     delivery-time DNS re-resolution blocks private/reserved addresses before
+ *     the POST to prevent DNS rebinding SSRF.
  */
 
 import { strict as assert } from 'node:assert';
 import { describe, it, beforeEach, afterEach } from 'node:test';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { sendDelivery } = require('../scripts/lib/shipping-webhook-dispatch.cjs');
+const { assertNotificationWebhookDeliveryUrlSafe } = require('../scripts/lib/notification-webhook-ssrf.cjs');
 
 const originalFetch = globalThis.fetch;
 const originalEnv = { ...process.env };
@@ -37,8 +43,6 @@ let routeIntelligence;
 let registerWebhook;
 let listWebhooks;
 let webhookShared;
-let deliverShippingV2Webhook;
-let WebhookDeliverySsrfError;
 let ValidationError;
 let ApiError;
 
@@ -58,13 +62,10 @@ describe('ShippingV2Service handlers', () => {
     const riMod = await import('../server/worldmonitor/shipping/v2/route-intelligence.ts');
     const rwMod = await import('../server/worldmonitor/shipping/v2/register-webhook.ts');
     const lwMod = await import('../server/worldmonitor/shipping/v2/list-webhooks.ts');
-    const dwMod = await import('../server/worldmonitor/shipping/v2/deliver-webhook.ts');
     webhookShared = await import('../server/worldmonitor/shipping/v2/webhook-shared.ts');
     routeIntelligence = riMod.routeIntelligence;
     registerWebhook = rwMod.registerWebhook;
     listWebhooks = lwMod.listWebhooks;
-    deliverShippingV2Webhook = dwMod.deliverShippingV2Webhook;
-    WebhookDeliverySsrfError = dwMod.WebhookDeliverySsrfError;
     const gen = await import('../src/generated/server/worldmonitor/shipping/v2/service_server.ts');
     ValidationError = gen.ValidationError;
     ApiError = gen.ApiError;
@@ -289,7 +290,7 @@ describe('ShippingV2Service handlers', () => {
       );
     });
 
-    it('happy path returns wh_-prefixed subscriberId and 64-char hex secret; issues SET + SADD + EXPIRE pipeline with 30-day TTL', async () => {
+    it('happy path returns wh_-prefixed subscriberId and 64-char hex secret; issues SET + SADD + EXPIRE + global-index SADD pipeline with 30-day TTL', async () => {
       const calls = stubRedisOk();
       const res = await registerWebhook(proCtx(), {
         callbackUrl: 'https://93.184.216.34/wm',
@@ -302,10 +303,10 @@ describe('ShippingV2Service handlers', () => {
       assert.match(res.subscriberId, /^wh_[0-9a-f]{24}$/);
       assert.match(res.secret, /^[0-9a-f]{64}$/);
 
-      // Exactly one Redis pipeline call with 3 commands in order.
+      // Exactly one Redis pipeline call with 4 commands in order.
       assert.equal(calls.length, 1);
       const pipeline = calls[0];
-      assert.equal(pipeline.length, 3);
+      assert.equal(pipeline.length, 4);
       assert.equal(pipeline[0][0], 'SET');
       assert.ok(pipeline[0][1].startsWith('webhook:sub:wh_'), 'SET key is webhook:sub:wh_*:v1');
       assert.equal(pipeline[0][3], 'EX');
@@ -315,6 +316,7 @@ describe('ShippingV2Service handlers', () => {
       assert.equal(pipeline[2][0], 'EXPIRE');
       assert.equal(pipeline[2][1], pipeline[1][1], 'EXPIRE targets same owner index key');
       assert.equal(pipeline[2][2], String(86400 * 30));
+      assert.deepEqual(pipeline[3], ['SADD', 'webhook:all:v1', res.subscriberId], 'delivery worker index');
     });
 
     it('uses the authenticated enterprise cookie for ownership when wms_ is also present', async () => {
@@ -494,66 +496,57 @@ describe('ShippingV2Service handlers', () => {
       details: { source: 'test' },
     };
 
-    it('re-resolves callbackUrl immediately before send and blocks private rebinding without fetching', async () => {
-      let fetched = false;
-      await assert.rejects(
-        () => deliverShippingV2Webhook(makeRecord(), payload, {
-          resolveHostname: async (hostname) => {
-            assert.equal(hostname, 'hooks.example.com');
-            return ['10.0.0.9'];
-          },
-          fetchImpl: async () => {
-            fetched = true;
-            return new Response('should not send', { status: 200 });
-          },
-        }),
-        (err) => err instanceof WebhookDeliverySsrfError && /private\/reserved/.test(err.message),
-      );
-      assert.equal(fetched, false, 'delivery fetch must not run after private DNS answer');
+    // Resolver-injected guard: the real relay check with a fixed DNS answer.
+    const guardWith = (addresses, onResolve) => (callbackUrl) => assertNotificationWebhookDeliveryUrlSafe(
+      callbackUrl,
+      async (hostname) => { onResolve?.(hostname); return addresses; },
+    );
+    const neverPost = (seen) => async () => { seen.posted = true; return { status: 200 }; };
+
+    it('re-resolves callbackUrl immediately before send and blocks private rebinding without posting', async () => {
+      const seen = {};
+      const outcome = await sendDelivery(makeRecord(), payload, 'whd_test', {
+        assertSafe: guardWith(['10.0.0.9'], (hostname) => { seen.hostname = hostname; }),
+        post: neverPost(seen),
+      });
+      assert.deepEqual(outcome, { ok: false, status: 0, error: 'ssrf_blocked' });
+      assert.equal(seen.hostname, 'hooks.example.com');
+      assert.equal(seen.posted, undefined, 'delivery must not POST after a private DNS answer');
     });
 
     it('blocks reserved/documentation ranges returned by delivery-time DNS', async () => {
-      let fetched = false;
-      await assert.rejects(
-        () => deliverShippingV2Webhook(makeRecord(), payload, {
-          resolveHostname: async () => ['203.0.113.10'],
-          fetchImpl: async () => {
-            fetched = true;
-            return new Response('should not send', { status: 200 });
-          },
-        }),
-        (err) => err instanceof WebhookDeliverySsrfError && /203\.0\.113\.10/.test(err.message),
-      );
-      assert.equal(fetched, false, 'delivery fetch must not run after reserved DNS answer');
+      const seen = {};
+      const outcome = await sendDelivery(makeRecord(), payload, 'whd_test', {
+        assertSafe: guardWith(['203.0.113.10']),
+        post: neverPost(seen),
+      });
+      assert.equal(outcome.error, 'ssrf_blocked');
+      assert.equal(seen.posted, undefined);
     });
 
     it('blocks mixed DNS answers if any address is private or reserved', async () => {
-      await assert.rejects(
-        () => deliverShippingV2Webhook(makeRecord(), payload, {
-          resolveHostname: async () => ['93.184.216.34', '169.254.169.254'],
-          fetchImpl: async () => new Response('should not send', { status: 200 }),
-        }),
-        (err) => err instanceof WebhookDeliverySsrfError && /169\.254\.169\.254/.test(err.message),
-      );
+      const seen = {};
+      const outcome = await sendDelivery(makeRecord(), payload, 'whd_test', {
+        assertSafe: guardWith(['93.184.216.34', '169.254.169.254']),
+        post: neverPost(seen),
+      });
+      assert.equal(outcome.error, 'ssrf_blocked');
+      assert.equal(seen.posted, undefined);
     });
 
     it('sends only after a public delivery-time DNS answer and includes delivery headers', async () => {
       const seen = {};
-      const result = await deliverShippingV2Webhook(makeRecord(), payload, {
-        deliveryId: 'whd_test_delivery',
-        resolveHostname: async () => ['93.184.216.34'],
-        fetchImpl: async (url, init) => {
-          seen.url = String(url);
-          seen.method = init.method;
-          seen.headers = init.headers;
-          seen.body = init.body;
-          return new Response('ok', { status: 202 });
+      const result = await sendDelivery(makeRecord(), payload, 'whd_test_delivery', {
+        assertSafe: guardWith(['93.184.216.34']),
+        post: async (url, body, headers, addresses) => {
+          Object.assign(seen, { url: String(url), body, headers, addresses });
+          return { status: 202 };
         },
       });
 
-      assert.deepEqual(result, { status: 202, ok: true, resolvedAddresses: ['93.184.216.34'] });
+      assert.deepEqual(result, { ok: true, status: 202 });
       assert.equal(seen.url, 'https://hooks.example.com/wm');
-      assert.equal(seen.method, 'POST');
+      assert.deepEqual(seen.addresses, ['93.184.216.34']);
       assert.equal(seen.headers['content-type'], 'application/json');
       assert.equal(seen.headers['user-agent'], 'WorldMonitor-ShippingV2-Webhooks/1.0');
       assert.equal(seen.headers['x-wm-delivery-id'], 'whd_test_delivery');

@@ -4,7 +4,7 @@
  *
  * The ShippingV2Service lets partners register a `callbackUrl` (RegisterWebhook)
  * that WorldMonitor POSTs a signed chokepoint-disruption alert to. The delivery
- * worker (server/worldmonitor/shipping/v2/deliver-webhook.ts) signs every POST
+ * worker (scripts/lib/shipping-webhook-dispatch.cjs, run by the AIS relay) signs every POST
  * with an HMAC-SHA256 over the raw body, keyed by the subscription `secret`, and
  * sends it in a branded `X-WM-Signature` header (plus `X-WM-Event` /
  * `X-WM-Delivery-Id`). The sebuf `protoc-gen-openapiv3` plugin only emits the
@@ -44,11 +44,11 @@ const bundlePath = resolve(root, 'docs/api/worldmonitor.openapi.yaml');
 
 const CHECK = process.argv.includes('--check');
 
-// The webhook event name — matches the default `options.event` in
-// deliver-webhook.ts (the `X-WM-Event` header value).
+// The webhook event name — matches WEBHOOK_EVENT in
+// scripts/lib/shipping-webhook-dispatch.cjs (the `X-WM-Event` header value).
 export const WEBHOOK_EVENT = 'chokepoint.disruption';
 
-// The branded delivery headers, verbatim from deliver-webhook.ts. Header names
+// The branded delivery headers, verbatim from shipping-webhook-dispatch.cjs. Header names
 // are case-insensitive on the wire (the worker sends them lowercase); the spec
 // uses canonical casing. Kept here as the single source the contract test reads.
 export const SIGNATURE_HEADER = 'X-WM-Signature';
@@ -66,9 +66,11 @@ const WEBHOOKS_BLOCK = `webhooks:
             summary: Chokepoint disruption alert (outbound, signed)
             description: |-
                 WorldMonitor POSTs this event to the \`callbackUrl\` you register via
-                RegisterWebhook whenever a subscribed chokepoint's disruption score
-                crosses your \`alertThreshold\`. Every delivery is signed so you can
-                confirm it genuinely came from WorldMonitor.
+                RegisterWebhook when a subscribed chokepoint's disruption score rises
+                to or above your \`alertThreshold\`, and again only after it has fallen
+                below it. Failed deliveries are retried every 30 minutes with the same
+                \`X-WM-Delivery-Id\`. Every delivery is signed so you can confirm it
+                genuinely came from WorldMonitor.
 
                 Verification: the \`${SIGNATURE_HEADER}\` header is
                 \`sha256=<hex>\`, where \`<hex>\` is the lowercase hex HMAC-SHA256 of the
@@ -150,20 +152,25 @@ const WEBHOOKS_BLOCK = `webhooks:
                                     description: ISO-8601 timestamp when the alert fired.
                                 reason:
                                     type: string
-                                    description: Human-readable explanation for the alert.
+                                    enum:
+                                        - ais_congestion_spike
+                                        - navigational_warning
+                                        - transit_drop
+                                        - score_threshold
+                                    description: Largest live signal in the score; \`score_threshold\` when the baseline threat level alone carries it.
                                 details:
                                     type: object
                                     additionalProperties: true
-                                    description: Optional structured context for the disruption.
+                                    description: Chokepoint name, status, war-risk tier and the score components.
                         example:
                             "subscriberId": "wh_1a2b3c4d5e6f7a8b9c0d1e2f"
                             "chokepointId": "suez"
                             "score": 72
                             "alertThreshold": 50
                             "triggeredAt": "2026-07-04T12:34:56Z"
-                            "reason": "Disruption score 72 crossed alert threshold 50"
+                            "reason": "navigational_warning"
                             "details":
-                                "trend": "rising"
+                                "name": "Suez Canal"
             responses:
                 "2XX":
                     description: |-
