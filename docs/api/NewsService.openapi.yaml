@@ -1970,8 +1970,8 @@ components:
                     type: string
                     description: Why the fact-check column is in that state, in English.
             description: |-
-                LabelCalibration counts, per month, how stories first labelled single-publisher
-                 or corroborated were labelled 24 hours and 7 days later. Computed only from the
+                LabelCalibration counts, per month, how stories first seen in the full English
+                 digest as single-publisher or corroborated were labelled 24 hours and 7 days later. Computed only from the
                  logged label history. Coverage, not accuracy: no figure says a story was true or false.
         LabelCalibrationMonth:
             type: object
