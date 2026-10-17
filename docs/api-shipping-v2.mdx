@@ -194,7 +194,7 @@ For a `chokepoint.disruption` webhook, each subscribed chokepoint's `disruptionS
 
 - A delivery fires when `disruptionScore >= alertThreshold` and, with `minLiveSignal` set, when `disruptionScore` minus the chokepoint's standing threat level is at least `minLiveSignal`. Each upward crossing produces one delivery. Without `minLiveSignal` the chokepoint re-arms when its score drops below the threshold. With it, the chokepoint re-arms only when its score drops 10 points below the threshold or its live signal falls under 5 points (or under `minLiveSignal`, if that is lower), and it refires at most once per 12 hours. One navigational warning moves the score by 5 points, so a warning count that wobbles does not refire the alert. These are the in-app `chokepoint_disruption` rule's floors.
 - The score adds up to 15 points from navigational warnings, up to 15 from AIS, and 10 for a transit anomaly, and a missing input scores 0. After a delivery, the chokepoint re-arms only when the score (or live signal) plus the maximum of every input that was present at the delivery but is missing now is still below its re-arm floor. An input outage alone therefore does not re-arm it, and the input's recovery does not fire the same disruption again.
-- A chokepoint that is already at or above the threshold when the worker first evaluates a webhook produces one delivery.
+- A chokepoint that already meets the threshold (and, with `minLiveSignal` set, the live floor) when the worker first evaluates a webhook produces one delivery.
 
 For a `country.risk_surge` webhook, each country in scope is evaluated on the feed's own 24-hour movement (`dynamicScore`, delivered as `delta24h`):
 

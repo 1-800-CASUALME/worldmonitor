@@ -4,9 +4,9 @@ package worldmonitor.shipping.v2;
 
 import "buf/validate/validate.proto";
 
-// RegisterWebhookRequest creates a new chokepoint-disruption webhook
-// subscription. Wire shape is byte-compatible with the pre-migration
-// legacy POST body.
+// RegisterWebhookRequest subscribes to one eventType (default
+// chokepoint.disruption). Wire shape is byte-compatible with the legacy
+// POST body.
 message RegisterWebhookRequest {
   // HTTPS callback URL. Must not resolve to a private/loopback address at
   // registration time (SSRF guard). The delivery worker re-validates the

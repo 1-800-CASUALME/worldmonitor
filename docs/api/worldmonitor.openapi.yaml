@@ -29713,7 +29713,7 @@ paths:
                 - ShippingV2Service
             summary: RegisterWebhook
             description: |-
-                RegisterWebhook subscribes a callback URL to chokepoint disruption alerts.
+                RegisterWebhook subscribes a callback URL to one event type.
                  Returns the subscriberId and the raw HMAC secret — the secret is never
                  returned again except via rotate-secret. PRO-gated. Requires an active Pro subscription.
             operationId: RegisterWebhook
@@ -56949,9 +56949,9 @@ components:
             required:
                 - callbackUrl
             description: |-
-                RegisterWebhookRequest creates a new chokepoint-disruption webhook
-                 subscription. Wire shape is byte-compatible with the pre-migration
-                 legacy POST body.
+                RegisterWebhookRequest subscribes to one eventType (default
+                 chokepoint.disruption). Wire shape is byte-compatible with the legacy
+                 POST body.
         worldmonitor_shipping_v2_RegisterWebhookResponse:
             type: object
             properties:
