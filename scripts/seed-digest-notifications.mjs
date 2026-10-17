@@ -45,6 +45,12 @@ const { fetchUserPreferences, extractUserContext, formatUserProfile } = require(
 const { fetchFollowedCountries } = require('./lib/followed-countries-fetch.cjs');
 const { Resend } = require('resend');
 const { normalizeResendSender } = require('./lib/resend-from.cjs');
+const {
+  appendUnsubscribeText,
+  injectUnsubscribeFooterHtml,
+  listUnsubscribeHeaders,
+  unsubscribeUrlFor,
+} = require('./lib/email-unsubscribe.cjs');
 const { sendResendEmail } = require('./lib/resend-send.cjs');
 import { readRawJsonFromUpstash, redisPipeline } from '../api/_upstash-json.js';
 import { classifyFeelGood } from '../server/_shared/feelgood-classifier.js';
@@ -1181,6 +1187,7 @@ function formatDigestHtml(stories, nowMs) {
       <p style="font-size: 10px; color: #444; margin: 0; line-height: 1.5;">
         <a href="https://worldmonitor.app" style="color: #4ade80; text-decoration: none;">worldmonitor.app</a>
       </p>
+      <p style="font-size: 10px; color: #444; margin: 8px 0 0; line-height: 1.5;"><!--wm-unsubscribe-slot--></p>
     </div>
   </div>
 </div>`;
@@ -1410,14 +1417,16 @@ async function sendDiscord(userId, webhookEnvelope, text) {
   }
 }
 
-async function sendEmail(email, subject, text, html) {
-  // Shared helper: default Reply-To (support@, not the brief@ role inbox)
-  // and treats the SDK's resolved `{ error }` as a failed send.
-  const result = await sendResendEmail(
-    resend,
-    { from: RESEND_FROM, to: email, subject, text, html },
-    { logPrefix: '[digest]' },
-  );
+async function sendEmail(email, subject, text, html, channel = null) {
+  const unsubscribeUrl = unsubscribeUrlFor(channel, 'brief');
+  const label = 'Unsubscribe from the daily brief';
+  const payload = {
+    from: RESEND_FROM, to: email, subject,
+    text: appendUnsubscribeText(text, unsubscribeUrl, label),
+    html: injectUnsubscribeFooterHtml(html, unsubscribeUrl, label),
+    headers: listUnsubscribeHeaders(unsubscribeUrl),
+  };
+  const result = await sendResendEmail(resend, payload, { logPrefix: '[digest]' });
   if (result.ok) console.log(`[digest] Email delivered to ${email}`);
   return result.ok;
 }
@@ -2644,7 +2653,7 @@ async function main() {
       } else if (ch.channelType === 'discord' && ch.webhookEnvelope) {
         ok = await sendDiscord(rule.userId, ch.webhookEnvelope, discordText);
       } else if (ch.channelType === 'email' && ch.email) {
-        ok = await sendEmail(ch.email, subject, text, html);
+        ok = await sendEmail(ch.email, subject, text, html, ch);
       } else if (ch.channelType === 'webhook' && ch.webhookEnvelope) {
         // Webhook payload's `summary` field reads the canonical
         // briefLead — same string the email exec block + magazine
