@@ -134,6 +134,7 @@ function chokepoint(overrides = {}) {
     warRiskTier: 'WAR_RISK_TIER_HIGH',
     navigationalWarningsAvailable: true,
     aisSnapshotAvailable: true,
+    transitSummary: { dataAvailable: true },
     description: 'test',
     ...overrides,
   };
@@ -451,6 +452,181 @@ describe('runShippingWebhookDispatch', () => {
   it('throws when Redis cannot be read', async () => {
     const redis = async (commands) => commands.map(() => ({ error: 'ERR down' }));
     await assert.rejects(runShippingWebhookDispatch({ redis, now: () => NOW }), /Redis pipeline failed/);
+  });
+});
+
+describe('review hardening', () => {
+  const now = '2026-10-17T12:00:00.000Z';
+
+  it('re-arms a transit-drop crossing only once transit data is back', () => {
+    const fired = { phase: 'fired', triggeredAt: now, transitDrop: true };
+    const below = (dataAvailable) => chokepoint({ disruptionScore: 30, transitSummary: { dataAvailable } });
+    assert.deepEqual(advanceEdgeState(fired, below(false), 60, now).next, fired);
+    assert.deepEqual(advanceEdgeState(fired, below(true), 60, now).next, { phase: 'armed' });
+    const plain = { phase: 'fired', triggeredAt: now };
+    assert.deepEqual(advanceEdgeState(plain, below(false), 60, now).next, { phase: 'armed' }, 'no transit drop, no transit requirement');
+  });
+
+  it('records a transit drop on the crossing that carried one', () => {
+    const drop = advanceEdgeState(undefined, chokepoint({ activeWarnings: 0, congestionLevel: 'normal', disruptionScore: 40 }), 35, now);
+    assert.equal(drop.next.transitDrop, true);
+    const noDrop = advanceEdgeState(undefined, chokepoint({ activeWarnings: 1, congestionLevel: 'elevated', disruptionScore: 45 }), 40, now);
+    assert.equal(noDrop.next.transitDrop, undefined);
+  });
+
+  it('drops a pending crossing once the score falls below with full coverage', () => {
+    const pending = { phase: 'pending', triggeredAt: now };
+    assert.deepEqual(advanceEdgeState(pending, chokepoint({ disruptionScore: 30 }), 60, now), { next: { phase: 'armed' }, attempt: null });
+  });
+
+  it('keeps the delivery id when the post-send state write is lost', async () => {
+    const fake = createFakeRedis();
+    markBackfilled(fake);
+    seedStatus(fake, [chokepoint()]);
+    const record = seedSubscriber(fake);
+    let dropFiredWrite = true;
+    const redis = async (commands) => {
+      const first = commands[0];
+      if (dropFiredWrite && first[0] === 'SET' && first[1] === stateKey(record.subscriberId) && first[2].includes('"fired"')) {
+        dropFiredWrite = false;
+        return commands.map(() => ({ error: 'ERR synthetic' }));
+      }
+      return fake.redis(commands);
+    };
+    const { send, sent } = recordingSender();
+    const first = await runShippingWebhookDispatch({ redis, send, now: () => NOW });
+    assert.equal(first.writeErrors, 1);
+    assert.equal(buildLastRun(first, NOW).status, 'error');
+    await runShippingWebhookDispatch({ redis, send, now: () => NOW + 1_800_000 });
+    assert.equal(sent.length, 2, 'at-least-once: the lost write re-sends');
+    assert.equal(sent[1].deliveryId, sent[0].deliveryId, 'with the same X-WM-Delivery-Id');
+  });
+
+  it('sends nothing when the pending state cannot be persisted', async () => {
+    const fake = createFakeRedis();
+    markBackfilled(fake);
+    seedStatus(fake, [chokepoint()]);
+    const record = seedSubscriber(fake);
+    const redis = async (commands) => (commands.length === 1 && commands[0][0] === 'SET' && commands[0][1] === stateKey(record.subscriberId)
+      ? [{ error: 'ERR synthetic' }]
+      : fake.redis(commands));
+    const { send, sent } = recordingSender();
+    const summary = await runShippingWebhookDispatch({ redis, send, now: () => NOW });
+    assert.equal(sent.length, 0);
+    assert.equal(summary.writeErrors, 1);
+  });
+
+  it('does not overwrite a secret rotated while the delivery was in flight', async () => {
+    const fake = createFakeRedis();
+    markBackfilled(fake);
+    seedStatus(fake, [chokepoint()]);
+    const record = seedSubscriber(fake);
+    const rotated = 'c'.repeat(64);
+    const send = async () => {
+      fake.strings.set(webhookKey(record.subscriberId), JSON.stringify({ ...record, secret: rotated }));
+      return { ok: false, status: 502, error: 'http_502' };
+    };
+    await runShippingWebhookDispatch({ redis: fake.redis, send, now: () => NOW });
+    const stored = JSON.parse(fake.strings.get(webhookKey(record.subscriberId)));
+    assert.equal(stored.secret, rotated);
+    assert.equal(stored.failureCount, 1);
+    assert.equal(stored.lastStatus, 502);
+  });
+
+  it('leaves failure counts alone when every attempted callback fails in transport', async () => {
+    const fake = createFakeRedis();
+    markBackfilled(fake);
+    seedStatus(fake, [chokepoint()]);
+    const a = seedSubscriber(fake);
+    const b = seedSubscriber(fake, { subscriberId: 'wh_bbbbbbbbbbbbbbbbbbbbbbbb' });
+    const { send } = recordingSender([{ ok: false, status: 0, error: 'network_error' }, { ok: false, status: 0, error: 'timeout' }]);
+    const summary = await runShippingWebhookDispatch({ redis: fake.redis, send, now: () => NOW });
+    assert.equal(summary.egressOutage, true);
+    for (const rec of [a, b]) {
+      const stored = JSON.parse(fake.strings.get(webhookKey(rec.subscriberId)));
+      assert.equal(stored.failureCount, undefined);
+      assert.equal(JSON.parse(fake.strings.get(stateKey(rec.subscriberId))).suez.phase, 'pending');
+    }
+  });
+
+  it('still counts transport failures when another subscriber was reached', async () => {
+    const fake = createFakeRedis();
+    markBackfilled(fake);
+    seedStatus(fake, [chokepoint()]);
+    seedSubscriber(fake);
+    seedSubscriber(fake, { subscriberId: 'wh_bbbbbbbbbbbbbbbbbbbbbbbb' });
+    const { send } = recordingSender([{ ok: false, status: 0, error: 'timeout' }, { ok: true, status: 200 }]);
+    const summary = await runShippingWebhookDispatch({ redis: fake.redis, send, now: () => NOW });
+    assert.equal(summary.egressOutage, false);
+    assert.equal(summary.failed, 1);
+    assert.equal(summary.delivered, 1);
+  });
+
+  it('stops starting sends past the tick budget and leaves the rest pending', async () => {
+    const fake = createFakeRedis();
+    markBackfilled(fake);
+    seedStatus(fake, [chokepoint({ id: 'suez' }), chokepoint({ id: 'hormuz_strait' })]);
+    const record = seedSubscriber(fake, { chokepointIds: ['suez', 'hormuz_strait'] });
+    let clock = NOW;
+    const { sent } = recordingSender();
+    const send = async (_rec, payload, id) => {
+      sent.push({ payload, id });
+      clock = NOW + 21 * 60_000;
+      return { ok: true, status: 200 };
+    };
+    await runShippingWebhookDispatch({ redis: fake.redis, send, now: () => clock });
+    assert.equal(sent.length, 1);
+    const state = JSON.parse(fake.strings.get(stateKey(record.subscriberId)));
+    assert.equal(state.suez.phase, 'fired');
+    assert.equal(state.hormuz_strait.phase, 'pending');
+  });
+
+  it('serves indexed subscribers when the backfill scan fails', async () => {
+    const fake = createFakeRedis();
+    seedStatus(fake, [chokepoint()]);
+    seedSubscriber(fake);
+    const redis = async (commands) => (commands[0][0] === 'SCAN' ? [{ error: 'ERR synthetic' }] : fake.redis(commands));
+    const logs = [];
+    const { send, sent } = recordingSender();
+    await runShippingWebhookDispatch({ redis, send, now: () => NOW, log: (m) => logs.push(m) });
+    assert.equal(sent.length, 1);
+    assert.ok(logs.some((m) => /backfill failed/.test(m)));
+    assert.equal(fake.strings.has(BACKFILL_MARKER_KEY), false, 'retried next tick');
+  });
+
+  it('expires the backfill marker so the scan re-runs daily', async () => {
+    const fake = createFakeRedis();
+    seedStatus(fake, [chokepoint()]);
+    await runShippingWebhookDispatch({ redis: fake.redis, send: recordingSender().send, now: () => NOW });
+    assert.equal(fake.ttls.get(BACKFILL_MARKER_KEY), 86400);
+  });
+
+  it('reports DNS failures as dns_error, not an SSRF refusal', async () => {
+    const forced = await sendDelivery(
+      { callbackUrl: 'https://hooks.example.com/wm', secret: 's' },
+      { subscriberId: 'wh_x' },
+      'whd_x',
+      {
+        assertSafe: (url) => require('../scripts/lib/notification-webhook-ssrf.cjs')
+          .assertNotificationWebhookDeliveryUrlSafe(url, async () => { throw new Error('ENOTFOUND'); }),
+        post: async () => { throw new Error('must not post'); },
+      },
+    );
+    assert.deepEqual(forced, { ok: false, status: 0, error: 'dns_error' });
+  });
+});
+
+describe('relay wiring', () => {
+  const relay = readFileSync(new URL('../scripts/ais-relay.cjs', import.meta.url), 'utf8');
+  const warmPing = relay.slice(relay.indexOf('async function seedChokepointWarmPing()'), relay.indexOf('async function runShippingWebhookDispatchTick()'));
+
+  it('dispatches after every warm-ping outcome', () => {
+    assert.match(warmPing, /finally \{\s*(\/\/[^\n]*\n\s*)*await runShippingWebhookDispatchTick\(\);\s*\}/);
+  });
+
+  it('never overlaps two dispatch ticks in one process', () => {
+    const tick = relay.slice(relay.indexOf('async function runShippingWebhookDispatchTick()'));
+    assert.match(tick, /if \(shippingWebhookDispatchInFlight\) return;/);
   });
 });
 

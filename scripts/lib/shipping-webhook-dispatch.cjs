@@ -21,16 +21,29 @@ const LAST_RUN_KEY = 'shipping:webhook-delivery:last-run';
 const LAST_RUN_META_KEY = 'seed-meta:shipping:webhook-delivery:last-run';
 const LAST_RUN_TTL_SECONDS = 7 * 24 * 60 * 60;
 const STATE_TTL_SECONDS = 30 * 24 * 60 * 60;
-const LOCK_TTL_SECONDS = 300;
+// The lock outlives the send budget, so a tick that is still delivering is
+// never joined by a second dispatcher; both stay under the 30-min cadence.
+const LOCK_TTL_SECONDS = 25 * 60;
+const SEND_BUDGET_MS = 20 * 60 * 1000;
+// Re-run the idempotent backfill daily: the relay and Vercel deploy
+// independently, so a registration served by pre-index Vercel code is picked
+// up on the next pass instead of never.
+const BACKFILL_MARKER_TTL_SECONDS = 24 * 60 * 60;
 // Consecutive failed delivery attempts before the subscription is deactivated.
 // A pending delivery is retried on every dispatch (30 min), so five failures
 // span roughly two hours of an unreachable callback.
 const FAILURE_CEILING = 5;
+// The status key's own TTL is 5 minutes; this guards a payload whose
+// fetchedAt is old even though the key is present.
 const SOURCE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 const SUBSCRIBER_CONCURRENCY = 4;
 const BACKFILL_SCAN_COUNT = 500;
 const BACKFILL_MAX_SCAN_CALLS = 2000;
 const USER_AGENT = 'WorldMonitor-ShippingV2-Webhooks/1.0';
+// Failures that say nothing about the subscriber's callback. When every
+// subscriber attempted in a tick fails this way, the relay's own egress is the
+// likelier fault, so no subscriber's failure count moves.
+const TRANSPORT_ERRORS = new Set(['timeout', 'network_error', 'dns_error']);
 
 const REASONS = Object.freeze([
   'ais_congestion_spike',
@@ -123,20 +136,28 @@ function scoreBreakdown(chokepoint) {
  * `pending` holds a crossing whose delivery failed and is retried with the
  * same triggeredAt (and so the same X-WM-Delivery-Id). A below-threshold
  * reading taken while the warning or AIS source was unavailable does not
- * re-arm: a missing source can only lower the score.
+ * re-arm: a missing source can only lower the score. Transit data is held to
+ * the same rule only for crossings that carried a transit drop, because some
+ * chokepoints often lack transit data and would otherwise never re-arm.
  */
 function advanceEdgeState(previous, chokepoint, alertThreshold, nowIso) {
   const score = Number(chokepoint?.disruptionScore);
   if (!Number.isFinite(score)) return { next: previous, attempt: null };
   if (score < alertThreshold) {
-    const complete = chokepoint.navigationalWarningsAvailable === true && chokepoint.aisSnapshotAvailable === true;
+    const complete = chokepoint.navigationalWarningsAvailable === true
+      && chokepoint.aisSnapshotAvailable === true
+      && (previous?.transitDrop !== true || chokepoint.transitSummary?.dataAvailable === true);
     return { next: complete ? { phase: 'armed' } : previous, attempt: null };
   }
   if (previous?.phase === 'fired') return { next: previous, attempt: null };
   const triggeredAt = previous?.phase === 'pending' && typeof previous.triggeredAt === 'string'
     ? previous.triggeredAt
     : nowIso;
-  return { next: { phase: 'pending', triggeredAt }, attempt: { triggeredAt, score } };
+  const transitDrop = previous?.transitDrop === true || scoreBreakdown(chokepoint).components.transitDrop > 0;
+  return {
+    next: { phase: 'pending', triggeredAt, ...(transitDrop ? { transitDrop: true } : {}) },
+    attempt: { triggeredAt, score },
+  };
 }
 
 function deliveryIdFor(subscriberId, chokepointId, triggeredAt) {
@@ -194,9 +215,12 @@ async function sendDelivery(record, payload, deliveryId, deps = {}) {
     if (status >= 200 && status < 300) return { ok: true, status };
     return { ok: false, status, error: `http_${status}` };
   } catch (error) {
-    const code = error?.code === SSRF_BLOCKED_ERROR_CODE ? 'ssrf_blocked'
-      : /timed out/i.test(String(error?.message)) ? 'timeout'
-        : 'network_error';
+    const message = String(error?.message);
+    // The guard raises DNS failures with the SSRF code too; they are not refusals.
+    const code = /DNS resolution/.test(message) ? 'dns_error'
+      : error?.code === SSRF_BLOCKED_ERROR_CODE ? 'ssrf_blocked'
+        : /timed out/i.test(message) ? 'timeout'
+          : 'network_error';
     return { ok: false, status: 0, error: code };
   }
 }
@@ -218,8 +242,9 @@ function assertPipeline(results, expected, label) {
 }
 
 /**
- * One-time backfill of the global subscriber index from records registered
- * before it existed. Guarded by a marker so later dispatches skip the SCAN.
+ * Backfills the global subscriber index from records it does not hold, for
+ * records registered before it existed or by pre-deploy Vercel code. A marker
+ * with a 24-hour TTL limits the SCAN to one pass a day.
  */
 async function ensureGlobalIndexBackfilled(redis) {
   const [marker] = assertPipeline(await redis([['GET', BACKFILL_MARKER_KEY]]), 1, 'backfill marker');
@@ -243,7 +268,11 @@ async function ensureGlobalIndexBackfilled(redis) {
     }
     cursor = String(page[0]);
     if (cursor === '0') {
-      assertPipeline(await redis([['SET', BACKFILL_MARKER_KEY, new Date().toISOString()]]), 1, 'backfill marker');
+      assertPipeline(
+        await redis([['SET', BACKFILL_MARKER_KEY, new Date().toISOString(), 'EX', String(BACKFILL_MARKER_TTL_SECONDS)]]),
+        1,
+        'backfill marker',
+      );
       return added;
     }
   }
@@ -264,43 +293,63 @@ async function mapWithConcurrency(items, limit, fn) {
   return results;
 }
 
+function shuffled(items) {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+/**
+ * Advances every watched chokepoint, persists the pending crossings before
+ * any send (so a lost write after a send cannot re-fire under a new delivery
+ * ID), then sends them in order. After one failure the callback is treated as
+ * down for the rest of the tick; the remaining crossings stay pending.
+ */
 async function dispatchSubscriber(record, previousState, chokepointsById, nowIso, deps) {
   const state = { ...(previousState && typeof previousState === 'object' ? previousState : {}) };
-  let blocked = false;
-  let lastOutcome = null;
-  let sent = 0;
-  let failed = 0;
+  const attempts = [];
   for (const chokepointId of record.chokepointIds ?? []) {
     const chokepoint = chokepointsById.get(chokepointId);
     if (!chokepoint) continue;
     const { next, attempt } = advanceEdgeState(state[chokepointId], chokepoint, record.alertThreshold, nowIso);
     if (next) state[chokepointId] = next;
-    // After one failure the callback is treated as down for the rest of the
-    // tick; the remaining crossings stay pending for the next dispatch.
-    if (!attempt || blocked) continue;
-    const payload = buildPayload(record, chokepoint, attempt);
-    const outcome = await deps.send(record, payload, deliveryIdFor(record.subscriberId, chokepointId, attempt.triggeredAt));
-    lastOutcome = outcome;
-    if (outcome.ok) {
-      state[chokepointId] = { phase: 'fired', triggeredAt: attempt.triggeredAt };
-      sent += 1;
-    } else {
-      blocked = true;
-      failed += 1;
-    }
+    if (attempt) attempts.push({ chokepoint, attempt });
   }
-  return { state, lastOutcome, sent, failed };
+  const result = { record, state, lastOutcome: null, sent: 0, failed: 0 };
+  if (!attempts.length) return result;
+
+  assertPipeline(await deps.redis([
+    ['SET', stateKey(record.subscriberId), JSON.stringify(state), 'EX', String(STATE_TTL_SECONDS)],
+  ]), 1, 'pending state');
+
+  for (const { chokepoint, attempt } of attempts) {
+    if (deps.overBudget()) break;
+    const payload = buildPayload(record, chokepoint, attempt);
+    const outcome = await deps.send(record, payload, deliveryIdFor(record.subscriberId, chokepoint.id, attempt.triggeredAt));
+    result.lastOutcome = outcome;
+    if (!outcome.ok) {
+      result.failed += 1;
+      break;
+    }
+    state[chokepoint.id] = { ...state[chokepoint.id], phase: 'fired' };
+    result.sent += 1;
+  }
+  return result;
 }
 
 /**
  * Runs one dispatch tick and returns its summary. Throws when Redis cannot be
- * read; per-subscriber delivery failures are recorded, not thrown.
+ * read; per-subscriber delivery and write failures are counted, not thrown.
  */
 async function runShippingWebhookDispatch({ redis, send = sendDelivery, now = () => Date.now(), log = () => {} }) {
   const nowMs = now();
   const nowIso = new Date(nowMs).toISOString();
   const summary = {
-    subscribers: 0, active: 0, expired: 0, delivered: 0, failed: 0, deactivated: 0, backfilled: 0, skipped: null,
+    subscribers: 0, active: 0, expired: 0, delivered: 0, failed: 0, deactivated: 0, backfilled: 0,
+    writeErrors: 0, egressOutage: false, skipped: null,
   };
 
   const lockToken = randomBytes(12).toString('hex');
@@ -312,7 +361,12 @@ async function runShippingWebhookDispatch({ redis, send = sendDelivery, now = ()
   if (lock.result !== 'OK') return { ...summary, skipped: 'locked' };
 
   try {
-    summary.backfilled = await ensureGlobalIndexBackfilled(redis);
+    // Already-indexed subscribers are still served when the backfill fails.
+    try {
+      summary.backfilled = await ensureGlobalIndexBackfilled(redis);
+    } catch (error) {
+      log(`[ShippingWebhooks] backfill failed: ${error?.message ?? error}`);
+    }
 
     const [statusRow, membersRow] = assertPipeline(
       await redis([['GET', CHOKEPOINT_STATUS_KEY], ['SMEMBERS', GLOBAL_INDEX_KEY]]),
@@ -352,26 +406,45 @@ async function runShippingWebhookDispatch({ redis, send = sendDelivery, now = ()
     });
     summary.active = work.length;
 
-    await mapWithConcurrency(work, SUBSCRIBER_CONCURRENCY, async ({ record, previousState }) => {
-      const result = await dispatchSubscriber(record, previousState, chokepointsById, nowIso, { send });
+    // Shuffled so a subscriber whose callbacks hang cannot always be first in
+    // line; the budget leaves whoever is not reached pending for the next tick.
+    const deps = { redis, send, overBudget: () => now() - nowMs > SEND_BUDGET_MS };
+    const results = (await mapWithConcurrency(shuffled(work), SUBSCRIBER_CONCURRENCY, async ({ record, previousState }) => {
+      try {
+        return await dispatchSubscriber(record, previousState, chokepointsById, nowIso, deps);
+      } catch (error) {
+        summary.writeErrors += 1;
+        log(`[ShippingWebhooks] ${record.subscriberId}: ${error?.message ?? error}`);
+        return null;
+      }
+    })).filter(Boolean);
+
+    const attempted = results.filter((result) => result.lastOutcome);
+    summary.egressOutage = attempted.length >= 2
+      && attempted.every((result) => !result.lastOutcome.ok && TRANSPORT_ERRORS.has(result.lastOutcome.error));
+    if (summary.egressOutage) log(`[ShippingWebhooks] all ${attempted.length} attempted callbacks failed in transport; failure counts left unchanged`);
+
+    for (const result of results) {
+      const { record, lastOutcome } = result;
       summary.delivered += result.sent;
       summary.failed += result.failed;
       const writes = [['SET', stateKey(record.subscriberId), JSON.stringify(result.state), 'EX', String(STATE_TTL_SECONDS)]];
-      if (result.lastOutcome) {
+      if (lastOutcome && !summary.egressOutage) {
         writes.push(['EVAL', RECORD_DELIVERY_SCRIPT, '1', webhookKey(record.subscriberId),
-          nowIso, String(result.lastOutcome.status), result.lastOutcome.ok ? '1' : '0',
-          String(FAILURE_CEILING), result.lastOutcome.error ?? '']);
+          nowIso, String(lastOutcome.status), lastOutcome.ok ? '1' : '0',
+          String(FAILURE_CEILING), lastOutcome.error ?? '']);
       }
-      const written = await redis(writes);
-      if (!Array.isArray(written) || written.some((row) => !row || row.error)) {
+      const written = await Promise.resolve(redis(writes)).catch(() => null);
+      if (!Array.isArray(written) || written.length !== writes.length || written.some((row) => !row || row.error)) {
+        summary.writeErrors += 1;
         log(`[ShippingWebhooks] state write failed for ${record.subscriberId}`);
-        return;
+        continue;
       }
       if (written[1]?.result === 2 || written[1]?.result === '2') {
         summary.deactivated += 1;
         log(`[ShippingWebhooks] ${record.subscriberId} deactivated after ${FAILURE_CEILING} consecutive failures`);
       }
-    });
+    }
     return summary;
   } finally {
     await Promise.resolve(redis([['EVAL', RELEASE_LOCK_SCRIPT, '1', DISPATCH_LOCK_KEY, lockToken]])).catch(() => {});
@@ -384,12 +457,15 @@ async function runShippingWebhookDispatch({ redis, send = sendDelivery, now = ()
  * errors.
  */
 function buildLastRun(summary, nowMs, error) {
+  const reason = error ? String(error?.message ?? error).slice(0, 200)
+    : summary?.writeErrors ? `${summary.writeErrors} subscriber state write(s) failed`
+      : null;
   return {
     fetchedAt: nowMs,
     recordCount: 1,
-    status: error ? 'error' : 'ok',
+    status: reason ? 'error' : 'ok',
     ...(summary ?? {}),
-    ...(error ? { errorReason: String(error?.message ?? error).slice(0, 200) } : {}),
+    ...(reason ? { errorReason: reason } : {}),
   };
 }
 

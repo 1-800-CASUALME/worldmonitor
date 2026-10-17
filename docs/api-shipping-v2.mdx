@@ -141,7 +141,7 @@ Status read for a single webhook. Returns the record shape from `GET /webhooks` 
 |-------|---------|
 | `lastDeliveryAt` | ISO-8601 time of the last delivery attempt, or `null` before the first. |
 | `lastStatus` | HTTP status of the last attempt; `0` when no response arrived; `null` before the first. |
-| `lastError` | Present only after a failed attempt: `http_<status>`, `timeout`, `ssrf_blocked` or `network_error`. |
+| `lastError` | Present only after a failed attempt: `http_<status>`, `timeout`, `dns_error`, `ssrf_blocked` or `network_error`. |
 | `failureCount` | Consecutive failed attempts. At 5 the subscription is deactivated (`active: false`). |
 
 `GET /webhooks` does not include the delivery fields.
@@ -206,11 +206,13 @@ Ties resolve in the order of the table.
 
 #### When deliveries are sent
 
-- The AIS relay checks every active subscription after each chokepoint status refresh, every 30 minutes. It reads the cached status and sends nothing while that status is more than 2 hours old.
+- The AIS relay checks every active subscription after each chokepoint status refresh, every 30 minutes, using the status that refresh cached. When the refresh failed and no current status is cached, the check sends nothing.
 - One delivery is sent per subscribed chokepoint when its score rises to or above `alertThreshold` (a score equal to the threshold counts). A new subscription whose chokepoint is already at or above the threshold receives one delivery on the first check.
-- While the score stays at or above the threshold, nothing more is sent. The alert re-arms when a check sees the score below the threshold with both the navigational-warning and AIS sources available. A missing source can only lower the score, so a dip during a source outage does not re-arm.
+- While the score stays at or above the threshold, nothing more is sent. The alert re-arms when a check sees the score below the threshold with both the navigational-warning and AIS sources available, and with transit data available if the crossing included a transit drop. A missing source can only lower the score, so a dip during a source outage does not re-arm. With `alertThreshold: 0` the score can never fall below the threshold, so each chokepoint is delivered once.
 - A delivery succeeds on any 2xx response within 10 seconds. A failed delivery is retried on each later check, with the same `triggeredAt` and `X-WM-Delivery-Id`, until it succeeds or the score falls back below the threshold. After one failure, the rest of that subscription's crossings in the same check wait for the next one.
-- Timeouts, non-2xx responses, network errors and callbacks refused by the address guard all count as failures. After 5 consecutive failures the subscription is set to `active: false` and nothing more is sent until it is reactivated with `POST /api/v2/shipping/webhooks/{subscriberId}/reactivate`.
+- Timeouts, non-2xx responses, DNS and network errors, and callbacks refused by the address guard all count as failures. After 5 consecutive failures the subscription is set to `active: false` and nothing more is sent until it is reactivated with `POST /api/v2/shipping/webhooks/{subscriberId}/reactivate`.
+- When every subscription attempted in a check fails with a timeout, DNS or network error, the relay's own connection is the likelier fault: the crossings stay pending and no failure count changes.
+- A check stops starting new deliveries 20 minutes in; crossings it did not reach wait for the next check.
 
 The worker re-resolves `callbackUrl` before each send, refuses private, loopback, link-local, metadata and other reserved addresses, and connects only to the vetted address to mitigate DNS rebinding. Delivery is at-least-once — consumers must handle duplicates via `X-WM-Delivery-Id`.
 

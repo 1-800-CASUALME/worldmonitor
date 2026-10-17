@@ -6206,10 +6206,12 @@ async function seedChokepointWarmPing() {
     // no direct write needed here.
   } catch (e) {
     console.warn('[Chokepoints] Warm-ping error:', e?.message || e);
+  } finally {
+    // Runs on every outcome so the heartbeat tracks the dispatcher, not the
+    // RPC. The status key has a 5-min TTL: after a failed warm-ping the tick
+    // usually finds it absent and records skipped=source_missing.
+    await runShippingWebhookDispatchTick();
   }
-  // Reads supply_chain:chokepoints:v4 from Redis itself, so a failed warm-ping
-  // still dispatches against the last cached scores while they are fresh.
-  await runShippingWebhookDispatchTick();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -6218,26 +6220,36 @@ async function seedChokepointWarmPing() {
 // chokepoint's disruptionScore crosses their alertThreshold. Heartbeat:
 // seed-meta:shipping:webhook-delivery:last-run (api/health.js).
 // ─────────────────────────────────────────────────────────────
+let shippingWebhookDispatchInFlight = false;
+
 async function runShippingWebhookDispatchTick() {
   if (!UPSTASH_ENABLED) return;
-  const startedAt = Date.now();
-  let summary = null;
-  let error = null;
+  // A tick can run up to its 20-min send budget; the 30-min interval must not
+  // start a second one beside it.
+  if (shippingWebhookDispatchInFlight) return;
+  shippingWebhookDispatchInFlight = true;
   try {
-    summary = await shippingWebhookDispatch.runShippingWebhookDispatch({
-      redis: upstashPipeline,
-      log: (message) => console.warn(message),
-    });
-    // Another relay instance holds the tick and writes its own heartbeat.
-    if (summary.skipped === 'locked') return;
-    console.log(`[ShippingWebhooks] subscribers=${summary.subscribers} active=${summary.active} delivered=${summary.delivered} failed=${summary.failed} deactivated=${summary.deactivated} expired=${summary.expired}${summary.backfilled ? ` backfilled=${summary.backfilled}` : ''}${summary.skipped ? ` skipped=${summary.skipped}` : ''}`);
-  } catch (e) {
-    error = e;
-    console.warn('[ShippingWebhooks] Dispatch error:', e?.message || e);
+    const startedAt = Date.now();
+    let summary = null;
+    let error = null;
+    try {
+      summary = await shippingWebhookDispatch.runShippingWebhookDispatch({
+        redis: upstashPipeline,
+        log: (message) => console.warn(message),
+      });
+      // Another relay instance holds the tick and writes its own heartbeat.
+      if (summary.skipped === 'locked') return;
+      console.log(`[ShippingWebhooks] subscribers=${summary.subscribers} active=${summary.active} delivered=${summary.delivered} failed=${summary.failed} deactivated=${summary.deactivated} expired=${summary.expired}${summary.backfilled ? ` backfilled=${summary.backfilled}` : ''}${summary.writeErrors ? ` writeErrors=${summary.writeErrors}` : ''}${summary.egressOutage ? ' egressOutage=true' : ''}${summary.skipped ? ` skipped=${summary.skipped}` : ''}`);
+    } catch (e) {
+      error = e;
+      console.warn('[ShippingWebhooks] Dispatch error:', e?.message || e);
+    }
+    const run = shippingWebhookDispatch.buildLastRun(summary, startedAt, error);
+    await upstashPipeline(shippingWebhookDispatch.lastRunWrites(run))
+      .catch((e) => console.warn('[ShippingWebhooks] Heartbeat write failed:', e?.message || e));
+  } finally {
+    shippingWebhookDispatchInFlight = false;
   }
-  const run = shippingWebhookDispatch.buildLastRun(summary, startedAt, error);
-  await upstashPipeline(shippingWebhookDispatch.lastRunWrites(run))
-    .catch((e) => console.warn('[ShippingWebhooks] Heartbeat write failed:', e?.message || e));
 }
 
 function startChokepointWarmPingLoop() {
