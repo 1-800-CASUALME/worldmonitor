@@ -428,14 +428,14 @@
     },
     {
       "name": "search_flights",
-      "description": "Search Google Flights for real-time flight options between two airports on a specific date. Returns available flights with prices, stops, airline, and segment details. Use IATA airport codes (e.g. \"JFK\", \"LHR\", \"DXB\").",
+      "description": "Live Google Flights itineraries between two airports on one date, read from the Google Flights results page. Each itinerary has its total USD price for all passengers, stops, duration, and per-leg airline, flight number, airports, and local departure and arrival times. With return_date the price covers the round trip and the legs are the outbound journey. degraded with an error means the provider failed; an empty list without degraded means no itineraries were found. Airports are IATA codes (e.g. \"JFK\", \"LHR\", \"DXB\").",
       "_meta": {
         "worldmonitor/access": "subscription"
       }
     },
     {
       "name": "search_flight_prices_by_date",
-      "description": "Search Google Flights date-grid pricing across a date range. Returns cheapest prices for each departure date between two airports. Useful for finding the cheapest day to fly. Use IATA airport codes.",
+      "description": "Cheapest Google Flights fare for each departure date between two airports, across a range of at most 31 days (one results-page search per date). Each row has the date, the return date for round trips (departure plus trip_duration), and the lowest total USD price for all passengers. A date with no itineraries is omitted. degraded with an error means some or all dates failed, and the list holds only the dates that answered. Airports are IATA codes.",
       "_meta": {
         "worldmonitor/access": "subscription"
       }

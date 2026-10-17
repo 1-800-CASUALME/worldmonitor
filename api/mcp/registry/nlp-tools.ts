@@ -40,6 +40,7 @@ import {
 import { CLAIM_CARD_MAX_HEADLINES, CLAIM_CARD_STATES, CLAIM_MAX_CHARS, buildClaimCard } from '../../../server/_shared/claim-match';
 import { FACT_CHECK_CAVEAT, FACT_CHECK_LABEL } from '../../../server/_shared/fact-checks';
 import { lookupFactChecks, type FactCheckLookup } from '../../../server/_shared/fact-check-search';
+import { searchClaimPool } from '../../../server/worldmonitor/news/v1/search-claim-headlines';
 import { buildAuthHeaders } from '../auth';
 import { fetchMcpDownstream } from '../downstream';
 import { assertToolFetchOk } from '../billing-denial';
@@ -959,10 +960,22 @@ export const NLP_TOOLS: ToolDef[] = [
       if (!claim) return { ...empty, error: 'claim is required' };
       if (!variant) return { ...empty, error: `variant must be one of: ${NLP_DIGEST_VARIANTS.join(', ')}` };
 
-      const [digest, factChecks] = await Promise.all([
-        fetchNlpDigestItems(base, context, variant, '', execution),
+      // full searches every fresh headline in the feed caches, in-process like
+      // the fact-checks, not only the ~280 the digest serves. Other variants,
+      // and a search that could not run, use the variant's digest.
+      const [search, factChecks] = await Promise.all([
+        variant === 'full' ? searchClaimPool(claim).catch(() => null) : null,
         factCheckBlock(claim),
       ]);
+      if (search && search.state !== 'unavailable') {
+        return {
+          ...buildClaimCard(claim, search.candidates, search.searchedHeadlines),
+          factChecks,
+          generatedAt: search.readAt,
+          variant,
+        };
+      }
+      const digest = await fetchNlpDigestItems(base, context, variant, '', execution);
       return {
         ...buildClaimCard(claim, digest.items),
         factChecks,
@@ -971,10 +984,12 @@ export const NLP_TOOLS: ToolDef[] = [
         ...(digest.digestCoverage ? { digestCoverage: digest.digestCoverage } : {}),
       };
     },
-    // search-fact-checks: covered by the same in-process lookup it serves.
+    // search-fact-checks and search-claim-headlines: covered by the same
+    // in-process lookups they serve.
     _apiPaths: [
       'GET /api/news/v1/list-feed-digest',
       'GET /api/news/v1/search-fact-checks',
+      'GET /api/news/v1/search-claim-headlines',
     ],
   },
   {

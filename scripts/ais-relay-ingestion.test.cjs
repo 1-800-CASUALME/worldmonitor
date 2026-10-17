@@ -1355,8 +1355,11 @@ test('theater-posture uses adsb.lol, then Wingbits, without routine OpenSky debi
 // Google answers a rejected RPC with HTTP 200 and a `wrb.fr` row whose payload
 // slot is null and whose error slot holds the RPC status. Captured verbatim
 // from GetShoppingResults on 2026-10-16, when every search returned this.
-const GOOGLE_RPC_REJECTION = ')]}\'\n\n[["wrb.fr",null,null,null,null,[13]],["di",142],["af.httprm",142,"7097742796501415412",112]]';
-const googleShoppingBody = (items) => `)]}'\n\n${JSON.stringify([['wrb.fr', null, JSON.stringify([null, null, items, null])]])}`;
+// Results-page bodies in the live framing: the shopping payload is the `ds:1`
+// block, and a rejected search carries `errorHasStatus: true` instead.
+const googlePage = (dataJson) => `<script>AF_initDataCallback({key: 'ds:1', hash: '9', data:${dataJson}, sideChannel: {}});</script>`;
+const GOOGLE_PAGE_REJECTION = `<script>AF_initDataCallback({key: 'ds:1',  data:[3,null,[["type.googleapis.com/travel.frontend.flights.ErrorResponse",[]]]],errorHasStatus: true,});</script>`;
+const googleShoppingPage = (items) => googlePage(JSON.stringify([null, null, items, null]));
 const googleFlightRow = () => {
   const leg = [];
   Object.assign(leg, { 3: 'JFK', 6: 'LHR', 8: [18, 30], 10: [6, 45], 11: 435, 20: [2026, 11, 15], 21: [2026, 11, 16], 22: ['BA', '178'] });
@@ -1365,15 +1368,15 @@ const googleFlightRow = () => {
   return [flight, [[null, 512]]];
 };
 
-test('Google Flights RPC rejections fail the relay call instead of reading as zero flights', async () => {
+test('Google Flights rejections fail the relay call instead of reading as zero flights', async () => {
   const { child, ready } = spawnRelay({
     RELAY_GOOGLE_FLIGHTS_RATE_LIMIT_MAX: '1000',
-    RELAY_TEST_GOOGLE_STATUS_SEQUENCE: '200,200,200,200',
+    RELAY_TEST_GOOGLE_STATUS_SEQUENCE: Array(11).fill('200').join(','),
     RELAY_TEST_GOOGLE_BODY_SEQUENCE: JSON.stringify([
-      GOOGLE_RPC_REJECTION,
-      GOOGLE_RPC_REJECTION,
-      googleShoppingBody(null),
-      googleShoppingBody([[googleFlightRow()]]),
+      GOOGLE_PAGE_REJECTION,
+      ...Array(8).fill(GOOGLE_PAGE_REJECTION),
+      googleShoppingPage(null),
+      googleShoppingPage([[googleFlightRow()]]),
     ]),
   });
 
@@ -1381,12 +1384,12 @@ test('Google Flights RPC rejections fail the relay call instead of reading as ze
     const { port } = await ready;
 
     const rejected = await get(port, '/google-flights/search?origin=JFK&destination=LHR&departure_date=2026-11-15');
-    assert.equal(rejected.status, 502, 'an RPC error envelope is an upstream failure, not an empty result');
-    assert.match(JSON.parse(rejected.body).error, /Google Flights returned RPC error 13/);
+    assert.equal(rejected.status, 502, 'an error page is an upstream failure, not an empty result');
+    assert.match(JSON.parse(rejected.body).error, /Google Flights rejected the search/);
 
     const rejectedDates = await get(port, '/google-flights/search-dates?origin=JFK&destination=LHR&start_date=2026-11-15&end_date=2026-11-22');
     assert.equal(rejectedDates.status, 502);
-    assert.match(JSON.parse(rejectedDates.body).error, /Google Flights returned RPC error 13/);
+    assert.match(JSON.parse(rejectedDates.body).error, /Google Flights rejected the search/);
 
     const empty = await get(port, '/google-flights/search?origin=JFK&destination=LHR&departure_date=2026-11-16');
     assert.equal(empty.status, 200, 'a well-formed payload without flight rows is a genuine empty result');
@@ -1402,24 +1405,25 @@ test('Google Flights RPC rejections fail the relay call instead of reading as ze
   }
 });
 
-test('Google Flights payloads or rows in an unexpected shape fail instead of reading as results', async () => {
-  const wrap = (inner) => `)]}'\n\n${JSON.stringify([['wrb.fr', null, inner]])}`;
+test('Google Flights pages or rows in an unexpected shape fail instead of reading as results', async () => {
   const { child, ready } = spawnRelay({
     RELAY_GOOGLE_FLIGHTS_RATE_LIMIT_MAX: '1000',
-    RELAY_TEST_GOOGLE_STATUS_SEQUENCE: '200,200,200',
+    RELAY_TEST_GOOGLE_STATUS_SEQUENCE: '200,200,200,200',
     RELAY_TEST_GOOGLE_BODY_SEQUENCE: JSON.stringify([
-      wrap('null'),
-      wrap('{}'),
-      googleShoppingBody([[[[], []]]]),
+      '<html><body>Our systems have detected unusual traffic</body></html>',
+      googlePage('{}'),
+      googlePage('[1,'),
+      googleShoppingPage([[[[], []]]]),
     ]),
   });
 
   try {
     const { port } = await ready;
     for (const [day, reason] of [
-      ['15', /Google Flights returned an unrecognized payload/],
+      ['15', /Google Flights returned a page without flight results/],
       ['16', /Google Flights returned an unrecognized payload/],
-      ['17', /Google Flights returned flight rows in an unrecognized shape/],
+      ['17', /Google Flights returned an unreadable results page/],
+      ['18', /Google Flights returned flight rows in an unrecognized shape/],
     ]) {
       const response = await get(port, `/google-flights/search?origin=JFK&destination=LHR&departure_date=2026-11-${day}`);
       assert.equal(response.status, 502, `departure 2026-11-${day} must not read as a successful search`);

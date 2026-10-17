@@ -121,6 +121,13 @@ export const COMPARISON_NARRATIVES = {
     ],
     competitorProfiles: [
       {
+        name: 'World Monitor',
+        paragraphs: [
+          'World Monitor is the pick when the reason you searched is coverage: every theatre rather than one, and conflict next to shipping, aviation, markets, cables and seismic signals. The map is free with no signup. Each panel names its source, and news items carry badges for the outlet\'s editorial tier, propaganda risk and state affiliation where they apply, so a reader can check where a marker came from.',
+          'It also answers the second reason teams leave a map: they want to be told. On Pro, alert rules filter by country, event type and severity and deliver to Slack, Discord, Telegram, email or a webhook signed with HMAC-SHA256, in real time or as a daily digest. Real-time alerts link to the original report, and email digests link every item. Alerts are scoped by country, not by a radius around a site, and World Monitor aggregates published reports rather than verifying events on the ground.',
+        ],
+      },
+      {
         name: 'Liveuamap',
         paragraphs: [
           'Liveuamap is a live news map centered on conflict and security events, with a long public audience and region-specific variants. The free, ad-funded map is the product most people mean by the name. The paid API is a separate SKU: Pro at $150/month for 200 requests/day and Enterprise from $1,000/month for 1,500 requests/day, published at liveuamap.com/promo/api. It is fast at headlines. It is not a multi-domain watch.',
@@ -302,14 +309,21 @@ export const COMPARISON_NARRATIVES = {
   'worldmonitor-vs-gdelt': {
     heading: 'GDELT alternatives',
     headingProse: [
-      'GDELT Cloud is a firehose. It gives you global news event data in 15-minute batches, a keyless DOC 2.0 REST path, and BigQuery for bulk, with an archive to 1979. World Monitor is a curation layer: scored indices, hotspots, and convergence cues across conflict, maritime, aviation, and markets. The comparison is raw volume versus ready-to-act context, not two dashboards with different skins.',
+      'The GDELT Project is a firehose. It gives you global news event data in 15-minute batches, a keyless DOC 2.0 REST path, and BigQuery for bulk, with an archive to 1979. World Monitor is a curation layer: scored indices, hotspots, and convergence cues across conflict, maritime, aviation, and markets. The comparison is raw volume versus ready-to-act context, not two dashboards with different skins.',
     ],
     competitorProfiles: [
       {
-        name: 'GDELT Cloud',
+        name: 'GDELT Project',
         paragraphs: [
           'The GDELT Project ingests global news and emits event data. DOC 2.0 REST is free and keyless. BigQuery is the bulk path and needs a Google account. Community MCP implementations exist and are labelled as such. The archive is the headline win: decades of event data, conventionally cited to 1979.',
           'Pick GDELT when you have the engineering time to turn a firehose into meaning — models, counts, your own ontology. Do not pick it when you needed a scored dashboard this morning. The product is the stream. Meaning is your job.',
+        ],
+      },
+      {
+        name: 'GDELT Cloud',
+        paragraphs: [
+          'GDELT Cloud (gdeltcloud.com) is a separate commercial product, not the GDELT Project\'s free REST path. It sells event monitoring built on GDELT: events grouped into stories and connected to entities such as companies and facilities, delivered through an API, an MCP server and saved monitors, with self-serve plans and published prices.',
+          'Pick GDELT Cloud when the reason you are leaving raw GDELT is noise and you want cleaner GDELT-derived events and story clusters in one product. Pick World Monitor when you also need non-news signals (ship transits, flights, outages, hazards, markets) on the same map, country and severity alert rules delivered to Slack, Discord, Telegram, email or a signed webhook, and a public source inventory with an editorial tier on each outlet.',
         ],
       },
       {
@@ -332,7 +346,7 @@ export const COMPARISON_NARRATIVES = {
       'The other trigger is operations. BigQuery, quotas, and self-hosted wrappers have a staff cost. A hosted dashboard with published API and MCP prices is a different procurement conversation: you are buying the meaning layer, not the raw archive. Keep GDELT if you still need 1979. Add the watch if you need today.',
     ],
     methodologyProse: methodology(
-      'GDELT access paths (keyless DOC 2.0 REST and BigQuery) were read from public GDELT Cloud documentation. Community MCP implementations are labelled community, not as a GDELT-hosted product.',
+      'GDELT access paths (keyless DOC 2.0 REST and BigQuery) were read from public GDELT Project documentation. The GDELT Cloud description was read from gdeltcloud.com. Community MCP implementations are labelled community, not as a GDELT-hosted product.',
     ),
     usageHeading: 'How to use this GDELT comparison',
     usageProse: [
@@ -532,9 +546,9 @@ export const COMPARISON_NARRATIVES = {
         ],
       },
       {
-        name: 'GDELT Cloud MCP',
+        name: 'GDELT MCP (community)',
         paragraphs: [
-          'Community MCP implementations on top of GDELT Cloud. The upstream is the 15-minute global news firehose and the 1979 archive. The MCP is not a GDELT-hosted product with a published enterprise SLA; it is community plumbing, labelled that way in the matrix.',
+          'Community MCP implementations on top of the GDELT Project. The upstream is the 15-minute global news firehose and the 1979 archive. The MCP is not a GDELT-hosted product with a published enterprise SLA; it is community plumbing, labelled that way in the matrix.',
           'Pick it for raw volume in an agent loop. Pick World Monitor for scored multi-domain access with a server-card you can point an agent at.',
         ],
       },
@@ -584,7 +598,7 @@ export const COMPARISON_NARRATIVES = {
       ['Why concede 171 tools?', 'Because it is true. Satellite MCP\'s tool-count breadth is a real win for satellite-only workflows. We do not compete on that row.'],
       ['Does World Monitor wrap GDELT only?', `No. It curates ${PROVIDER_COUNT} attributed providers across domains. GDELT-derived signals are in the mix, not the whole mix.`],
       ['Can I point Claude or another agent at World Monitor MCP?', 'Yes. That is what a published server-card and OAuth are for. Confirm current auth docs at /mcp; this page is the comparison, not the live protocol spec.'],
-      ['Is a community GDELT MCP official?', 'No. It is labelled community implementation. GDELT Cloud is the upstream data; the MCP is plumbing.'],
+      ['Is a community GDELT MCP official?', 'No. It is labelled community implementation. The GDELT Project is the upstream data; the MCP is plumbing.'],
       ['Should I self-host and also buy Pro?', 'You can. Self-host the satellite or OSINT packs you need, and use World Monitor MCP for the governed multi-domain session. The page is a comparison, not a monopoly.'],
       ['What does "Unverified" mean in the MCP column?', 'We could not cite a public MCP server or community implementation on the check date. It is not a "No." It is a refusal to guess.'],
     ],
@@ -663,13 +677,13 @@ export const COMPARISON_NARRATIVES = {
     ),
     usageHeading: 'How to use this chokepoint tools list',
     usageProse: [
-      'Buy PortWatch first if you do not already have it. It is free, it is authoritative, and it wins the count cell. Then ask whether counts are the whole question. If yes, stop. If the next sentence in the incident is about airspace, cables, conflict, or freight, add World Monitor. If the next sentence is about a specific vessel, add MarineTraffic or Windward. If it is about cargo flows as a commercial product, add Kpler. If it is about editorial maritime risk, add Lloyd\'s List Intelligence.',
+      'Use PortWatch for transit-count history: it is free, it is authoritative, and it wins the count cell. Then ask whether counts are the whole question. If yes, stop. If you need to see what changed at a strait as it happens, or the next sentence in the incident is about airspace, cables, conflict, or freight, add World Monitor. If the next sentence is about a specific vessel, add MarineTraffic or Windward. If it is about cargo flows as a commercial product, add Kpler. If it is about editorial maritime risk, add Lloyd\'s List Intelligence.',
       'Do not let a fusion demo talk you out of PortWatch\'s bulk download. Do not let a vessel platform talk you out of a strait index. Chokepoint monitoring is three jobs that share a waterway: the count, the ship, and the rest of the world. This page lists vendors for all three so you can stack them instead of declaring a false winner. Our coverage number is ' + CHOKEPOINT_COUNT + ' because that is the registry, not because a larger number would look better next to 28.',
       'Enterprise maritime vendors without list prices — Kpler, Lloyd\'s List Intelligence, Windward — belong in a negotiated bake-off, not in a "which free tool" argument. SENTINEL GIP does publish a floor price, which is useful, but it does not inherit PortWatch\'s IMF plus Oxford citation. straits.live is the simple public window. Stack, do not average. A desk that buys fusion and skips counts, or buys AIS and skips the strait index, will rebuild the missing layer under incident pressure.',
     ],
     whyWeWinBody: [
       'World Monitor fuses ' + CHOKEPOINT_COUNT + ' named chokepoints with conflict events, aviation disruption, market moves, and climate hazards. A slowdown can be read next to the cable cut, the airspace closure, and the freight spike. PortWatch will give you the transit count. We give you the rest of the hour.',
-      'We still lose coverage (28 versus ' + CHOKEPOINT_COUNT + '), bulk download formats, and IMF plus Oxford authority. Those losses are the first thing on the page because a fusion story that hides PortWatch is not survivable. Buy PortWatch for counts. Add World Monitor when counts are not the whole question.',
+      'We still lose coverage (28 versus ' + CHOKEPOINT_COUNT + '), bulk download formats, and IMF plus Oxford authority. Those losses are the first thing on the page because a fusion story that hides PortWatch is not survivable. Use PortWatch for counts. Add World Monitor when counts are not the whole question.',
       'Fusion here means a named chokepoint next to conflict, aviation, market, and climate layers on one canvas, not a promise that we re-derived PortWatch\'s transit model. We do not out-IMF the IMF. We put the strait in the same view as the rest of the incident. That is a narrower claim than "best chokepoint tool," and it is the only claim that survives the 28-versus-' + CHOKEPOINT_COUNT + ' sentence. Download PortWatch\'s bulk files for the time series; keep this canvas for the hour the series breaks.',
     ],
     extraFaqs: [
