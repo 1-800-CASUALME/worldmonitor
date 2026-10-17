@@ -16,7 +16,8 @@ export type MediaCheckOutcome =
 
 const CHECK_PATH = '/api/news/v1/check-media-provenance';
 const POLL_INTERVAL_MS = 2_000;
-const POLL_TIMEOUT_MS = 120_000;
+// The worker stops a check after 4 minutes; allow for a short queue on top.
+const POLL_TIMEOUT_MS = 300_000;
 
 /** True when the whole input is one http(s) link: /verify then checks the media, not a claim. */
 export function isMediaCheckInput(text: string): boolean {

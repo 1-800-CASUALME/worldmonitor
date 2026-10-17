@@ -66,6 +66,11 @@ export function mediaUrlProblem(raw) {
   return null;
 }
 
+/** ISO base-media brands of an MP4 video; any other ftyp file (audio, raw photos) is not checked. */
+const MP4_VIDEO_BRANDS = ['isom', 'iso2', 'iso3', 'iso4', 'iso5', 'iso6', 'mp41', 'mp42', 'avc1', 'M4V ', 'mmp4', 'dash', '3gp4', '3gp5', '3gp6'];
+/** Major brands of an audio-only file, which also lists MP4 brands as compatible. */
+const MP4_AUDIO_BRANDS = ['M4A ', 'M4B ', 'M4P ', 'F4A ', 'F4B '];
+
 /**
  * The media type of a file, from its first bytes. The server's Content-Type
  * is not trusted: a check runs on what the file is, not what it claims.
@@ -80,11 +85,17 @@ export function sniffMediaType(bytes) {
   if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return 'image/webp';
   if ((b[0] === 0x49 && b[1] === 0x49 && b[2] === 0x2a && b[3] === 0) || (b[0] === 0x4d && b[1] === 0x4d && b[2] === 0 && b[3] === 0x2a)) return 'image/tiff';
   if (ascii(4, 8) === 'ftyp') {
-    const brand = ascii(8, 12);
-    if (brand === 'avif' || brand === 'avis') return 'image/avif';
-    if (['heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'mif1', 'msf1'].includes(brand)) return 'image/heic';
-    if (brand === 'qt  ') return 'video/quicktime';
-    return 'video/mp4';
+    // The major brand, then the compatible brands up to the end of the ftyp box.
+    const boxEnd = Math.min(b.length, ((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]) >>> 0);
+    const brands = [ascii(8, 12)];
+    for (let at = 16; at + 4 <= boxEnd; at += 4) brands.push(ascii(at, at + 4));
+    const has = (list) => brands.some((brand) => list.includes(brand));
+    if (has(['avif', 'avis'])) return 'image/avif';
+    if (has(['heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'mif1', 'msf1'])) return 'image/heic';
+    if (brands[0] === 'qt  ') return 'video/quicktime';
+    if (MP4_AUDIO_BRANDS.includes(brands[0])) return null;
+    if (has(MP4_VIDEO_BRANDS)) return 'video/mp4';
+    return null;
   }
   return null;
 }
@@ -120,7 +131,11 @@ function readCapped(res, maxBytes, deadlineAt) {
     const timer = setTimeout(() => {
       res.destroy(new MediaCheckError('The file took too long to download.', 'timeout'));
     }, Math.max(0, deadlineAt - Date.now()));
-    res.on('close', () => clearTimeout(timer));
+    res.on('close', () => {
+      clearTimeout(timer);
+      // A stream that closes without ending or erroring must not leave the check waiting.
+      reject(new MediaCheckError('The file could not be downloaded.', 'fetch'));
+    });
     res.on('data', (chunk) => {
       total += chunk.length;
       if (total > maxBytes) {
@@ -334,15 +349,17 @@ export function tineyeLimits(env = process.env) {
  */
 export async function reserveTinEyeSearch(redisCmd, { capCents, costCents }, now = Date.now()) {
   const key = tineyeSpendKey(now);
-  const total = Number(await redisCmd('incrby', [key, costCents]));
-  await redisCmd('expire', [key, 40 * 24 * 60 * 60]);
-  if (!Number.isFinite(total)) throw new Error('spend counter unreadable');
-  if (total > capCents) {
-    await redisCmd('decrby', [key, costCents]);
-    return null;
-  }
+  // One script: the counter never keeps a reservation that went over the cap,
+  // even when Redis fails between the steps.
+  const reserved = await redisCmd('eval', [RESERVE_SCRIPT, 1, key, costCents, capCents, 40 * 24 * 60 * 60]);
+  if (Number(reserved) !== 1) return null;
   return () => redisCmd('decrby', [key, costCents]);
 }
+
+const RESERVE_SCRIPT = `local total = redis.call('INCRBY', KEYS[1], ARGV[1])
+redis.call('EXPIRE', KEYS[1], ARGV[3])
+if total > tonumber(ARGV[2]) then redis.call('DECRBY', KEYS[1], ARGV[1]) return 0 end
+return 1`;
 
 /**
  * Earliest copies of an image: cached by content hash, otherwise one TinEye
@@ -361,6 +378,13 @@ export async function findEarliestCopies({ sha256, mediaType, searchBytes, apiKe
   } catch {
     // A cache miss or bad entry falls through to a search.
   }
+  // Prepare the copy first: a file that cannot be re-encoded never spends a search.
+  let bytes;
+  try {
+    bytes = await searchBytes();
+  } catch {
+    return { ...base, state: 'unavailable' };
+  }
   let refund;
   try {
     refund = await reserveTinEyeSearch(redisCmd, limits, now);
@@ -370,7 +394,7 @@ export async function findEarliestCopies({ sha256, mediaType, searchBytes, apiKe
   if (!refund) return { ...base, state: 'cap-reached' };
   let parsed = null;
   try {
-    parsed = parseTinEyeResponse(await searchTinEye(await searchBytes(), apiKey));
+    parsed = parseTinEyeResponse(await searchTinEye(bytes, apiKey));
   } catch {
     parsed = null;
   }
@@ -382,6 +406,9 @@ export async function findEarliestCopies({ sha256, mediaType, searchBytes, apiKe
   await redisCmd('set', [tineyeCacheKey(sha256), JSON.stringify(record), 'EX', cacheTtlSeconds]).catch(() => {});
   return { ...base, state: 'ok', ...record };
 }
+
+const SEARCH_MAX_INPUT_PIXELS = 50_000_000;
+const SEARCH_MAX_EDGE = 2_000;
 
 /** POST the image to TinEye's search API, oldest crawl first. */
 export async function searchTinEye(bytes, apiKey, fetchImpl = (...args) => globalThis.fetch(...args)) {
@@ -406,7 +433,10 @@ export async function searchTinEye(bytes, apiKey, fetchImpl = (...args) => globa
  * file is what the credentials were read from; only this copy leaves.
  */
 export async function strippedSearchBytes(bytes, mediaType, sharpImpl) {
-  const image = sharpImpl(bytes, { animated: false }).rotate();
+  // A small file can declare a huge canvas; refuse it and send a bounded copy.
+  const image = sharpImpl(bytes, { animated: false, limitInputPixels: SEARCH_MAX_INPUT_PIXELS })
+    .rotate()
+    .resize({ width: SEARCH_MAX_EDGE, height: SEARCH_MAX_EDGE, fit: 'inside', withoutEnlargement: true });
   if (mediaType === 'image/png' || mediaType === 'image/gif') return image.png().toBuffer();
   if (mediaType === 'image/webp') return image.webp().toBuffer();
   return image.jpeg({ quality: 92 }).toBuffer();

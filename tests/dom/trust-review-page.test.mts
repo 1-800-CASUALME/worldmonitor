@@ -128,7 +128,7 @@ describe('trust review page media check (#9096)', () => {
     expect((calls[2]!.init.headers as Record<string, string>)['X-Trust-Review-Key']).toBe('secret');
     expect(calls[2]!.url).toBe(statusUrl);
     const lines = [...document.querySelectorAll('.media-result p')].map((p) => p.textContent);
-    expect(lines[0]).toBe('Content credentials found: signed by <b>Example</b> Newsroom.');
+    expect(lines[0]).toBe('Content credentials found. They name the signer as <b>Example</b> Newsroom.');
     expect(document.querySelector('.media-result b')).toBeNull();
     expect(lines).toContain('Earliest copy TinEye has seen: 2024-03-03, example.org.');
     expect(lines.some((line) => line?.startsWith('The credentials do not match the file'))).toBe(true);

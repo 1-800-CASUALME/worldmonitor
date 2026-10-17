@@ -30,6 +30,7 @@ import {
   MEDIA_RETENTION_DAYS,
   MEDIA_STORAGE_PREFIX,
   MEDIA_STORED_INDEX_KEY,
+  mediaOwnerKey,
   mediaResultKey,
 } from './shared/media-provenance-contract.js';
 import {
@@ -48,8 +49,16 @@ const RETENTION_MS = MEDIA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 30 * 60 * 1000;
 /** A claimed job holds a lease this long; only a job whose lease lapsed is reclaimed. */
 const JOB_LEASE_SECONDS = 10 * 60;
+/** A check that runs longer than this is stopped and reported as failed; the lease then never outlives a hung parser. */
+export const JOB_TIME_LIMIT_MS = 4 * 60 * 1000;
+/** A job that took its worker down this many times is reported as failed instead of re-queued again. */
+export const JOB_MAX_RECOVERIES = 2;
 /** A file whose delete failed is retried this long after, so it never blocks later files. */
 const DELETE_RETRY_MS = 60 * 60 * 1000;
+
+export function mediaRecoveriesKey(jobId) {
+  return `media-provenance:recoveries:${jobId}`;
+}
 
 export function mediaLeaseKey(jobId) {
   return `media-provenance:lease:${jobId}`;
@@ -108,9 +117,12 @@ async function createReaderFactory(trustAnchors) {
 export async function runMediaCheck(job, deps) {
   const fetched = await deps.fetchMedia(job.url);
   const fetchedAt = new Date(deps.now()).toISOString();
-  await deps.storeOriginal(fetched, job.jobId).catch((error) => {
-    console.warn('[media-provenance] storing the file failed:', error?.message ?? error);
-  });
+  // Storing the original does not change the result: run it alongside the check.
+  const stored = Promise.resolve()
+    .then(() => deps.storeOriginal(fetched, job.jobId))
+    .catch((error) => {
+      console.warn('[media-provenance] storing the file failed:', error?.message ?? error);
+    });
 
   const dir = await mkdtemp(join(tmpdir(), 'media-provenance-'));
   let credentials;
@@ -134,6 +146,7 @@ export async function runMediaCheck(job, deps) {
     cacheTtlSeconds: Math.round(RETENTION_MS / 1000),
   });
 
+  await stored;
   return {
     url: job.url,
     mediaType: fetched.mediaType,
@@ -196,16 +209,32 @@ export async function recoverAbandonedJobs(cmd, { settleMs = 5_000, sleep = (ms)
   for (const { raw, job } of await leaseless()) {
     // One script: the job leaves processing only if it goes back on the queue,
     // and only while its lease is still absent.
-    if (Number(await cmd('eval', [REQUEUE_SCRIPT, 3, MEDIA_PROCESSING_KEY, MEDIA_QUEUE_KEY, mediaLeaseKey(job.jobId), raw])) === 1) {
-      recovered += 1;
-    }
+    const failed = JSON.stringify({ status: 'failed', error: 'The check stopped unexpectedly. Try a different link to the same file.', failedAt: Date.now() });
+    const outcome = Number(await cmd('eval', [
+      REQUEUE_SCRIPT, 5,
+      MEDIA_PROCESSING_KEY, MEDIA_QUEUE_KEY, mediaLeaseKey(job.jobId), mediaRecoveriesKey(job.jobId), mediaResultKey(job.owner, job.jobId),
+      raw, JOB_MAX_RECOVERIES, failed, MEDIA_RESULT_TTL_SECONDS,
+    ]));
+    if (outcome === 1) recovered += 1;
   }
   return recovered;
 }
 
+/**
+ * Re-queue a claimed job whose lease is gone, in one step. A job recovered
+ * more than ARGV[2] times keeps taking its worker down (a file that crashes a
+ * parser): it is finished as failed instead of being run again.
+ */
 const REQUEUE_SCRIPT = `if redis.call('EXISTS', KEYS[3]) == 1 then return 0 end
-if redis.call('LREM', KEYS[1], 1, ARGV[1]) == 1 then redis.call('LPUSH', KEYS[2], ARGV[1]) return 1 end
-return 0`;
+if redis.call('LREM', KEYS[1], 1, ARGV[1]) ~= 1 then return 0 end
+local n = redis.call('INCR', KEYS[4])
+redis.call('EXPIRE', KEYS[4], ARGV[4])
+if n > tonumber(ARGV[2]) then
+  redis.call('SET', KEYS[5], ARGV[3], 'EX', ARGV[4])
+  return 2
+end
+redis.call('LPUSH', KEYS[2], ARGV[1])
+return 1`;
 
 /** Extend a lease only while this claim still holds it. */
 const REFRESH_SCRIPT = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end
@@ -234,6 +263,15 @@ export async function refreshJobLease(cmd, jobId, token) {
 export async function finalizeJob(cmd, { jobId, token, resultKey, payload, raw }) {
   const saved = await cmd('eval', [FINALIZE_SCRIPT, 3, mediaLeaseKey(jobId), resultKey, MEDIA_PROCESSING_KEY, token, JSON.stringify(payload), MEDIA_RESULT_TTL_SECONDS, String(raw)]);
   return Number(saved) === 1;
+}
+
+/** Settle with the check, or fail it once the time limit passes (a hung parser is left behind). */
+export function withTimeLimit(work, ms) {
+  let timer;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new MediaCheckError('The check took too long and was stopped.', 'timeout')), ms);
+  });
+  return Promise.race([work, limit]).finally(() => clearTimeout(timer));
 }
 
 function parseJob(raw) {
@@ -297,15 +335,26 @@ async function runWorker() {
       continue;
     }
     const resultKey = mediaResultKey(job.owner, job.jobId);
+    // A job whose owner binding expired can no longer be read by anyone: drop it.
+    if (Number(await redisCmd('exists', [mediaOwnerKey(job.jobId)]).catch(() => 1)) === 0) {
+      await redisCmd('lrem', [MEDIA_PROCESSING_KEY, 1, String(raw)]).catch(() => null);
+      continue;
+    }
     const token = randomUUID();
-    await claimJobLease(redisCmd, job.jobId, token).catch(() => null);
+    const leased = await claimJobLease(redisCmd, job.jobId, token).then(() => true, () => false);
+    if (!leased) {
+      // Without a lease the result could not be saved; leave the job claimed for recovery.
+      console.warn(`[media-provenance] ${job.jobId}: lease not set; left for recovery`);
+      await new Promise((r) => setTimeout(r, 5_000));
+      continue;
+    }
     // Keep the lease alive while the check runs, so recovery never takes a live job.
     const heartbeat = setInterval(() => {
       refreshJobLease(redisCmd, job.jobId, token).catch(() => null);
     }, (JOB_LEASE_SECONDS * 1000) / 3);
     let payload;
     try {
-      const result = await runMediaCheck(job, {
+      const result = await withTimeLimit(runMediaCheck(job, {
         fetchMedia,
         storeOriginal,
         readerFactory,
@@ -316,7 +365,7 @@ async function runWorker() {
         limits: tineyeLimits(),
         redisCmd,
         now: () => Date.now(),
-      });
+      }), JOB_TIME_LIMIT_MS);
       payload = { status: 'done', result, completedAt: Date.now() };
       console.log(`[media-provenance] ${job.jobId} done (${result.mediaType}, credentials=${result.credentials.state}, earliest=${result.earliest.state})`);
     } catch (error) {

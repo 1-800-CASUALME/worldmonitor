@@ -49,7 +49,8 @@ The search reports one of these states:
 
 - **Pro only.** Each new image can spend a paid TinEye search. Searches are capped by a monthly budget (`TINEYE_MONTHLY_CAP_USD`, $50 by default); at the cap, the check says so instead of skipping the search silently. A repeat of the same file is answered from a 30-day cache.
 - **Public links only.** The worker downloads the file itself and refuses private, local and cloud-metadata addresses, including after redirects and DNS resolution. Files over 25 MB, and anything that is not a JPEG, PNG, WebP, GIF, AVIF, HEIC, TIFF, MP4 or MOV file by its bytes, are refused.
-- **Privacy.** The copy sent to TinEye is re-encoded with all metadata removed, including EXIF location and the credentials. The submitted file is kept for 30 days, then deleted.
+- **Privacy.** The copy sent to TinEye is re-encoded with all metadata removed, including EXIF location and the credentials, and scaled down to at most 2,000 pixels on its longer side. The submitted file is kept for 30 days, then deleted.
+- **Time limit.** A check that runs longer than 4 minutes is stopped and reported as failed. A file that stops the worker three times is reported as failed instead of being checked again.
 
 ## For reviewers
 

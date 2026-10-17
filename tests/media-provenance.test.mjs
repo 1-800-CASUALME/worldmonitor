@@ -32,14 +32,17 @@ import {
 import {
   claimJobLease,
   finalizeJob,
+  JOB_MAX_RECOVERIES,
   mediaLeaseKey,
+  mediaRecoveriesKey,
   mediaStorageKey,
   recoverAbandonedJobs,
   refreshJobLease,
   runMediaCheck,
   sweepExpiredMedia,
+  withTimeLimit,
 } from '../scripts/media-provenance-worker.mjs';
-import { MEDIA_PROCESSING_KEY, MEDIA_QUEUE_KEY } from '../shared/media-provenance-contract.js';
+import { MEDIA_PROCESSING_KEY, MEDIA_QUEUE_KEY, mediaResultKey } from '../shared/media-provenance-contract.js';
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/media-provenance/${name}`, import.meta.url), 'utf8'));
 
@@ -74,6 +77,9 @@ function fakeRedis(initial = {}) {
   const log = [];
   const cmd = async (name, args) => {
     log.push([name, ...args]);
+    return handle(name, args);
+  };
+  const handle = (name, args) => {
     const [key, value] = args;
     switch (name) {
       case 'get': return store.has(key) ? store.get(key) : null;
@@ -81,6 +87,16 @@ function fakeRedis(initial = {}) {
       case 'incrby': store.set(key, Number(store.get(key) ?? 0) + Number(value)); return store.get(key);
       case 'decrby': store.set(key, Number(store.get(key) ?? 0) - Number(value)); return store.get(key);
       case 'expire': return 1;
+      case 'eval': {
+        const [script, count, ...rest] = args;
+        const verbs = { INCRBY: 'incrby', DECRBY: 'decrby', EXPIRE: 'expire', GET: 'get', SET: 'set' };
+        return evalLua(script, rest.slice(0, Number(count)), rest.slice(Number(count)), (verb, callArgs) => {
+          const local = verbs[String(verb).toUpperCase()];
+          if (!local) throw new Error(`fakeRedis eval does not implement ${verb}`);
+          const out = handle(local, callArgs);
+          return local === 'get' && out === null ? false : typeof out === 'string' && /^-?\d+$/.test(out) ? Number(out) : out;
+        });
+      }
       default: throw new Error(`unexpected ${name}`);
     }
   };
@@ -126,6 +142,19 @@ describe('media type sniffing', () => {
     assert.equal(sniffMediaType(Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBP'), Buffer.alloc(8)])), 'image/webp');
     assert.equal(sniffMediaType(HTML), null);
     assert.equal(sniffMediaType(Buffer.alloc(4)), null);
+  });
+
+  it('tells MP4 video apart from audio and still-image files in the same container', () => {
+    const ftyp = (major, ...compatible) => {
+      const body = Buffer.concat([Buffer.from(`ftyp${major}`), Buffer.alloc(4), ...compatible.map((b) => Buffer.from(b))]);
+      const size = Buffer.alloc(4);
+      size.writeUInt32BE(body.length + 4);
+      return Buffer.concat([size, body, Buffer.alloc(32)]);
+    };
+    assert.equal(sniffMediaType(ftyp('M4A ', 'M4A ', 'mp42', 'isom')), null, 'an m4a is audio, not video');
+    assert.equal(sniffMediaType(ftyp('mif1', 'mif1', 'avif')), 'image/avif', 'a compatible brand counts');
+    assert.equal(sniffMediaType(ftyp('heic', 'mif1', 'heic')), 'image/heic');
+    assert.equal(sniffMediaType(ftyp('mp42', 'isom')), 'video/mp4');
   });
 });
 
@@ -216,6 +245,18 @@ describe('fetching media', () => {
     await assert.rejects(fetchMedia('https://example.com/a', { request }), /HTTP 404/);
     await assert.rejects(fetchMedia('https://example.com/c', { request }), (e) => e.code === 'too-large');
     assert.ok(redirect.destroyed && missing.destroyed && huge.destroyed);
+  });
+
+  it('reports a connection that closes before the body ends as a failed download', async () => {
+    const cut = () => {
+      const res = new PassThrough();
+      res.statusCode = 200;
+      res.headers = {};
+      setImmediate(() => { res.write(JPEG.subarray(0, 8)); res.destroy(); });
+      return res;
+    };
+    const { request } = scriptedRequest({ 'https://example.com/a.jpg': cut });
+    await assert.rejects(fetchMedia('https://example.com/a.jpg', { request }), (error) => error instanceof MediaCheckError && error.code === 'fetch');
   });
 
   it('refuses a page that is not an image or video, and an error status', async () => {
@@ -334,6 +375,22 @@ describe('earliest copies (TinEye)', () => {
     assert.ok(redis.store.has(tineyeCacheKey('e'.repeat(64))));
   });
 
+  it('reports a copy it cannot prepare as unavailable, without spending', async () => {
+    const redis = fakeRedis();
+    const result = await findEarliestCopies({ sha256: 'f'.repeat(64), mediaType: 'image/jpeg', searchBytes: async () => { throw new Error('bad image'); }, apiKey: 'k', redisCmd: redis.cmd, searchTinEye: async () => { throw new Error('must not search'); }, limits, now, cacheTtlSeconds: 60 });
+    assert.equal(result.state, 'unavailable');
+    assert.equal(redis.store.has(tineyeSpendKey(now)), false);
+  });
+
+  it('shrinks a large image before sending it, and never enlarges a small one', async () => {
+    const big = await sharp({ create: { width: 4000, height: 1000, channels: 3, background: '#336699' } }).png().toBuffer();
+    const small = await sharp({ create: { width: 40, height: 30, channels: 3, background: '#336699' } }).png().toBuffer();
+    const bigMeta = await sharp(await strippedSearchBytes(big, 'image/png', sharp)).metadata();
+    assert.deepEqual([bigMeta.width, bigMeta.height], [2000, 500]);
+    const smallMeta = await sharp(await strippedSearchBytes(small, 'image/png', sharp)).metadata();
+    assert.deepEqual([smallMeta.width, smallMeta.height], [40, 30]);
+  });
+
   it('strips EXIF (camera, GPS) from the copy it sends', async () => {
     const withExif = await sharp({ create: { width: 16, height: 12, channels: 3, background: '#336699' } })
       .jpeg().withExif({ IFD0: { Make: 'TestCam', Model: 'X1' } }).toBuffer();
@@ -419,6 +476,24 @@ describe('a whole check (worker)', () => {
     assert.ok(redis.log.every(([name]) => name !== 'lpush'), 'the move happens inside the script, never as a separate push');
   });
 
+  it('stops re-queuing a job that keeps stopping the worker, and reports it as failed', async () => {
+    const owner = 'b'.repeat(64);
+    const jobId = `media:1760616000000:${'5'.repeat(32)}`;
+    const raw = JSON.stringify({ jobId, url: 'https://example.com/e.jpg', owner });
+    const redis = luaRedis({ [mediaRecoveriesKey(jobId)]: String(JOB_MAX_RECOVERIES) }, { [MEDIA_PROCESSING_KEY]: [raw], [MEDIA_QUEUE_KEY]: [] });
+    assert.equal(await recoverAbandonedJobs(redis.cmd, { sleep: async () => {} }), 0);
+    assert.deepEqual(redis.lists.get(MEDIA_PROCESSING_KEY), []);
+    assert.deepEqual(redis.lists.get(MEDIA_QUEUE_KEY), [], 'not re-queued');
+    const saved = JSON.parse(redis.strings.get(mediaResultKey(owner, jobId)));
+    assert.equal(saved.status, 'failed');
+    assert.match(saved.error, /stopped unexpectedly/);
+  });
+
+  it('stops a check that runs past its time limit', async () => {
+    assert.equal(await withTimeLimit(Promise.resolve('done'), 50), 'done');
+    await assert.rejects(withTimeLimit(new Promise(() => {}), 10), (error) => error instanceof MediaCheckError && error.code === 'timeout');
+  });
+
   it('lets only the claim that holds the lease refresh it or save the final status', async () => {
     const jobId = `media:1760616000000:${'3'.repeat(32)}`;
     const raw = JSON.stringify({ jobId, url: 'https://example.com/c.jpg', owner: 'b'.repeat(64) });
@@ -438,6 +513,39 @@ describe('a whole check (worker)', () => {
   });
 });
 
+/** Run a Lua script the way Redis would, with `call(verb, args)` as redis.call (fengari). */
+const pushLua = (L, value) => {
+  if (value === false || value == null) lua.lua_pushboolean(L, false);
+  else if (typeof value === 'number') lua.lua_pushnumber(L, value);
+  else if (typeof value === 'string') lua.lua_pushstring(L, to_luastring(value));
+  else {
+    lua.lua_createtable(L, value.length, 0);
+    value.forEach((entry, i) => { pushLua(L, entry); lua.lua_seti(L, -2, i + 1); });
+  }
+};
+
+function evalLua(script, keys, argv, call) {
+  const L = lauxlib.luaL_newstate();
+  lualib.luaL_openlibs(L);
+  lua.lua_createtable(L, 0, 1);
+  lua.lua_pushjsclosure(L, (S) => {
+    const args = [];
+    for (let i = 2; i <= lua.lua_gettop(S); i += 1) args.push(to_jsstring(lua.lua_tostring(S, i)));
+    pushLua(S, call(to_jsstring(lua.lua_tostring(S, 1)), args));
+    return 1;
+  }, 0);
+  lua.lua_setfield(L, -2, to_luastring('call'));
+  lua.lua_setglobal(L, to_luastring('redis'));
+  pushLua(L, keys);
+  lua.lua_setglobal(L, to_luastring('KEYS'));
+  pushLua(L, argv.map(String));
+  lua.lua_setglobal(L, to_luastring('ARGV'));
+  if (lauxlib.luaL_loadstring(L, to_luastring(script)) !== lua.LUA_OK || lua.lua_pcall(L, 0, 1, 0) !== lua.LUA_OK) {
+    throw new Error(`Lua: ${to_jsstring(lua.lua_tostring(L, -1))}`);
+  }
+  return lua.lua_tonumber(L, -1);
+}
+
 /** An in-memory Redis whose EVAL runs the real Lua script (fengari). */
 function luaRedis(strings = {}, lists = {}) {
   const state = { strings: new Map(Object.entries(strings)), lists: new Map(Object.entries(lists).map(([k, v]) => [k, [...v]])), log: [] };
@@ -449,6 +557,7 @@ function luaRedis(strings = {}, lists = {}) {
       case 'SET': state.strings.set(args[0], String(args[1])); return 'OK';
       case 'EXISTS': return state.strings.has(args[0]) ? 1 : 0;
       case 'EXPIRE': return state.strings.has(args[0]) ? 1 : 0;
+      case 'INCR': state.strings.set(args[0], String(Number(state.strings.get(args[0]) ?? 0) + 1)); return Number(state.strings.get(args[0]));
       case 'DEL': return state.strings.delete(args[0]) ? 1 : 0;
       case 'LRANGE': return [...list()];
       case 'LPUSH': state.lists.set(args[0], [String(args[1]), ...list()]); return list().length;
@@ -463,41 +572,11 @@ function luaRedis(strings = {}, lists = {}) {
       default: throw new Error(`luaRedis does not implement ${verb}`);
     }
   };
-  const push = (L, value) => {
-    if (value === false || value == null) lua.lua_pushboolean(L, false);
-    else if (typeof value === 'number') lua.lua_pushnumber(L, value);
-    else if (typeof value === 'string') lua.lua_pushstring(L, to_luastring(value));
-    else {
-      lua.lua_createtable(L, value.length, 0);
-      value.forEach((entry, i) => { push(L, entry); lua.lua_seti(L, -2, i + 1); });
-    }
-  };
-  const evalScript = (script, keys, argv) => {
-    const L = lauxlib.luaL_newstate();
-    lualib.luaL_openlibs(L);
-    lua.lua_createtable(L, 0, 1);
-    lua.lua_pushjsclosure(L, (S) => {
-      const args = [];
-      for (let i = 2; i <= lua.lua_gettop(S); i += 1) args.push(to_jsstring(lua.lua_tostring(S, i)));
-      push(S, call(to_jsstring(lua.lua_tostring(S, 1)), args));
-      return 1;
-    }, 0);
-    lua.lua_setfield(L, -2, to_luastring('call'));
-    lua.lua_setglobal(L, to_luastring('redis'));
-    push(L, keys);
-    lua.lua_setglobal(L, to_luastring('KEYS'));
-    push(L, argv.map(String));
-    lua.lua_setglobal(L, to_luastring('ARGV'));
-    if (lauxlib.luaL_loadstring(L, to_luastring(script)) !== lua.LUA_OK || lua.lua_pcall(L, 0, 1, 0) !== lua.LUA_OK) {
-      throw new Error(`Lua: ${to_jsstring(lua.lua_tostring(L, -1))}`);
-    }
-    return lua.lua_tonumber(L, -1);
-  };
   const cmd = async (name, args) => {
     state.log.push([name, ...args]);
     if (name === 'eval') {
       const [script, count, ...rest] = args;
-      return evalScript(script, rest.slice(0, Number(count)), rest.slice(Number(count)));
+      return evalLua(script, rest.slice(0, Number(count)), rest.slice(Number(count)), call);
     }
     return call(name, args);
   };

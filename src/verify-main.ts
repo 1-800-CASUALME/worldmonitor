@@ -183,7 +183,16 @@ input.addEventListener('keydown', (event) => {
 
 function runFromLocation(): void {
   const claim = new URLSearchParams(location.search).get('claim') ?? '';
-  input.value = isMediaCheckInput(claim) ? claim.trim().slice(0, MEDIA_URL_MAX_CHARS) : normalizeClaim(claim);
+  if (isMediaCheckInput(claim)) {
+    // A shared link must not spend the reader's Pro check: fill it in and wait for a click.
+    input.value = claim.trim().slice(0, MEDIA_URL_MAX_CHARS);
+    syncInputLimit();
+    latestRun += 1;
+    result.replaceChildren();
+    status.textContent = 'Press “Check image or video” to check this link.';
+    return;
+  }
+  input.value = normalizeClaim(claim);
   syncInputLimit();
   void run(claim, { push: false });
 }

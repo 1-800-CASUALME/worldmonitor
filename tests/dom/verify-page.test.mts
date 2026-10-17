@@ -368,6 +368,9 @@ describe('/verify media check (#9096)', () => {
     host.innerHTML = renderMediaCheckHtml({ kind: 'done', result: none as never });
     expect(host.textContent).toContain(MEDIA_WORDING.noCredentials);
     expect(host.textContent).toContain(MEDIA_WORDING.earliestCapReached);
+    const unverified = { ...doneResult, credentials: { ...doneResult.credentials, signer: 'Reuters', signerTrust: 'unknown' } };
+    host.innerHTML = renderMediaCheckHtml({ kind: 'done', result: unverified as never });
+    expect(host.querySelector('.mc-headline')?.textContent).toBe('Content credentials found. They name the signer as Reuters.');
     const invalid = { ...doneResult, credentials: { ...doneResult.credentials, validationState: 'invalid', failureCodes: ['claimSignature.mismatch'] } };
     host.innerHTML = renderMediaCheckHtml({ kind: 'done', result: invalid as never });
     expect(host.querySelector('.mc-warning')?.textContent).toBe(MEDIA_WORDING.failedValidation);
@@ -406,7 +409,28 @@ describe('/verify media check (#9096)', () => {
   });
 });
 
+function submitForm(): void {
+  (document.getElementById('verifyForm') as HTMLFormElement).dispatchEvent(new Event('submit', { cancelable: true }));
+}
+
 describe('/verify page media flow (#9096)', () => {
+  it('fills in a media link from a shared URL but checks it only on a click', async () => {
+    const check = vi.fn(async () => ({ kind: 'unavailable' as const }));
+    vi.doMock('@/services/media-provenance', async (original) => ({
+      ...(await original<typeof import('@/services/media-provenance')>()),
+      ensureSignedInState: async () => true,
+      checkMediaUrl: check,
+    }));
+    history.replaceState(null, '', `/verify?claim=${encodeURIComponent('https://example.com/a.jpg')}`);
+    await import('@/verify-main');
+    expect((document.getElementById('claimInput') as HTMLTextAreaElement).value).toBe('https://example.com/a.jpg');
+    expect(document.getElementById('digestStatus')?.textContent).toContain('Check image or video');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(check).not.toHaveBeenCalled();
+    submitForm();
+    await vi.waitFor(() => expect(check).toHaveBeenCalledOnce());
+  });
+
   beforeEach(() => {
     vi.resetModules();
     document.body.innerHTML = pageBody();
@@ -429,6 +453,7 @@ describe('/verify page media flow (#9096)', () => {
     }));
     history.replaceState(null, '', `/verify?claim=${encodeURIComponent('https://example.com/a.jpg')}`);
     await import('@/verify-main');
+    submitForm();
     await vi.waitFor(() => expect(document.querySelector('[data-media-signin]')).not.toBeNull());
     expect(document.querySelector('.vc-card')).toBeNull();
     expect(vi.mocked(globalThis.fetch).mock.calls.some(([input]) => String(input).startsWith(FACT_CHECKS_URL))).toBe(false);
@@ -449,6 +474,7 @@ describe('/verify page media flow (#9096)', () => {
     });
     history.replaceState(null, '', `/verify?claim=${encodeURIComponent('https://example.com/a.jpg')}`);
     await import('@/verify-main');
+    submitForm();
     await vi.waitFor(() => expect(document.querySelector('a.mc-upgrade')).not.toBeNull());
     expect((document.getElementById('verifySubmit') as HTMLButtonElement).disabled).toBe(false);
   });
@@ -461,6 +487,7 @@ describe('/verify page media flow (#9096)', () => {
     }));
     history.replaceState(null, '', `/verify?claim=${encodeURIComponent('https://example.com/a.jpg')}`);
     await import('@/verify-main');
+    submitForm();
     await vi.waitFor(() => expect(document.getElementById('result')?.textContent).toContain('could not run right now'));
   });
 

@@ -62,13 +62,17 @@
     earliestUnavailable: 'The earliest-copy search could not run right now.'
   };
   var MEDIA_POLL_MS = 2000;
-  var MEDIA_POLL_LIMIT = 60;
+  var MEDIA_POLL_LIMIT = 150;
 
   function mediaLines(result) {
     var lines = [];
     var c = result.credentials || {};
     if (c.state === 'found') {
-      lines.push('Content credentials found: signed by ' + (c.signer || c.signerCommonName || 'an unnamed signer') + '.');
+      var signer = c.signer || c.signerCommonName || 'an unnamed signer';
+      // Only a trusted signer is stated as fact; otherwise the name is what the certificate says.
+      lines.push(c.signerTrust === 'trusted'
+        ? 'Content credentials found: signed by ' + signer + '.'
+        : 'Content credentials found. They name the signer as ' + signer + '.');
       lines.push(c.signerTrust === 'trusted' ? 'The signer is on the C2PA trust list this check uses.'
         : c.signerTrust === 'untrusted' ? MEDIA_WORDING.untrustedSigner : MEDIA_WORDING.unknownTrust);
       if (c.contentChangedAfterSigning) lines.push(MEDIA_WORDING.changedAfterSigning);
@@ -94,7 +98,7 @@
 
   function checkMedia(report, button, box) {
     button.disabled = true;
-    box.replaceChildren(el('p', '', 'Checking the file… This can take up to a minute.'));
+    box.replaceChildren(el('p', '', 'Checking the file… This can take a few minutes.'));
     var polls = 0;
     function show(lines, isError) {
       box.replaceChildren();

@@ -42,7 +42,10 @@ function credentialsHtml(result: MediaProvenance): string {
     ? 'The signer is on the C2PA trust list this check uses.'
     : c.signerTrust === 'untrusted' ? MEDIA_WORDING.untrustedSigner : MEDIA_WORDING.unknownTrust;
   const lines = [
-    `<p class="mc-headline">Content credentials found: signed by <strong>${escapeHtml(signer)}</strong></p>`,
+    // A signer name is whatever the certificate says; only a trusted signer is stated as fact.
+    c.signerTrust === 'trusted'
+      ? `<p class="mc-headline">Content credentials found: signed by <strong>${escapeHtml(signer)}</strong></p>`
+      : `<p class="mc-headline">Content credentials found. They name the signer as <strong>${escapeHtml(signer)}</strong>.</p>`,
     `<p class="mc-note">${escapeHtml(trust)}</p>`,
   ];
   if (c.contentChangedAfterSigning) lines.push(`<p class="mc-warning">${escapeHtml(MEDIA_WORDING.changedAfterSigning)}</p>`);
@@ -84,7 +87,7 @@ function earliestHtml(result: MediaProvenance): string {
 export function renderMediaCheckHtml(outcome: MediaCheckOutcome | null): string {
   let body: string;
   if (outcome === null) {
-    body = '<p class="mc-note">Checking the file… This can take up to a minute.</p>';
+    body = '<p class="mc-note">Checking the file… This can take a few minutes.</p>';
   } else if (outcome.kind === 'needs-sign-in') {
     body = '<p class="mc-note">Checking images and video is part of WorldMonitor Pro. Sign in to check this link.</p><button type="button" class="mc-signin" data-media-signin>Sign in</button>';
   } else if (outcome.kind === 'needs-pro') {
