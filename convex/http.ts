@@ -13,6 +13,7 @@ import { resendWebhookHandler } from "./resendWebhookHandler";
 import { clerkWebhookHandler } from "./accountDeletion/clerkWebhook";
 import { USER_PREFS_WRITE_RATE_LIMIT } from "./constants";
 import { isPreferenceVariant } from "../shared/cloud-preferences-contract";
+import { verifyDunningPortalToken } from "./lib/identitySigning";
 import {
   INTEL_HISTORY_EMBED_DIMS,
   INTEL_HISTORY_MAX_APPEND_RECORDS,
@@ -1874,9 +1875,6 @@ http.route({
   }),
 });
 
-// Service-to-service: Vercel edge gateway creates Dodo customer portal sessions.
-// Authenticated via CONVEX_TENANT_RELAY_SECRET; edge endpoint validates Clerk JWT
-// and forwards the verified userId.
 http.route({
   path: "/relay/customer-portal",
   method: "POST",
@@ -1884,7 +1882,7 @@ http.route({
     const unauthorized = await authorizeTenantRelay(request, ["gateway"]);
     if (unauthorized) return unauthorized;
 
-    const body = await parseJsonObjectBody<{ userId?: string }>(request);
+    const body = await parseJsonObjectBody<{ userId?: string; portalToken?: string }>(request);
     if (!body) {
       return new Response(JSON.stringify({ error: "INVALID_JSON" }), {
         status: 400,
@@ -1892,7 +1890,29 @@ http.route({
       });
     }
 
-    if (!body.userId) {
+    let userId = typeof body.userId === "string" ? body.userId : "";
+    if (typeof body.portalToken === "string" && body.portalToken.length > 0) {
+      // A token never falls back to body.userId. It mints only while the
+      // signed user still has an open hold, so recovery or cancellation
+      // revokes every outstanding email link.
+      const rejectToken = (reason: "invalid_or_expired" | "no_open_hold") => {
+        console.log(JSON.stringify({ event: "dunning_portal_token_rejected", reason }));
+        return new Response(JSON.stringify({ error: "INVALID_PORTAL_TOKEN" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      };
+      const tokenUserId = await verifyDunningPortalToken(body.portalToken, Date.now());
+      if (!tokenUserId) return rejectToken("invalid_or_expired");
+      const hasOpenHold = await ctx.runQuery(
+        internal.payments.subscriptionEmails.hasOpenDunningHold,
+        { userId: tokenUserId },
+      );
+      if (!hasOpenHold) return rejectToken("no_open_hold");
+      userId = tokenUserId;
+    }
+
+    if (!userId) {
       return new Response(
         JSON.stringify({ error: "MISSING_FIELDS", required: ["userId"] }),
         { status: 400, headers: { "Content-Type": "application/json" } },
@@ -1902,7 +1922,7 @@ http.route({
     try {
       const result = await ctx.runAction(
         internal.payments.billing.internalGetCustomerPortalUrl,
-        { userId: body.userId },
+        { userId },
       );
       return new Response(JSON.stringify(result), {
         status: 200,

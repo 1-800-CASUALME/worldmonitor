@@ -35,8 +35,8 @@ export async function searchGoogleDates(
   const startDate = bounded(req.startDate, 10);
   const endDate = bounded(req.endDate, 10);
   const days = (parseDate(endDate) - parseDate(startDate)) / 86_400_000 + 1;
-  // The relay supports six chunks of at most 61 days each.
-  if (days < 1 || days > 366) invalid('Date range must contain 1 to 366 days');
+  // The relay reads one results page per day and stops at 31 (GF_DATES_MAX_DAYS).
+  if (days < 1 || days > 31) invalid('Date range must contain 1 to 31 days');
   const cabinClass = bounded(req.cabinClass, 32).toUpperCase() || 'ECONOMY';
   if (!['ECONOMY', 'PREMIUM_ECONOMY', 'BUSINESS', 'FIRST'].includes(cabinClass)) invalid('Invalid cabin class');
   const stopValue = bounded(req.maxStops, 32).toUpperCase() || 'ANY';

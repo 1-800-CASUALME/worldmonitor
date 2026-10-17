@@ -433,7 +433,7 @@ The sections below are produced by `npm run build:llms-full` from the source cat
 <a id="corpus-source-provider-directory"></a>
 ## Source provider directory
 
-World Monitor publishes 762 named providers across 18 source catalog pages. Each linked page contains provider names, source hosts, origins and coverage in static HTML; no search or JavaScript is required.
+World Monitor publishes 770 named providers across 18 source catalog pages. Each linked page contains provider names, source hosts, origins and coverage in static HTML; no search or JavaScript is required.
 
 - [Geopolitics & Conflict](https://www.worldmonitor.app/sources/geopolitics/): 38 providers.
 - [Military & Strategic](https://www.worldmonitor.app/sources/military/): 22 providers.
@@ -444,7 +444,7 @@ World Monitor publishes 762 named providers across 18 source catalog pages. Each
 - [News & OSINT — page 5](https://www.worldmonitor.app/sources/news/page/5/): 60 providers.
 - [News & OSINT — page 6](https://www.worldmonitor.app/sources/news/page/6/): 60 providers.
 - [News & OSINT — page 7](https://www.worldmonitor.app/sources/news/page/7/): 60 providers.
-- [News & OSINT — page 8](https://www.worldmonitor.app/sources/news/page/8/): 44 providers.
+- [News & OSINT — page 8](https://www.worldmonitor.app/sources/news/page/8/): 52 providers.
 - [Finance & Economics](https://www.worldmonitor.app/sources/finance/): 60 providers.
 - [Finance & Economics — page 2](https://www.worldmonitor.app/sources/finance/page/2/): 5 providers.
 - [Energy & Commodities](https://www.worldmonitor.app/sources/energy/): 23 providers.
@@ -464,11 +464,11 @@ A comparison hub plus 12 head-to-head and category pages. Every page uses the sa
 - [Best Geopolitical Risk Intelligence Platforms in 2026: The Buyer's Shortlist](https://www.worldmonitor.app/compare/best-geopolitical-risk-dashboards/): The 2026 buyer's shortlist of eight geopolitical risk intelligence platforms, from self-serve World Monitor to sales-led Dataminr, Recorded Future, Seerist and Crisis24, with cited prices and where each one wins.
 - [World Monitor vs Liveuamap](https://www.worldmonitor.app/compare/worldmonitor-vs-liveuamap/): Head-to-head on published numbers: World Monitor API Starter at $99.99/mo for 1,000 requests/day against Liveuamap Pro at $150/mo for 200, plus the domains only one side tracks.
 - [World Monitor vs ACLED](https://www.worldmonitor.app/compare/worldmonitor-vs-acled/): World Monitor and ACLED (myACLED) compared on access tiers, latency, API availability and licensing, and why World Monitor complements ACLED's coded-event research rather than replacing it.
-- [World Monitor vs GDELT Cloud](https://www.worldmonitor.app/compare/worldmonitor-vs-gdelt/): Curated indices versus the GDELT firehose: World Monitor, GDELT Cloud, war-dashboard-data and world-intel-mcp compared on latency, archive depth, API and MCP access, and where raw GDELT still wins.
+- [World Monitor vs GDELT](https://www.worldmonitor.app/compare/worldmonitor-vs-gdelt/): Curated indices versus the GDELT firehose: World Monitor, the GDELT Project, GDELT Cloud, war-dashboard-data and world-intel-mcp compared on latency, archive depth, API and MCP access, and where raw GDELT still wins.
 - [World Monitor vs Dataminr](https://www.worldmonitor.app/compare/worldmonitor-vs-dataminr/): Published prices against enterprise-negotiated licensing: World Monitor and Dataminr compared on alert latency, data domains, API access and price transparency, with the cells Dataminr wins.
 - [World Monitor vs Recorded Future](https://www.worldmonitor.app/compare/worldmonitor-vs-recorded-future/): World Monitor, Recorded Future, Flare and MISP compared on price transparency, public access, domains covered and open source, and when an enterprise threat-intelligence platform is the right call.
 - [World Monitor vs Deep State Map](https://www.worldmonitor.app/compare/worldmonitor-vs-deepstatemap/): Global multi-domain coverage against a single-theatre map: World Monitor and Deep State Map compared on scope, update method, API access and archive, and why Deep State Map wins on Ukraine frontline detail.
-- [MCP Servers for Geopolitical Data](https://www.worldmonitor.app/compare/mcp-servers-for-geopolitical-data/): Hosted versus self-hosted MCP access to geopolitical data: World Monitor against world-intel-mcp, Satellite MCP, OSINT MCP, GDELT Cloud MCP and IMF PortWatch MCP on entitlements, quotas, OAuth and hosting burden.
+- [MCP Servers for Geopolitical Data](https://www.worldmonitor.app/compare/mcp-servers-for-geopolitical-data/): Hosted versus self-hosted MCP access to geopolitical data: World Monitor against world-intel-mcp, Satellite MCP, OSINT MCP, community GDELT MCP and IMF PortWatch MCP on entitlements, quotas, OAuth and hosting burden.
 - [Chokepoint Monitoring Tools](https://www.worldmonitor.app/compare/chokepoint-monitoring-tools/): Chokepoint monitoring tools compared: World Monitor against IMF PortWatch, MarineTraffic, Kpler, Lloyd's List Intelligence, Windward and straits.live on transit counts, fused context, price and API access.
 - [Free Geopolitical Risk Dashboards](https://www.worldmonitor.app/compare/free-geopolitical-risk-dashboards/): Which geopolitical risk dashboards are free without signup: World Monitor against OrreryX, the-world-now.com, Sentinel, ConflictZone.io, BlackRock, Deep State Map and ICG CrisisWatch on gating, latency and domains.
 - [Travel Risk Intelligence vs Assistance](https://www.worldmonitor.app/compare/travel-risk-intelligence-vs-assistance/): Travel risk intelligence versus assistance: World Monitor as the always-on awareness layer next to Crisis24, International SOS, Riskline, Everbridge, Samdesk and Factal, which win on response and duty-of-care delivery.

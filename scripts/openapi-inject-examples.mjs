@@ -915,6 +915,25 @@ function getYoutubeLiveStreamInfoExample() {
   };
 }
 
+// SearchClaimHeadlines returns one of three states; the generic builder would
+// publish state "example". The headline is synthetic.
+function getSearchClaimHeadlinesExample() {
+  return {
+    headlines: [{
+      source: 'Example Feed',
+      title: 'Synthetic example headline sharing the claim\'s words',
+      link: 'https://example.com/news/synthetic-example',
+      publishedAt: 1768478400000,
+    }],
+    searchedHeadlines: 4140,
+    searchedFeeds: 216,
+    feedTotal: 241,
+    feedCached: 241,
+    state: 'complete',
+    readAt: '2026-01-15T12:00:00.000Z',
+  };
+}
+
 // SearchFactChecks (#9094) returns a fixed caveat and one of three states; the
 // generic builder published a timestamp caveat and state "example". The
 // fact-check is synthetic: no real fact-checker, rating or article is cited.
@@ -1115,6 +1134,13 @@ function exampleForSchema(schema, spec, context = {}, depth = 0, seen = new Set(
     && String(context.name ?? '').toLowerCase().endsWith('response')
   ) {
     return getSearchFactChecksExample();
+  }
+  if (
+    depth === 0
+    && String(context.operationId ?? '').toLowerCase() === 'searchclaimheadlines'
+    && String(context.name ?? '').toLowerCase().endsWith('response')
+  ) {
+    return getSearchClaimHeadlinesExample();
   }
   if (
     depth === 0
