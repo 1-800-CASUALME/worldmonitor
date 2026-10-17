@@ -235,23 +235,51 @@ describe('live-signal floor (minLiveSignal)', () => {
     assert.deepEqual(nextStates.get(SUB_ID).hormuz_strait, { armed: true, lastScore: 70, lastLive: 0 });
   });
 
-  it('fires once live signals reach the floor and re-arms when they subside even though the score stays above the threshold', () => {
+  it('fires once live signals reach the floor and re-arms only when they have clearly subsided', () => {
     const fired = planHormuz(85, undefined, 15);
     assert.equal(fired.deliveries.length, 1);
     assert.equal(fired.deliveries[0].event, 'chokepoint.disruption');
     assert.equal(fired.deliveries[0].stateField, 'hormuz_strait');
-    const delivered = { armed: false, lastScore: 85, lastLive: 15, lastDeliveredAt: '2026-10-17T12:00:00.000Z', sources: { navigationalWarnings: true, ais: true, transit: true } };
-    assert.equal(planHormuz(80, delivered, 15).deliveries.length, 0, 'live 10 but disarmed: quiet');
-    assert.equal(planHormuz(80, delivered, 15).nextStates.get(SUB_ID).hormuz_strait.armed, true, 'live 10 < 15 re-arms');
-    assert.equal(planHormuz(85, delivered, 15).nextStates.get(SUB_ID).hormuz_strait.armed, false, 'live still 15 stays disarmed');
-    assert.equal(planHormuz(85, { ...delivered, armed: true }, 15).deliveries.length, 1, 'armed again and live 15: fires');
+    const delivered = { armed: false, lastScore: 85, lastLive: 15, lastDeliveredAt: new Date(NOW - 13 * 3_600_000).toISOString(), sources: { navigationalWarnings: true, ais: true, transit: true } };
+    assert.equal(planHormuz(80, delivered, 15).nextStates.get(SUB_ID).hormuz_strait.armed, false, 'live 10 is a wobble, not a subsidence');
+    assert.equal(planHormuz(74, delivered, 15).nextStates.get(SUB_ID).hormuz_strait.armed, true, 'live 4 < 5 re-arms');
+    assert.equal(planHormuz(85, { ...delivered, armed: true }, 15).deliveries.length, 1, 'armed again, live 15, past the cooldown: fires');
+  });
+
+  it('a live signal wobbling around the floor fires once', () => {
+    let state;
+    let fired = 0;
+    for (const [i, score] of [85, 80, 85, 80, 85, 80, 85].entries()) {
+      const { deliveries, nextStates } = planHormuz(score, state, 15);
+      state = nextStates.get(SUB_ID).hormuz_strait;
+      if (deliveries.length) {
+        fired += 1;
+        state = { ...state, armed: false, lastDeliveredAt: new Date(NOW - (6 - i) * 60_000).toISOString(), sources: { navigationalWarnings: true, ais: true, transit: true } };
+      }
+    }
+    assert.equal(fired, 1);
+  });
+
+  it('a re-armed live floor waits out the refire cooldown', () => {
+    const rearmed = { armed: true, lastScore: 70, lastLive: 0, lastDeliveredAt: new Date(NOW - 6 * 3_600_000).toISOString() };
+    assert.equal(planHormuz(85, rearmed, 15).deliveries.length, 0, '6 h after the last delivery: quiet');
+    assert.equal(planHormuz(85, rearmed, 15).nextStates.get(SUB_ID).hormuz_strait.armed, true, 'stays armed through the cooldown');
+    const later = { ...rearmed, lastDeliveredAt: new Date(NOW - 12 * 3_600_000).toISOString() };
+    assert.equal(planHormuz(85, later, 15).deliveries.length, 1, '12 h after: fires');
+  });
+
+  it('with a live floor the score re-arms 10 points under the threshold', () => {
+    const delivered = { armed: false, lastScore: 52, lastLive: 22, sources: { navigationalWarnings: true, ais: true, transit: true } };
+    const all = { navigationalWarnings: true, ais: true, transit: true };
+    assert.equal(nextChokepointState(delivered, 45, 50, all, { live: 15, minLive: 15, nowMs: NOW }).state.armed, false, 'score 45 is within the gap');
+    assert.equal(nextChokepointState(delivered, 39, 50, all, { live: 15, minLive: 15, nowMs: NOW }).state.armed, true, 'score 39 < 40 re-arms');
   });
 
   it('a missing source that could carry the live points keeps the pair disarmed', () => {
     const delivered = { armed: false, lastScore: 85, lastLive: 15, sources: { navigationalWarnings: true, ais: true, transit: true } };
-    const { state } = nextChokepointState(delivered, 70, 50, { navigationalWarnings: false, ais: true, transit: true }, { live: 0, minLive: 15 });
+    const { state } = nextChokepointState(delivered, 70, 50, { navigationalWarnings: false, ais: true, transit: true }, { live: 0, minLive: 15, nowMs: NOW });
     assert.equal(state.armed, false, 'warnings feed missing: 15 points could return, do not re-arm');
-    const { state: rearmed } = nextChokepointState(delivered, 70, 50, { navigationalWarnings: true, ais: true, transit: true }, { live: 0, minLive: 15 });
+    const { state: rearmed } = nextChokepointState(delivered, 70, 50, { navigationalWarnings: true, ais: true, transit: true }, { live: 0, minLive: 15, nowMs: NOW });
     assert.equal(rearmed.armed, true);
   });
 

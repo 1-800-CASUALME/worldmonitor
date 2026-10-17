@@ -65,8 +65,14 @@
       },
       "cooldown": {
         "type": "hysteresis",
-        "rearm": "disruptionScore < alertThreshold or liveSignal < minLiveSignal, after compensating for score inputs that were present at delivery and are missing now",
-        "minimumSeconds": 0
+        "rearm": "disruptionScore < alertThreshold, after compensating for score inputs that were present at delivery and are missing now",
+        "minimumSeconds": 0,
+        "withLiveSignal": {
+          "rearm": "disruptionScore < alertThreshold - rearmScoreMargin or liveSignal < min(rearmLiveBelow, minLiveSignal), with the same compensation; the in-app chokepoint_disruption rule's hysteresis",
+          "rearmScoreMargin": 10,
+          "rearmLiveBelow": 5,
+          "minimumSeconds": 43200
+        }
       },
       "id": {
         "field": "deliveryId",

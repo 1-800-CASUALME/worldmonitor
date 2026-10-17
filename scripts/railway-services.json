@@ -176,6 +176,7 @@
       "WORLDMONITOR_RELAY_KEY"
     ],
     "watchPatterns": [
+      "scripts/_cii-risk-cache-keys.mjs",
       "scripts/_proxy-utils.cjs",
       "scripts/_seed-contract.mjs",
       "scripts/_seed-envelope-source.mjs",

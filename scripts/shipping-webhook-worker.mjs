@@ -32,6 +32,7 @@ import {
   loadEnvFile,
   releaseLock,
 } from './_seed-utils.mjs';
+import { CII_RISK_SCORE_CACHE_KEYS } from './_cii-risk-cache-keys.mjs';
 import { isMainModule } from './lib/main-module.mjs';
 import {
   ALL_INDEX_KEY,
@@ -56,12 +57,18 @@ export const RISK_SURGE_RULE = Object.freeze({
   rearmBelow: RISK_SURGE.cooldown.rearmBelow,
   cooldownMs: RISK_SURGE.cooldown.minimumSeconds * 1000,
 });
+const CHOKEPOINT_LIVE_COOLDOWN = EVENT_REGISTRY.events[CHOKEPOINT_EVENT].cooldown.withLiveSignal;
+export const CHOKEPOINT_LIVE_RULE = Object.freeze({
+  rearmScoreMargin: CHOKEPOINT_LIVE_COOLDOWN.rearmScoreMargin,
+  rearmLiveBelow: CHOKEPOINT_LIVE_COOLDOWN.rearmLiveBelow,
+  cooldownMs: CHOKEPOINT_LIVE_COOLDOWN.minimumSeconds * 1000,
+});
 export const RISK_SURGE_COUNTRY_NAMES = Object.freeze({ ...RISK_SURGE.countries });
 
 export const CHOKEPOINT_STATUS_KEY = 'supply_chain:chokepoints:v4';
 export const CHOKEPOINT_STATUS_RPC_URL = 'https://api.worldmonitor.app/api/supply-chain/v1/get-chokepoint-status';
-export const RISK_SCORES_KEY = 'risk:scores:sebuf:v8';
-export const RISK_SCORES_STALE_KEY = 'risk:scores:sebuf:stale:v8';
+export const RISK_SCORES_KEY = CII_RISK_SCORE_CACHE_KEYS.live;
+export const RISK_SCORES_STALE_KEY = CII_RISK_SCORE_CACHE_KEYS.stale;
 export const RISK_SCORES_RPC_URL = 'https://api.worldmonitor.app/api/intelligence/v1/get-risk-scores';
 export const WORKER_STATUS_KEY = 'shipping:webhook-worker:v1';
 export const WORKER_META_KEY = 'seed-meta:shipping:webhook-worker';
@@ -179,19 +186,26 @@ export function scoreSources(chokepoint) {
  *
  * With a live-signal floor (`minLive` > 0, the record's minLiveSignal) the
  * score must also sit `minLive` points above the chokepoint's standing threat
- * level to fire, and the pair re-arms when either the score or the live signal
- * falls under its floor (missing sources compensated the same way), so a war
- * zone that stands at 70 does not fire once at subscription and go silent.
+ * level to fire, so a war zone that stands at 70 does not fire once at
+ * subscription and go silent. Live signals move in 5-point steps (one
+ * navigational warning), so the pair re-arms only once they have clearly
+ * subsided (CHOKEPOINT_LIVE_RULE, the in-app chokepoint_disruption rule's
+ * hysteresis) and refires at most once per cooldown.
  */
-export function nextChokepointState(previous, score, threshold, sources = {}, { live = null, minLive = 0 } = {}) {
+export function nextChokepointState(previous, score, threshold, sources = {}, { live = null, minLive = 0, nowMs = Date.now(), rule = CHOKEPOINT_LIVE_RULE } = {}) {
+  const withLive = minLive > 0;
   const armed = previous?.armed ?? true;
-  const liveOk = !(minLive > 0) || (Number.isFinite(live) && live >= minLive);
-  const fire = armed && score >= threshold && liveOk;
+  const liveOk = !withLive || (Number.isFinite(live) && live >= minLive);
+  const lastDeliveredMs = previous?.lastDeliveredAt ? Date.parse(previous.lastDeliveredAt) : NaN;
+  const cooled = !withLive || !Number.isFinite(lastDeliveredMs) || nowMs - lastDeliveredMs >= rule.cooldownMs;
+  const fire = armed && score >= threshold && liveOk && cooled;
   const missingPoints = Object.entries(previous?.sources ?? {})
     .filter(([name, present]) => present && !sources[name])
     .reduce((sum, [name]) => sum + (SCORE_SOURCE_MAX_POINTS[name] ?? 0), 0);
-  const subsided = score + missingPoints < threshold
-    || (minLive > 0 && Number.isFinite(live) && live + missingPoints < minLive);
+  const subsided = withLive
+    ? score + missingPoints < threshold - rule.rearmScoreMargin
+      || (Number.isFinite(live) && live + missingPoints < Math.min(rule.rearmLiveBelow, minLive))
+    : score + missingPoints < threshold;
   const state = { armed: armed || subsided, lastScore: score };
   if (minLive > 0 && Number.isFinite(live)) state.lastLive = live;
   if (previous?.lastDeliveredAt) state.lastDeliveredAt = previous.lastDeliveredAt;
@@ -263,7 +277,7 @@ export function parseStateHash(flat) {
   return state;
 }
 
-function planChokepointRecord({ record, previous, next, byId, triggeredAt, scoresFetchedAt, makeId, deliveries }) {
+function planChokepointRecord({ record, previous, next, byId, now, triggeredAt, scoresFetchedAt, makeId, deliveries }) {
   const minLive = Number.isFinite(record.minLiveSignal) && record.minLiveSignal > 0 ? record.minLiveSignal : 0;
   for (const chokepointId of new Set(record.chokepointIds)) {
     const chokepoint = byId.get(chokepointId);
@@ -271,7 +285,7 @@ function planChokepointRecord({ record, previous, next, byId, triggeredAt, score
     const score = chokepoint.disruptionScore;
     const sources = scoreSources(chokepoint);
     const live = liveSignal(chokepoint);
-    const { fire, state } = nextChokepointState(previous[chokepointId], score, record.alertThreshold, sources, { live, minLive });
+    const { fire, state } = nextChokepointState(previous[chokepointId], score, record.alertThreshold, sources, { live, minLive, nowMs: now });
     next[chokepointId] = state;
     if (!fire) continue;
     state.pending ??= { deliveryId: makeId(), triggeredAt };
@@ -378,7 +392,7 @@ export function planTick({ chokepoints, riskScores = null, records, states, now,
     const eventType = recordEventType(record);
     if (eventType === CHOKEPOINT_EVENT) {
       if (!chokepoints) continue;
-      planChokepointRecord({ record, previous, next, byId, triggeredAt, scoresFetchedAt, makeId, deliveries });
+      planChokepointRecord({ record, previous, next, byId, now, triggeredAt, scoresFetchedAt, makeId, deliveries });
     } else if (eventType === RISK_SURGE_EVENT) {
       if (!riskScores) continue;
       planRiskSurgeRecord({ record, previous, next, ciiByCountry, now, triggeredAt, riskFetchedAt, makeId, deliveries });

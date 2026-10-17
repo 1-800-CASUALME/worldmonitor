@@ -125,7 +125,27 @@ describe('DELETE /api/v2/shipping/webhooks/{subscriberId}', () => {
     assert.equal((await handler(request('DELETE'))).status, 404);
   });
 
-  it('answers 409 when the record changed between the owner check and the delete', async () => {
+  it('retries when the worker rewrote the record between the read and the delete', async () => {
+    const key = `webhook:sub:${SUB}:v1`;
+    let evals = 0;
+    const pipelines = stubUpstash(store);
+    const inner = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      const commands = init?.body ? JSON.parse(init.body) : [];
+      if (commands[0]?.[0] === 'EVAL' && (evals += 1) === 1) {
+        // The worker's counter write lands after our GET: the bytes no longer match.
+        store.set(key, store.get(key).replace('"active":true', '"active":true,"lastDeliveryAt":"x"'));
+      }
+      return inner(url, init);
+    };
+    const res = await handler(request('DELETE'));
+    assert.equal(res.status, 200);
+    assert.equal(evals, 2);
+    assert.equal(store.has(key), false);
+    assert.equal(pipelines.filter(([[verb]]) => verb === 'GET').length, 2, 'the retry re-reads the record');
+  });
+
+  it('answers 409 when the record keeps changing on every attempt', async () => {
     const raw = store.get(`webhook:sub:${SUB}:v1`);
     let reads = 0;
     globalThis.fetch = async (_url, init) => {
@@ -142,7 +162,7 @@ describe('DELETE /api/v2/shipping/webhooks/{subscriberId}', () => {
     };
     const res = await handler(request('DELETE'));
     assert.equal(res.status, 409);
-    assert.equal(reads, 1);
+    assert.equal(reads, 3);
   });
 
   it('still rejects callers without an API key and unsupported methods', async () => {

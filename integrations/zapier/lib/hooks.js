@@ -73,8 +73,8 @@ function signatureMatches(rawBody, header, secret) {
  * Verifies the HMAC on an inbound delivery with the secret Zapier stored at
  * subscribe time and returns the event rows for the Zap, or throws when the
  * delivery cannot be trusted. The row id is the X-WM-Delivery-Id: WorldMonitor
- * mints it once per crossing and reuses it on retries, so one disruption is
- * one id (Zapier does not dedupe REST-hook deliveries itself).
+ * mints it once per crossing and reuses it on retries, so a retried POST
+ * carries the same id. Zapier does not dedupe REST-hook deliveries itself.
  */
 function receive(z, bundle, { eventType }) {
   const raw = bundle.rawRequest || {};

@@ -32,8 +32,9 @@ import {
 
 // Deletes only while the record is still the snapshot the owner check read,
 // so a rotate-secret or worker write that lands in between is not deleted
-// blind; the caller gets 409 and may retry. The worker's state hash goes with
-// the record so a re-registered subscription starts armed.
+// blind; the handler re-reads and retries, then answers 409. The worker's
+// state hash goes with the record so a re-registered subscription starts armed.
+const DELETE_ATTEMPTS = 3;
 const DELETE_SCRIPT = [
   "if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end",
   "redis.call('DEL', KEYS[1])",
@@ -121,40 +122,41 @@ export default async function handler(req: Request): Promise<Response> {
     headers: { ...cors, 'Content-Type': 'application/json' },
   });
 
-  let raw: string | null = null;
-  let record: WebhookRecord | null = null;
+  const ownerHash = await callerFingerprint(req, apiKeyResult.credential);
+
   if (req.method === 'DELETE') {
-    // The delete script compares the exact stored bytes, so read them raw.
-    const [row] = await runRedisPipeline([['GET', webhookKey(subscriberId)]]).catch(() => [null]);
-    if (!row || row.error) return json(503, { error: 'Service temporarily unavailable' });
-    if (typeof row.result === 'string') {
-      raw = row.result;
+    // The delete script compares the exact stored bytes, so read them raw. The
+    // worker rewrites the record after each delivery; a rewrite between the
+    // read and the delete is retried against the new bytes.
+    for (let attempt = 0; attempt < DELETE_ATTEMPTS; attempt += 1) {
+      const [read] = await runRedisPipeline([['GET', webhookKey(subscriberId)]]).catch(() => [null]);
+      if (!read || read.error) return json(503, { error: 'Service temporarily unavailable' });
+      if (typeof read.result !== 'string') return json(404, { error: 'Webhook not found' });
+      const raw = read.result;
+      let stored: WebhookRecord | null = null;
       try {
-        record = JSON.parse(raw) as WebhookRecord;
+        stored = JSON.parse(raw) as WebhookRecord;
       } catch {
-        record = null;
+        stored = null;
+      }
+      if (!stored) return json(404, { error: 'Webhook not found' });
+      if (stored.ownerTag !== ownerHash) return json(403, { error: 'Forbidden' });
+      const [row] = await runRedisPipeline([[
+        'EVAL', DELETE_SCRIPT, '4',
+        webhookKey(subscriberId), ownerIndexKey(stored.ownerTag), ALL_INDEX_KEY, deliveryStateKey(subscriberId),
+        raw, subscriberId,
+      ]]).catch(() => [null]);
+      if (!row || row.error) return json(503, { error: 'Service temporarily unavailable' });
+      if (row.result !== 0 && row.result !== '0') {
+        return json(200, { subscriberId, deleted: true, deletedAt: new Date().toISOString() });
       }
     }
-  } else {
-    record = (await getCachedJson(webhookKey(subscriberId)).catch(() => null)) as WebhookRecord | null;
+    return json(409, { error: 'Webhook changed during delete; retry' });
   }
+
+  const record = (await getCachedJson(webhookKey(subscriberId)).catch(() => null)) as WebhookRecord | null;
   if (!record) return json(404, { error: 'Webhook not found' });
-
-  const ownerHash = await callerFingerprint(req, apiKeyResult.credential);
   if (record.ownerTag !== ownerHash) return json(403, { error: 'Forbidden' });
-
-  if (req.method === 'DELETE') {
-    const [row] = await runRedisPipeline([[
-      'EVAL', DELETE_SCRIPT, '4',
-      webhookKey(subscriberId), ownerIndexKey(record.ownerTag), ALL_INDEX_KEY, deliveryStateKey(subscriberId),
-      raw as string, subscriberId,
-    ]]).catch(() => [null]);
-    if (!row || row.error) return json(503, { error: 'Service temporarily unavailable' });
-    if (row.result === 0 || row.result === '0') {
-      return json(409, { error: 'Webhook changed during delete; retry' });
-    }
-    return json(200, { subscriberId, deleted: true, deletedAt: new Date().toISOString() });
-  }
 
   return json(200, {
     subscriberId: record.subscriberId,
