@@ -3003,7 +3003,7 @@ export const RPC_TOOLS: ToolDef[] = [
     name: 'search_flights',
     title: 'Search flights',
     _outputBudgetBytes: 262144,
-    description: 'Search Google Flights for real-time flight options between two airports on a specific date. Returns available flights with prices, stops, airline, and segment details. Use IATA airport codes (e.g. "JFK", "LHR", "DXB").',
+    description: 'Live Google Flights itineraries between two airports on one date, read from the Google Flights results page. Each itinerary has its total USD price for all passengers, stops, duration, and per-leg airline, flight number, airports, and local departure and arrival times. With return_date the price covers the round trip and the legs are the outbound journey. degraded with an error means the provider failed; an empty list without degraded means no itineraries were found. Airports are IATA codes (e.g. "JFK", "LHR", "DXB").',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3018,20 +3018,23 @@ export const RPC_TOOLS: ToolDef[] = [
       },
       required: ['origin', 'destination', 'departure_date'],
     },
-    // Proxies SerpAPI Google Flights. Shape mirrors that upstream's JSON
-    // envelope — keep schema permissive on field types since SerpAPI rotates.
     outputSchema: {
       type: 'object',
       properties: {
         flights: { type: 'array', items: { type: 'object', properties: {
-          price: { type: ['number', 'string', 'null'] }, currency: { type: 'string' },
-          stops: { type: ['number', 'null'] }, airline: { type: 'string' },
-          total_duration: { type: ['number', 'string', 'null'] },
-          segments: { type: 'array', items: { type: 'object' } },
+          price: { type: 'number', description: 'Total USD price for all passengers.' },
+          durationMinutes: { type: 'number' },
+          stops: { type: 'number' },
+          legs: { type: 'array', items: { type: 'object', properties: {
+            airlineCode: { type: 'string' }, flightNumber: { type: 'string' },
+            departureAirport: { type: 'string' }, arrivalAirport: { type: 'string' },
+            departureDatetime: { type: 'string', description: 'Local time, YYYY-MM-DDTHH:MM.' },
+            arrivalDatetime: { type: 'string', description: 'Local time, YYYY-MM-DDTHH:MM.' },
+            durationMinutes: { type: 'number' },
+          } } },
         } } },
-        degraded: { type: 'boolean', description: 'True when the upstream search failed or returned no usable results.' },
-        search_metadata: { type: ['object', 'null'] },
-        error: { type: 'string', description: 'Present when upstream returned a usable error message.' },
+        degraded: { type: 'boolean', description: 'True when the provider search failed.' },
+        error: { type: 'string', description: 'The provider failure when degraded is true.' },
       },
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -3041,13 +3044,6 @@ export const RPC_TOOLS: ToolDef[] = [
         destination: String(params.destination ?? ''),
         departure_date: String(params.departure_date ?? ''),
         ...(params.return_date ? { return_date: String(params.return_date) } : {}),
-        // Default to economy when the LLM omits cabin_class. The relay /
-        // upstream SerpAPI returns ZERO flights for some popular routes
-        // (e.g. JFK→LHR) when cabin_class is unset, even though the tool
-        // description advertises "default economy". Diagnosis: live probe
-        // showed empty `flights` with no error AND no degraded flag; adding
-        // `cabin_class=economy` to the same call returned 10+ real flights.
-        // This restores the advertised contract.
         cabin_class: String(params.cabin_class ?? 'economy'),
         ...(params.max_stops ? { max_stops: String(params.max_stops) } : {}),
         ...(params.sort_by ? { sort_by: String(params.sort_by) } : {}),
@@ -3070,14 +3066,14 @@ export const RPC_TOOLS: ToolDef[] = [
     name: 'search_flight_prices_by_date',
     title: 'Flight prices across dates',
     _outputBudgetBytes: 262144,
-    description: 'Search Google Flights date-grid pricing across a date range. Returns cheapest prices for each departure date between two airports. Useful for finding the cheapest day to fly. Use IATA airport codes.',
+    description: 'Cheapest Google Flights fare for each departure date between two airports, across a range of at most 31 days (one results-page search per date). Each row has the date, the return date for round trips (departure plus trip_duration), and the lowest total USD price for all passengers. A date with no itineraries is omitted. degraded with an error means some or all dates failed, and the list holds only the dates that answered. Airports are IATA codes.',
     inputSchema: {
       type: 'object',
       properties: {
         origin: { type: 'string', description: 'IATA code for the departure airport, e.g. "JFK"' },
         destination: { type: 'string', description: 'IATA code for the arrival airport, e.g. "LHR"' },
         start_date: { type: 'string', description: 'Start of the date range in YYYY-MM-DD format' },
-        end_date: { type: 'string', description: 'End of the date range in YYYY-MM-DD format' },
+        end_date: { type: 'string', description: 'End of the date range in YYYY-MM-DD format, at most 30 days after start_date' },
         is_round_trip: { type: 'boolean', description: 'Whether to search round-trip prices (default false). Requires trip_duration when true.' },
         trip_duration: { type: 'number', description: 'Trip duration in days — required when is_round_trip is true (e.g. 7 for a one-week trip)' },
         cabin_class: { type: 'string', description: 'Cabin class: "economy", "premium_economy", "business", or "first" (optional, default economy)' },
@@ -3089,12 +3085,12 @@ export const RPC_TOOLS: ToolDef[] = [
     outputSchema: {
       type: 'object',
       properties: {
-        prices: { type: 'array', items: { type: 'object', properties: {
-          date: { type: 'string' }, price: { type: ['number', 'string', 'null'] },
-          currency: { type: 'string' },
+        dates: { type: 'array', items: { type: 'object', properties: {
+          date: { type: 'string' },
+          returnDate: { type: 'string', description: 'Empty for one-way searches.' },
+          price: { type: 'number', description: 'Lowest total USD price for all passengers.' },
         } } },
-        degraded: { type: 'boolean', description: 'True when the upstream search failed or returned partial results.' },
-        search_metadata: { type: ['object', 'null'] },
+        degraded: { type: 'boolean', description: 'True when some or all dates failed; the list holds only the dates that answered.' },
         error: { type: 'string' },
       },
     },
@@ -3107,8 +3103,6 @@ export const RPC_TOOLS: ToolDef[] = [
         end_date: String(params.end_date ?? ''),
         is_round_trip: String(params.is_round_trip ?? false),
         ...(params.trip_duration ? { trip_duration: String(params.trip_duration) } : {}),
-        // Mirror search_flights: default to economy when omitted. Same
-        // upstream-empty-on-missing-cabin-class issue.
         cabin_class: String(params.cabin_class ?? 'economy'),
         sort_by_price: String(params.sort_by_price ?? false),
         passengers: String(normalizePassengerCount(params.passengers)),

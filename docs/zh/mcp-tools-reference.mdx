@@ -2010,7 +2010,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `search_flights`
 
-在 Google Flights 上搜索特定日期两个机场之间的实时航班选项。返回可用航班，含价格、经停、航空公司和航段详情。使用 IATA 机场代码（例如 "JFK"、"LHR"、"DXB"）。
+从 Google Flights 结果页实时读取特定日期两个机场之间的行程。每个行程包含全部乘客的美元总价、经停、时长，以及每个航段的航空公司、航班号、机场和当地出发与到达时间。提供 return_date 时价格覆盖往返行程，航段为去程。degraded 带 error 表示数据源失败；无 degraded 的空列表表示未找到行程。机场使用 IATA 代码（例如 "JFK"、"LHR"、"DXB"）。
 
 **参数：**
 
@@ -2045,7 +2045,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `search_flight_prices_by_date`
 
-在 Google Flights 上搜索日期范围内日期网格的定价。返回两个机场之间每个出发日期的最便宜价格。适用于寻找最便宜的飞行日期。使用 IATA 机场代码。
+两个机场之间每个出发日期的 Google Flights 最低票价，日期范围最多 31 天（每个日期一次结果页搜索）。每行包含日期、往返行程的返程日期（出发日期加 trip_duration），以及全部乘客的最低美元总价。没有行程的日期不列出。degraded 带 error 表示部分或全部日期失败，列表只包含有结果的日期。机场使用 IATA 代码。
 
 **参数：**
 
@@ -2054,7 +2054,7 @@ curl -s https://worldmonitor.app/mcp \
 | `origin` | string | **是** | 出发机场的 IATA 代码，例如 "JFK" |
 | `destination` | string | **是** | 到达机场的 IATA 代码，例如 "LHR" |
 | `start_date` | string | **是** | 日期范围起始，格式为 YYYY-MM-DD |
-| `end_date` | string | **是** | 日期范围结束，格式为 YYYY-MM-DD |
+| `end_date` | string | **是** | 日期范围结束，格式为 YYYY-MM-DD，最多在 start_date 之后 30 天 |
 | `is_round_trip` | boolean | 否 | 是否搜索往返价格（默认 false）。为 true 时需要 trip_duration。 |
 | `trip_duration` | number | 否 | 行程天数 — is_round_trip 为 true 时必填（例如 7 表示一周行程） |
 | `cabin_class` | string | 否 | 舱位等级："economy"、"premium_economy"、"business" 或 "first"（可选） |

@@ -2512,7 +2512,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `search_flights`
 
-Search Google Flights for real-time flight options between two airports on a specific date. Returns available flights with prices, stops, airline, and segment details. Use IATA airport codes (e.g. "JFK", "LHR", "DXB").
+Live Google Flights itineraries between two airports on one date, read from the Google Flights results page. Each itinerary has its total USD price for all passengers, stops, duration, and per-leg airline, flight number, airports, and local departure and arrival times. With return_date the price covers the round trip and the legs are the outbound journey. degraded with an error means the provider failed; an empty list without degraded means no itineraries were found. Airports are IATA codes (e.g. "JFK", "LHR", "DXB").
 
 **Parameters:**
 
@@ -2548,7 +2548,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `search_flight_prices_by_date`
 
-Search Google Flights date-grid pricing across a date range. Returns cheapest prices for each departure date between two airports. Useful for finding the cheapest day to fly. Use IATA airport codes.
+Cheapest Google Flights fare for each departure date between two airports, across a range of at most 31 days (one results-page search per date). Each row has the date, the return date for round trips (departure plus trip_duration), and the lowest total USD price for all passengers. A date with no itineraries is omitted. degraded with an error means some or all dates failed, and the list holds only the dates that answered. Airports are IATA codes.
 
 **Parameters:**
 
@@ -2557,7 +2557,7 @@ Search Google Flights date-grid pricing across a date range. Returns cheapest pr
 | `origin` | string | **yes** | IATA code for the departure airport, e.g. "JFK" |
 | `destination` | string | **yes** | IATA code for the arrival airport, e.g. "LHR" |
 | `start_date` | string | **yes** | Start of the date range in YYYY-MM-DD format |
-| `end_date` | string | **yes** | End of the date range in YYYY-MM-DD format |
+| `end_date` | string | **yes** | End of the date range in YYYY-MM-DD format, at most 30 days after start_date |
 | `is_round_trip` | boolean | no | Whether to search round-trip prices (default false). Requires trip_duration when true. |
 | `trip_duration` | number | no | Trip duration in days — required when is_round_trip is true (e.g. 7 for a one-week trip) |
 | `cabin_class` | string | no | Cabin class: "economy", "premium_economy", "business", or "first" (optional) |
