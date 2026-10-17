@@ -336,6 +336,20 @@
       ]
     },
     {
+      "host": "aljazeera.com",
+      "provider": "Al Jazeera",
+      "kind": "feed",
+      "observed": true,
+      "license": "Publisher-provided feed or Google News link metadata; ingest is limited to headlines, summaries, timestamps, publisher credit, and link-out",
+      "attribution": "Credit Al Jazeera and link to the original publisher item.",
+      "status": "reviewed",
+      "references": [
+        {
+          "path": "server/worldmonitor/news/v1/_feeds.ts"
+        }
+      ]
+    },
+    {
       "host": "amdlive-ch01-ctnd-com.akamaized.net",
       "provider": "amdlive-ch01-ctnd-com.akamaized.net",
       "kind": "feed",
@@ -11101,7 +11115,7 @@
     },
     {
       "host": "www.aljazeera.com",
-      "provider": "www.aljazeera.com",
+      "provider": "Al Jazeera",
       "kind": "feed",
       "observed": true,
       "license": "Provider terms for this feed publisher; verify before redistribution",
