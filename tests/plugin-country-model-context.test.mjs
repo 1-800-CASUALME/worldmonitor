@@ -741,6 +741,53 @@ test('failed admissions finish the current pending status without another contex
   }
 });
 
+test('locked same-country refresh clears loaded signals and preserves the cleanup context update', async () => {
+  const view = harness({ country: 'CA' }); await view.initialize();
+  const prior = view.publish().message; view.receive(prior.id); await view.drain();
+  const raw = { privateSignal: 'PRIVATE_DENIED_SIGNAL' };
+  const base = [{ label: 'Public base signal' }];
+  const notes = ['Public military note'];
+  const receipt = { countryCode: 'CA', expiresAt: '2099-01-01T00:00:00Z' };
+  view.context.signalSlots = { countryCode: 'CA', base, military: undefined, militaryNotes: notes, raw };
+  view.context.signalCoverage = { loaded: true };
+  view.context.admission = receipt;
+  view.context.admissions.set('CA', receipt);
+  view.context.hydratedAt = Date.now();
+  let cleared = 0;
+  let usageUpdates = 0;
+  let rendered;
+  view.context.source.clearLoadedData = () => { cleared++; };
+  view.context.showUsage = () => { usageUpdates++; };
+  view.context.hasCountryGeometry = () => false;
+  view.context.composeCountrySignals = (signals, country, name, military, militaryNotes, admittedRaw) => {
+    assert.equal(country, 'CA');
+    assert.equal(admittedRaw, null);
+    return { signals, notes: militaryNotes };
+  };
+  view.context.panel.updateSignals = (signals, signalNotes) => { rendered = { signals, notes: signalNotes }; };
+  const error = new sectionErrors.CountrySectionError('locked', 'PRIVATE_ADMISSION_FAILURE');
+  view.context.call = async () => { throw error; };
+  await assert.rejects(view.context.api.open({ country_code: 'CA', refresh: true }), failure => failure === error);
+  assert.equal(cleared, 1);
+  assert.equal(usageUpdates, 1);
+  assert.equal(view.context.signalSlots.raw, null);
+  assert.equal(view.context.signalCoverage, null);
+  assert.equal(view.context.admissions.has('CA'), false);
+  assert.equal(view.context.admission, undefined);
+  assert.equal(view.context.hydratedAt, 0);
+  assert.deepEqual(rendered, { signals: base, notes });
+  assert.match(view.details().textContent, /scheduled/i);
+  assert.doesNotMatch(view.details().textContent, /unconfirmed|change is pending|PRIVATE_/i);
+  assert.equal(view.messages.filter(item => item.method === 'ui/update-model-context').length, 1);
+  const queued = [...view.timers.entries()].filter(([, timer]) => timer.delay === 200);
+  assert.equal(queued.length, 1);
+  view.timers.delete(queued[0][0]); queued[0][1].fn();
+  const sent = view.messages.findLast(item => item.method === 'ui/update-model-context');
+  assert.equal(view.messages.filter(item => item.method === 'ui/update-model-context').length, 2);
+  view.receive(sent.id); await view.drain();
+  assert.match(view.details().textContent, /Host acknowledged/i);
+});
+
 test('an older failed admission cannot overwrite a newer intent or pagehide', async () => {
   for (const newer of ['open', 'context', 'pagehide']) {
     const view = harness(); await view.initialize();
