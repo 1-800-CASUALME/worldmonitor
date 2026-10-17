@@ -67,11 +67,11 @@ const WEBHOOKS_BLOCK = `webhooks:
             description: |-
                 WorldMonitor POSTs this event to the \`callbackUrl\` you register via
                 RegisterWebhook when a subscribed chokepoint's disruption score is at or
-                above your \`alertThreshold\`: once per crossing, including one already
+                above your \`alertThreshold\`, once per crossing, including one already
                 in progress at first evaluation. It re-arms below the threshold unless a
                 score input missing since the last delivery could explain the drop.
                 Failures retry every 5 minutes with the same \`X-WM-Delivery-Id\` while
-                the score holds; 5 failed ticks set \`active: false\`. Rules:
+                the score holds; 5 failed ticks deactivate the webhook. Full rules at
                 https://www.worldmonitor.app/docs/api-shipping-v2#delivery-worker.
                 Every delivery is signed so you can confirm it genuinely came from
                 WorldMonitor.
