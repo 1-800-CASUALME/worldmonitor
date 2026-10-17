@@ -94,7 +94,7 @@ function createFakeRedis() {
           return 1;
         }
         if (script === RECORD_DELIVERY_SCRIPT) {
-          const [key, at, status, ok, ceiling, error] = rest;
+          const [key, at, status, ok, ceiling, error, resetFirst] = rest;
           if (!strings.has(key)) return 0;
           const rec = JSON.parse(strings.get(key));
           rec.lastDeliveryAt = at;
@@ -103,7 +103,7 @@ function createFakeRedis() {
             rec.failureCount = 0;
             delete rec.lastError;
           } else {
-            rec.failureCount = (Number(rec.failureCount) || 0) + 1;
+            rec.failureCount = (resetFirst === '1' ? 0 : Number(rec.failureCount) || 0) + 1;
             rec.lastError = error;
             if (rec.failureCount >= Number(ceiling)) rec.active = false;
           }
@@ -562,6 +562,32 @@ describe('review hardening', () => {
     assert.equal(summary.delivered, 1);
   });
 
+  it('counts a failure after a same-tick success from zero', async () => {
+    const fake = createFakeRedis();
+    markBackfilled(fake);
+    seedStatus(fake, [chokepoint({ id: 'suez' }), chokepoint({ id: 'hormuz_strait' })]);
+    const record = seedSubscriber(fake, { chokepointIds: ['suez', 'hormuz_strait'], failureCount: 4 });
+    const { send } = recordingSender([{ ok: true, status: 200 }, { ok: false, status: 502, error: 'http_502' }]);
+    const summary = await runShippingWebhookDispatch({ redis: fake.redis, send, now: () => NOW });
+    const stored = JSON.parse(fake.strings.get(webhookKey(record.subscriberId)));
+    assert.equal(summary.deactivated, 0);
+    assert.equal(stored.active, true);
+    assert.equal(stored.failureCount, 1);
+  });
+
+  it('is not an egress outage when a subscriber got a success before its transport failure', async () => {
+    const fake = createFakeRedis();
+    markBackfilled(fake);
+    seedStatus(fake, [chokepoint({ id: 'suez' }), chokepoint({ id: 'hormuz_strait' })]);
+    seedSubscriber(fake, { chokepointIds: ['suez', 'hormuz_strait'] });
+    seedSubscriber(fake, { subscriberId: 'wh_bbbbbbbbbbbbbbbbbbbbbbbb', chokepointIds: ['suez'] });
+    const send = async (rec, payload) => (rec.subscriberId === 'wh_bbbbbbbbbbbbbbbbbbbbbbbb' || payload.chokepointId === 'hormuz_strait'
+      ? { ok: false, status: 0, error: 'timeout' }
+      : { ok: true, status: 200 });
+    const summary = await runShippingWebhookDispatch({ redis: fake.redis, send, now: () => NOW });
+    assert.equal(summary.egressOutage, false);
+  });
+
   it('stops starting sends past the tick budget and leaves the rest pending', async () => {
     const fake = createFakeRedis();
     markBackfilled(fake);
@@ -621,7 +647,8 @@ describe('relay wiring', () => {
   const warmPing = relay.slice(relay.indexOf('async function seedChokepointWarmPing()'), relay.indexOf('async function runShippingWebhookDispatchTick()'));
 
   it('dispatches after every warm-ping outcome', () => {
-    assert.match(warmPing, /finally \{\s*(\/\/[^\n]*\n\s*)*await runShippingWebhookDispatchTick\(\);\s*\}/);
+    assert.match(warmPing, /finally \{\s*(\/\/[^\n]*\n\s*)*runShippingWebhookDispatchTick\(\)\s*\.catch\(/);
+    assert.doesNotMatch(warmPing, /await runShippingWebhookDispatchTick/, 'the warm-ping must not wait out a 20-min send budget');
   });
 
   it('never overlaps two dispatch ticks in one process', () => {

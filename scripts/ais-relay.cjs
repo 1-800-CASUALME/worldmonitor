@@ -6209,8 +6209,11 @@ async function seedChokepointWarmPing() {
   } finally {
     // Runs on every outcome so the heartbeat tracks the dispatcher, not the
     // RPC. The status key has a 5-min TTL: after a failed warm-ping the tick
-    // usually finds it absent and records skipped=source_missing.
-    await runShippingWebhookDispatchTick();
+    // usually finds it absent and records skipped=source_missing. Not awaited:
+    // a tick can run up to its 20-min send budget, and the boot seed loop
+    // starts the warm-ping interval only after this function settles.
+    runShippingWebhookDispatchTick()
+      .catch((e) => console.warn('[ShippingWebhooks] Dispatch tick error:', e?.message || e));
   }
 }
 

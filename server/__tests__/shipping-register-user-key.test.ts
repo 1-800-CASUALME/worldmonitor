@@ -42,6 +42,16 @@ function pipelineResult(commands: string[][]) {
       return { result: value == null ? null : typeof value === 'string' ? value : JSON.stringify(value) };
     }
     if (command[0] === 'SSCAN') return { result: ['0', []] };
+    if (command[0] === 'EVAL' && command[1] === WEBHOOK_MANAGE_SCRIPT) {
+      const [, , , key, mode, secret] = command;
+      const rec = records.get(key);
+      if (!rec) return { result: 0 };
+      const next = { ...rec };
+      if (mode === 'rotate') next.secret = secret;
+      else { next.active = true; next.failureCount = 0; delete next.lastError; }
+      records.set(key, next);
+      return { result: 1 };
+    }
     if (command[0] === 'SET') {
       records.set(command[1], JSON.parse(command[2]));
       return { result: 'OK' };
@@ -83,6 +93,7 @@ import statusHandler from '../../api/v2/shipping/webhooks/[subscriberId]';
 import actionHandler from '../../api/v2/shipping/webhooks/[subscriberId]/[action]';
 import { registerWebhook } from '../worldmonitor/shipping/v2/register-webhook';
 import { checkFailClosedScopedIpRateLimit } from '../_shared/rate-limit';
+import { WEBHOOK_MANAGE_SCRIPT } from '../worldmonitor/shipping/v2/webhook-shared';
 const registerHandler = vi.fn(registerWebhook);
 const routes = createShippingV2ServiceRoutes({ listWebhooks: vi.fn(), registerWebhook: registerHandler, routeIntelligence: vi.fn() }, serverOptions);
 const gateway = createDomainGateway(routes);
@@ -198,7 +209,7 @@ test('gateway registrations support owner-only status, rotation and reactivation
     expect(records.get(storageKey)).toMatchObject({ active: true, secret: body.secret, ownerTag: hash(owner) });
     expect(await (await manage(own.subscriberId, '', owner)).json()).not.toHaveProperty('secret');
     const persist = runRedisTransaction.mock.calls.at(-1)?.[0] as string[][];
-    expect(persist?.[0]?.slice(3)).toEqual(['EX', String(86400 * 30)]);
+    expect(persist?.[0]).toEqual(['EVAL', WEBHOOK_MANAGE_SCRIPT, '1', storageKey, 'reactivate', '', String(86400 * 30)]);
   }
 });
 
@@ -302,6 +313,37 @@ test('reactivate clears delivery failures and status shows delivery bookkeeping'
   expect(revived).not.toHaveProperty('lastError');
   const commands = runRedisTransaction.mock.calls.at(-1)?.[0] as string[][];
   expect(commands[3]).toEqual(['SADD', 'webhook:all:v1', own.subscriberId]);
+});
+
+test('rotate-secret does not undo a deactivation that lands after its read', async () => {
+  const own = await (await gateway(request(keyA), context)).json();
+  const storageKey = `webhook:sub:${own.subscriberId}:v1`;
+  const stale = { ...records.get(storageKey), failureCount: 4 };
+  records.set(storageKey, { ...stale, failureCount: 5, active: false, lastError: 'http_502' });
+  getCachedJson.mockImplementationOnce(async () => stale);
+  const rotated = await manage(own.subscriberId, 'rotate-secret', keyA);
+  expect(rotated.status).toBe(200);
+  const body = await rotated.json();
+  expect(records.get(storageKey)).toMatchObject({ active: false, failureCount: 5, lastError: 'http_502', secret: body.secret });
+});
+
+test('reactivate keeps a secret rotated after its read', async () => {
+  const own = await (await gateway(request(keyA), context)).json();
+  const storageKey = `webhook:sub:${own.subscriberId}:v1`;
+  const stale = { ...records.get(storageKey), active: false };
+  records.set(storageKey, { ...stale, secret: 'd'.repeat(64) });
+  getCachedJson.mockImplementationOnce(async () => stale);
+  expect((await manage(own.subscriberId, 'reactivate', keyA)).status).toBe(200);
+  expect(records.get(storageKey)).toMatchObject({ active: true, secret: 'd'.repeat(64) });
+});
+
+test('rotate-secret answers 404 when the record expires before the write', async () => {
+  const own = await (await gateway(request(keyA), context)).json();
+  const storageKey = `webhook:sub:${own.subscriberId}:v1`;
+  const stale = records.get(storageKey);
+  records.delete(storageKey);
+  getCachedJson.mockImplementationOnce(async () => stale ?? null);
+  expect((await manage(own.subscriberId, 'rotate-secret', keyA)).status).toBe(404);
 });
 
 test('status reports zero failures for a subscription that has never been delivered', async () => {

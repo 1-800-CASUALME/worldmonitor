@@ -163,6 +163,29 @@ export function ownerIndexKey(ownerHash: string): string {
 export const GLOBAL_WEBHOOK_INDEX_KEY = 'webhook:all:v1';
 
 /**
+ * Applies rotate-secret (ARGV[1] = 'rotate', ARGV[2] = new secret) or
+ * reactivate (ARGV[1] = 'reactivate') to the live record and refreshes its
+ * TTL (ARGV[3]). Writing back the copy the route read would undo a
+ * deactivation, a delivery result, or a secret rotation that landed between
+ * that read and the write. Returns 0 when the record is gone.
+ * docker/redis-rest-proxy.mjs pins these bytes.
+ */
+export const WEBHOOK_MANAGE_SCRIPT = [
+  "local raw = redis.call('GET', KEYS[1])",
+  'if not raw then return 0 end',
+  'local rec = cjson.decode(raw)',
+  "if ARGV[1] == 'rotate' then",
+  '  rec.secret = ARGV[2]',
+  'else',
+  '  rec.active = true',
+  '  rec.failureCount = 0',
+  '  rec.lastError = nil',
+  'end',
+  "redis.call('SET', KEYS[1], cjson.encode(rec), 'EX', ARGV[3])",
+  'return 1',
+].join('\n');
+
+/**
  * SHA-256 hash of the resolved API credential — used as ownerTag and owner index key. Never secret.
  *
  * Every caller runs `validateApiKey(req, { forceKey: true })` first, so a

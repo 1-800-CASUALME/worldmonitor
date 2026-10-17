@@ -450,3 +450,17 @@ it('accepts the exact PizzINT archive script and rejects arbitrary edits', async
   assert.match(source, /await evalCommand\(WRITE_LUA, write\.keys, args\)/);
   assert.equal(accepts(gate, ['EVAL', history.WRITE_LUA, '3', 'bucket', 'bucket-meta', 'heartbeat']), true);
 });
+
+it('admits every script the shipping webhook dispatcher and management routes send (#9217)', async () => {
+  const gate = buildGate();
+  const { default: dispatch } = await import('../scripts/lib/shipping-webhook-dispatch.cjs');
+  const { WEBHOOK_MANAGE_SCRIPT } = await import('../server/worldmonitor/shipping/v2/webhook-shared.ts');
+  for (const [name, script] of [
+    ['RECORD_DELIVERY_SCRIPT', dispatch.RECORD_DELIVERY_SCRIPT],
+    ['REMOVE_EXPIRED_MEMBER_SCRIPT', dispatch.REMOVE_EXPIRED_MEMBER_SCRIPT],
+    ['RELEASE_LOCK_SCRIPT', dispatch.RELEASE_LOCK_SCRIPT],
+    ['WEBHOOK_MANAGE_SCRIPT', WEBHOOK_MANAGE_SCRIPT],
+  ]) {
+    assert.equal(accepts(gate, ['EVAL', script, '1', 'k']), true, `${name} is not pinned in docker/redis-rest-proxy.mjs`);
+  }
+});

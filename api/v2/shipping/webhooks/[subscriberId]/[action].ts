@@ -21,6 +21,7 @@ import { getCachedJson, runRedisTransaction } from '../../../../../server/_share
 import {
   WEBHOOK_TTL,
   GLOBAL_WEBHOOK_INDEX_KEY,
+  WEBHOOK_MANAGE_SCRIPT,
   webhookKey,
   ownerIndexKey,
   callerFingerprint,
@@ -119,8 +120,9 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (action === 'rotate-secret') {
     const newSecret = await generateSecret();
-    const stored = await persistWebhook(subscriberId, { ...record, secret: newSecret }, record.ownerTag);
-    if (!stored) {
+    const stored = await persistWebhook(subscriberId, ['rotate', newSecret], record.ownerTag);
+    if (stored === 'missing') return notFound(cors);
+    if (stored !== 'ok') {
       return new Response(JSON.stringify({ error: 'Service temporarily unavailable' }), {
         status: 503,
         headers: { ...cors, 'Content-Type': 'application/json' },
@@ -135,9 +137,9 @@ export default async function handler(req: Request): Promise<Response> {
   // action === 'reactivate'
   // Reset the failure count so the next failures are counted from zero
   // toward the deactivation ceiling; keep the last status for diagnosis.
-  const { lastError: _lastError, ...rest } = record;
-  const stored = await persistWebhook(subscriberId, { ...rest, active: true, failureCount: 0 }, record.ownerTag);
-  if (!stored) {
+  const stored = await persistWebhook(subscriberId, ['reactivate', ''], record.ownerTag);
+  if (stored === 'missing') return notFound(cors);
+  if (stored !== 'ok') {
     return new Response(JSON.stringify({ error: 'Service temporarily unavailable' }), {
       status: 503,
       headers: { ...cors, 'Content-Type': 'application/json' },
@@ -149,21 +151,35 @@ export default async function handler(req: Request): Promise<Response> {
   });
 }
 
-// One MULTI/EXEC, not a pipeline: a pipeline could apply SET and then fail
-// SADD/EXPIRE, answering 503 while Redis already holds a rotated secret the
-// caller never saw. A command rejected at queue time aborts the whole EXEC.
-async function persistWebhook(subscriberId: string, record: WebhookRecord, ownerTag: string): Promise<boolean> {
+function notFound(cors: Record<string, string>): Response {
+  return new Response(JSON.stringify({ error: 'Webhook not found' }), {
+    status: 404,
+    headers: { ...cors, 'Content-Type': 'application/json' },
+  });
+}
+
+// One MULTI/EXEC, not a pipeline: a pipeline could apply the record update and
+// then fail SADD/EXPIRE, answering 503 while Redis already holds a rotated
+// secret the caller never saw. A command rejected at queue time aborts the
+// whole EXEC.
+async function persistWebhook(
+  subscriberId: string,
+  [mode, secret]: ['rotate' | 'reactivate', string],
+  ownerTag: string,
+): Promise<'ok' | 'missing' | 'failed'> {
   const results = await runRedisTransaction([
-    ['SET', webhookKey(subscriberId), JSON.stringify(record), 'EX', String(WEBHOOK_TTL)],
+    ['EVAL', WEBHOOK_MANAGE_SCRIPT, '1', webhookKey(subscriberId), mode, secret, String(WEBHOOK_TTL)],
     ['SADD', ownerIndexKey(ownerTag), subscriberId],
     ['EXPIRE', ownerIndexKey(ownerTag), String(WEBHOOK_TTL)],
     ['SADD', GLOBAL_WEBHOOK_INDEX_KEY, subscriberId],
   ]);
-  return Array.isArray(results)
+  const ok = Array.isArray(results)
     && results.length === 4
     && results.every((result) => result && !result.error)
-    && results[0]?.result === 'OK'
+    && [0, 1, '0', '1'].includes(results[0]?.result as number | string)
     && [0, 1, '0', '1'].includes(results[1]?.result as number | string)
     && (results[2]?.result === 1 || results[2]?.result === '1')
     && [0, 1, '0', '1'].includes(results[3]?.result as number | string);
+  if (!ok) return 'failed';
+  return results[0]?.result === 1 || results[0]?.result === '1' ? 'ok' : 'missing';
 }

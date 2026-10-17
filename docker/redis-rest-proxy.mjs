@@ -560,6 +560,45 @@ const CABLE_HEALTH_REPAIR_SCRIPT = [
 const WEBHOOK_OWNER_INDEX_REMOVE_EXPIRED_SCRIPT = [
   "if redis.call('EXISTS', KEYS[2]) == 0 then return redis.call('SREM', KEYS[1], ARGV[1]) else return 0 end",
 ].join('\n');
+// PINNED COPY of RECORD_DELIVERY_SCRIPT in scripts/lib/shipping-webhook-dispatch.cjs
+// (#9217): the relay records each webhook delivery result through it.
+// Regenerate from the source array; do not hand-edit.
+const SHIPPING_WEBHOOK_RECORD_DELIVERY_SCRIPT = [
+  "local raw = redis.call('GET', KEYS[1])",
+  "if not raw then return 0 end",
+  "local rec = cjson.decode(raw)",
+  "rec.lastDeliveryAt = ARGV[1]",
+  "rec.lastStatus = tonumber(ARGV[2])",
+  "if ARGV[3] == '1' then",
+  "  rec.failureCount = 0",
+  "  rec.lastError = nil",
+  "else",
+  "  local base = ARGV[6] == '1' and 0 or (tonumber(rec.failureCount) or 0)",
+  "  rec.failureCount = base + 1",
+  "  rec.lastError = ARGV[5]",
+  "  if rec.failureCount >= tonumber(ARGV[4]) then rec.active = false end",
+  "end",
+  "redis.call('SET', KEYS[1], cjson.encode(rec), 'KEEPTTL')",
+  "if rec.active == false then return 2 end",
+  "return 1",
+].join('\n');
+// PINNED COPY of WEBHOOK_MANAGE_SCRIPT in
+// server/worldmonitor/shipping/v2/webhook-shared.ts (#9217): rotate-secret and
+// reactivate. Regenerate from the source array; do not hand-edit.
+const SHIPPING_WEBHOOK_MANAGE_SCRIPT = [
+  "local raw = redis.call('GET', KEYS[1])",
+  "if not raw then return 0 end",
+  "local rec = cjson.decode(raw)",
+  "if ARGV[1] == 'rotate' then",
+  "  rec.secret = ARGV[2]",
+  "else",
+  "  rec.active = true",
+  "  rec.failureCount = 0",
+  "  rec.lastError = nil",
+  "end",
+  "redis.call('SET', KEYS[1], cjson.encode(rec), 'EX', ARGV[3])",
+  "return 1",
+].join('\n');
 // PINNED COPY of shared/free-account-allowance-scripts.mjs
 // RESERVE_FREE_ACCOUNT_ALLOWANCE_SCRIPT. Regenerate this block from the source
 // array literal; do not hand-edit it.
@@ -725,6 +764,8 @@ const ALLOWED_EVAL_SCRIPTS = new Set([
   LEGACY_COMPARE_AND_DELETE_SCRIPT,
   CABLE_HEALTH_REPAIR_SCRIPT,
   WEBHOOK_OWNER_INDEX_REMOVE_EXPIRED_SCRIPT,
+  SHIPPING_WEBHOOK_RECORD_DELIVERY_SCRIPT,
+  SHIPPING_WEBHOOK_MANAGE_SCRIPT,
   SOURCE_RETRY_CLAIM_SCRIPT,
   DIGEST_LASTGOOD_PUBLISH_SCRIPT,
   STORY_ALIAS_PUBLISH_SCRIPT,

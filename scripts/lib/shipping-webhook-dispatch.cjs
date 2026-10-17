@@ -77,25 +77,29 @@ function stateKey(subscriberId) {
 // Merges delivery bookkeeping into the live record instead of writing back the
 // copy read at the start of the tick, so a rotate-secret or reactivate that
 // lands mid-delivery is not overwritten. KEEPTTL leaves the 30-day expiry to
-// re-registration, as documented.
-const RECORD_DELIVERY_SCRIPT = `
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
-local rec = cjson.decode(raw)
-rec.lastDeliveryAt = ARGV[1]
-rec.lastStatus = tonumber(ARGV[2])
-if ARGV[3] == '1' then
-  rec.failureCount = 0
-  rec.lastError = nil
-else
-  rec.failureCount = (tonumber(rec.failureCount) or 0) + 1
-  rec.lastError = ARGV[5]
-  if rec.failureCount >= tonumber(ARGV[4]) then rec.active = false end
-end
-redis.call('SET', KEYS[1], cjson.encode(rec), 'KEEPTTL')
-if rec.active == false then return 2 end
-return 1
-`;
+// re-registration, as documented. ARGV[6] = '1' when an earlier send in the
+// same tick succeeded, so a later failure counts from zero.
+// docker/redis-rest-proxy.mjs pins these bytes; keep the array form so
+// tests/redis-rest-proxy-command-parity.test.mjs can prove the copies match.
+const RECORD_DELIVERY_SCRIPT = [
+  "local raw = redis.call('GET', KEYS[1])",
+  'if not raw then return 0 end',
+  'local rec = cjson.decode(raw)',
+  'rec.lastDeliveryAt = ARGV[1]',
+  'rec.lastStatus = tonumber(ARGV[2])',
+  "if ARGV[3] == '1' then",
+  '  rec.failureCount = 0',
+  '  rec.lastError = nil',
+  'else',
+  "  local base = ARGV[6] == '1' and 0 or (tonumber(rec.failureCount) or 0)",
+  '  rec.failureCount = base + 1',
+  '  rec.lastError = ARGV[5]',
+  '  if rec.failureCount >= tonumber(ARGV[4]) then rec.active = false end',
+  'end',
+  "redis.call('SET', KEYS[1], cjson.encode(rec), 'KEEPTTL')",
+  'if rec.active == false then return 2 end',
+  'return 1',
+].join('\n');
 
 const REMOVE_EXPIRED_MEMBER_SCRIPT = "if redis.call('EXISTS', KEYS[2]) == 0 then return redis.call('SREM', KEYS[1], ARGV[1]) else return 0 end";
 const RELEASE_LOCK_SCRIPT = "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end";
@@ -423,7 +427,7 @@ async function runShippingWebhookDispatch({ redis, send = sendDelivery, now = ()
 
     const attempted = results.filter((result) => result.lastOutcome);
     summary.egressOutage = attempted.length >= 2
-      && attempted.every((result) => !result.lastOutcome.ok && TRANSPORT_ERRORS.has(result.lastOutcome.error));
+      && attempted.every((result) => result.sent === 0 && TRANSPORT_ERRORS.has(result.lastOutcome.error));
     if (summary.egressOutage) log(`[ShippingWebhooks] all ${attempted.length} attempted callbacks failed in transport; failure counts left unchanged`);
 
     for (const result of results) {
@@ -434,7 +438,7 @@ async function runShippingWebhookDispatch({ redis, send = sendDelivery, now = ()
       if (lastOutcome && !summary.egressOutage) {
         writes.push(['EVAL', RECORD_DELIVERY_SCRIPT, '1', webhookKey(record.subscriberId),
           nowIso, String(lastOutcome.status), lastOutcome.ok ? '1' : '0',
-          String(FAILURE_CEILING), lastOutcome.error ?? '']);
+          String(FAILURE_CEILING), lastOutcome.error ?? '', result.sent > 0 ? '1' : '0']);
       }
       const written = await Promise.resolve(redis(writes)).catch(() => null);
       if (!Array.isArray(written) || written.length !== writes.length || written.some((row) => !row || row.error)) {
