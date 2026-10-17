@@ -359,11 +359,16 @@ describe('earliest copies (TinEye)', () => {
     assert.equal(redis.store.get(tineyeSpendKey(now)), 4998, 'the reservation is returned');
   });
 
-  it('spends one reservation per search, refunds a failed one and caches a success', async () => {
+  it('spends one reservation per search, refunds a refused one, keeps one with no answer and caches a success', async () => {
     const failing = fakeRedis();
     const failed = await findEarliestCopies({ sha256: 'd'.repeat(64), mediaType: 'image/jpeg', searchBytes: async () => JPEG, apiKey: 'k', redisCmd: failing.cmd, searchTinEye: async () => ({ code: 500 }), limits, now, cacheTtlSeconds: 60 });
     assert.equal(failed.state, 'unavailable');
     assert.equal(failing.store.get(tineyeSpendKey(now)), 0);
+
+    const timedOut = fakeRedis();
+    const lost = await findEarliestCopies({ sha256: 'd'.repeat(64), mediaType: 'image/jpeg', searchBytes: async () => JPEG, apiKey: 'k', redisCmd: timedOut.cmd, searchTinEye: async () => { throw new DOMException('timed out', 'TimeoutError'); }, limits, now, cacheTtlSeconds: 60 });
+    assert.equal(lost.state, 'unavailable');
+    assert.equal(timedOut.store.get(tineyeSpendKey(now)), 4, 'a search with no answer may have been billed, so it stays counted');
 
     const redis = fakeRedis();
     const sent = [];

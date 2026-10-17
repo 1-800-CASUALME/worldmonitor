@@ -49,7 +49,7 @@ const RETENTION_MS = MEDIA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 30 * 60 * 1000;
 /** A claimed job holds a lease this long; only a job whose lease lapsed is reclaimed. */
 const JOB_LEASE_SECONDS = 10 * 60;
-/** A check that runs longer than this is stopped and reported as failed; the lease then never outlives a hung parser. */
+/** A check with no result after this long is reported as failed and its claim released, so a hung parser never holds a job. */
 export const JOB_TIME_LIMIT_MS = 4 * 60 * 1000;
 /** A job that took its worker down this many times is reported as failed instead of re-queued again. */
 export const JOB_MAX_RECOVERIES = 2;
@@ -269,7 +269,7 @@ export async function finalizeJob(cmd, { jobId, token, resultKey, payload, raw }
 export function withTimeLimit(work, ms) {
   let timer;
   const limit = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new MediaCheckError('The check took too long and was stopped.', 'timeout')), ms);
+    timer = setTimeout(() => reject(new MediaCheckError('The check took too long.', 'timeout')), ms);
   });
   return Promise.race([work, limit]).finally(() => clearTimeout(timer));
 }

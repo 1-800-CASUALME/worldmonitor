@@ -9,6 +9,7 @@ import "sebuf/http/annotations.proto";
 message CheckMediaProvenanceRequest {
   // Public http(s) URL of the image or video file, up to 2048 characters. The worker fetches it; private and local addresses are refused.
   string url = 1 [
+    (buf.validate.field).required = true,
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).string.max_len = 2048
   ];
@@ -18,6 +19,7 @@ message CheckMediaProvenanceRequest {
 message CheckReportMediaRequest {
   // Report id; the check uses the link the reader submitted with it.
   string report_id = 1 [
+    (buf.validate.field).required = true,
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).string.max_len = 64
   ];

@@ -393,13 +393,17 @@ export async function findEarliestCopies({ sha256, mediaType, searchBytes, apiKe
   }
   if (!refund) return { ...base, state: 'cap-reached' };
   let parsed = null;
+  let answered = false;
   try {
-    parsed = parseTinEyeResponse(await searchTinEye(bytes, apiKey));
+    const body = await searchTinEye(bytes, apiKey);
+    answered = true;
+    parsed = parseTinEyeResponse(body);
   } catch {
+    // A timeout or dropped connection: TinEye may have run and billed the search, so the reservation stands.
     parsed = null;
   }
   if (!parsed) {
-    await Promise.resolve(refund()).catch(() => {});
+    if (answered) await Promise.resolve(refund()).catch(() => {});
     return { ...base, state: 'unavailable' };
   }
   const record = { ...parsed, searchedAt: new Date(now).toISOString() };

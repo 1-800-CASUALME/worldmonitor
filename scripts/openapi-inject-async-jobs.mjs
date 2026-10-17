@@ -51,7 +51,7 @@ export const ASYNC_JOB_OPS = [
     path: '/api/news/v1/check-media-provenance',
     method: 'post',
     description:
-      'Accepted — media check enqueued. The body carries the job id (jobId), the initial status (always pending) and a poll URL (statusUrl); the Location header points at the same GetMediaProvenance endpoint. Poll it until status is done or failed.',
+      'Accepted — media check enqueued. The body carries the job id (jobId), the initial status (always pending) and a poll URL (statusUrl); the Location header points at the same GetMediaProvenance endpoint. Poll it until status is done or failed. An idempotent replay reproduces only the body, so a retrying client polls statusUrl.',
     locationDescription:
       'Relative URL of the job-status poll endpoint for this job (same value as the statusUrl body field).',
     locationExample:

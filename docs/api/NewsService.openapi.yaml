@@ -1127,7 +1127,7 @@ paths:
                 required: true
             responses:
                 "202":
-                    description: Accepted — media check enqueued. The body carries the job id (jobId), the initial status (always pending) and a poll URL (statusUrl); the Location header points at the same GetMediaProvenance endpoint. Poll it until status is done or failed.
+                    description: Accepted — media check enqueued. The body carries the job id (jobId), the initial status (always pending) and a poll URL (statusUrl); the Location header points at the same GetMediaProvenance endpoint. Poll it until status is done or failed. An idempotent replay reproduces only the body, so a retrying client polls statusUrl.
                     headers:
                         Idempotency-Key:
                             schema:
@@ -2627,6 +2627,8 @@ components:
                     maxLength: 2048
                     minLength: 1
                     description: Public http(s) URL of the image or video file, up to 2048 characters. The worker fetches it; private and local addresses are refused.
+            required:
+                - url
             description: CheckMediaProvenanceRequest names the image or video to check.
         MediaCheckJob:
             type: object
@@ -2792,6 +2794,8 @@ components:
                     maxLength: 64
                     minLength: 1
                     description: Report id; the check uses the link the reader submitted with it.
+            required:
+                - reportId
             description: CheckReportMediaRequest names the reader report whose link to check. Operators only.
         GetReportMediaRequest:
             type: object
