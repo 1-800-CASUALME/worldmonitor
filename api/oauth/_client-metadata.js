@@ -13,6 +13,8 @@
 // the callbacks that vendor maintains. Sources are listed in
 // docs/mcp-overview.mdx#client-id-metadata-documents.
 
+import { CLIENT_METADATA_SNAPSHOTS } from './_client-metadata-snapshots.js';
+
 // Exact client_id URLs, as each vendor publishes them.
 const TRUSTED_CLIENT_METADATA_URLS = new Set([
   // Claude, Claude Code
@@ -290,6 +292,7 @@ function isCachedClient(clientId, value) {
  * deps.redisGet(key): parsed value or null; throws on transport failure.
  * deps.redisSetEx(key, value, ttl): best-effort cache write.
  * deps.fetch: defaults to the global fetch.
+ * deps.snapshots: defaults to CLIENT_METADATA_SNAPSHOTS.
  */
 export async function resolveOAuthClient(clientId, deps) {
   if (typeof clientId !== 'string' || clientId.length === 0) return { ok: false, reason: 'unknown_client', transient: false };
@@ -328,15 +331,21 @@ export async function resolveOAuthClient(clientId, deps) {
     const failure = err instanceof ClientMetadataError
       ? { ok: false, reason: err.reason, transient: err.transient }
       : { ok: false, reason: 'document_fetch_failed', transient: true };
+    // A retryable failure falls back to the vetted copy of a listed document.
+    // It is never cached, so the live document is tried again next time.
+    const snapshots = deps.snapshots ?? CLIENT_METADATA_SNAPSHOTS;
+    const snapshot = failure.transient && Object.hasOwn(snapshots, clientId) ? snapshots[clientId] : null;
     // The document URL is public; nothing logged here is a secret.
     console.warn('[oauth/cimd] client document unusable', JSON.stringify({
       client_id: clientId,
       reason: failure.reason,
       transient: failure.transient,
+      ...(snapshot ? { fallback: 'snapshot' } : {}),
       ...(err instanceof ClientMetadataError
         ? err.detail
         : { error: err instanceof Error ? `${err.name}: ${err.message}` : String(err) }),
     }));
+    if (snapshot) return { ok: true, client: { ...validateDocument(clientId, snapshot), cimd: true } };
     return failure;
   }
   // Only a validated document is cached; a failure above never reaches here.

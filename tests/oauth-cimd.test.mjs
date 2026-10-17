@@ -17,6 +17,16 @@ import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 const FIXTURE = JSON.parse(readFileSync(new URL('./fixtures/oauth-cimd/live-documents.json', import.meta.url), 'utf8'));
 const LIVE_DOCS = FIXTURE.documents;
 
+// A per-connector Vercel Connect document. Unlike the exact listed URLs it has
+// no vetted snapshot, so its vendor outages reach the caller as retryable.
+const CONNECTOR = 'https://connect.vercel.com/connectors/conn_test';
+const CONNECTOR_CALLBACK = 'https://connect.vercel.com/callback';
+const CONNECTOR_DOC = {
+  content_type: 'application/json',
+  cache_control: 'no-store',
+  body: { client_id: CONNECTOR, client_name: 'WorldMonitor (Vercel Connect)', redirect_uris: [CONNECTOR_CALLBACK], token_endpoint_auth_method: 'none' },
+};
+
 const REDIS_URL = 'https://redis.test';
 const ENTERPRISE_KEY = 'enterprise-test-key';
 const CODE_VERIFIER = 'v'.repeat(64);
@@ -87,7 +97,7 @@ before(() => {
 beforeEach(() => {
   store = new Map();
   vendorFetches = [];
-  vendor = new Map(Object.entries(LIVE_DOCS));
+  vendor = new Map([...Object.entries(LIVE_DOCS), [CONNECTOR, CONNECTOR_DOC]]);
   installFetch();
 });
 
@@ -115,6 +125,7 @@ const {
   isClientMetadataDocumentId,
 } = await import('../api/oauth/_client-metadata.js');
 const { isAllowedRedirectUri } = await import('../api/oauth/_redirect-uri.js');
+const { CLIENT_METADATA_SNAPSHOTS } = await import('../api/oauth/_client-metadata-snapshots.js');
 
 // ---------------------------------------------------------------------------
 // Flow helpers
@@ -267,39 +278,35 @@ describe('CIMD — each vendor document completes the API-key flow', () => {
   });
 
   it('a vendor outage at code exchange leaves the code redeemable on retry', async () => {
-    // VS Code serves its document no-store, so the exchange always refetches it.
-    const vscode = 'https://vscode.dev/oauth/client-metadata.json';
-    const redirectUri = 'https://vscode.dev/redirect';
-    const flow = await startFlow(vscode, redirectUri);
+    // The connector document is no-store, so the exchange always refetches it.
+    const flow = await startFlow(CONNECTOR, CONNECTOR_CALLBACK);
     const code = new URL((await submitConsent(flow.nonce, flow.cookie)).headers.get('Location')).searchParams.get('code');
-    vendor.set(vscode, () => new Response('down', { status: 503 }));
-    const first = await exchangeCode(code, vscode, redirectUri);
+    vendor.set(CONNECTOR, () => new Response('down', { status: 503 }));
+    const first = await exchangeCode(code, CONNECTOR, CONNECTOR_CALLBACK);
     assert.equal(first.status, 503);
     assert.ok(store.has(`oauth:code:${code}`), 'the code is not consumed by a retryable failure');
-    vendor.set(vscode, LIVE_DOCS[vscode]);
-    const retry = await exchangeCode(code, vscode, redirectUri);
+    vendor.set(CONNECTOR, CONNECTOR_DOC);
+    const retry = await exchangeCode(code, CONNECTOR, CONNECTOR_CALLBACK);
     assert.equal(retry.status, 200, await retry.clone().text());
   });
 
   it('a vendor 403 or HTML challenge during refresh is retryable and keeps the token', async () => {
-    const vscode = 'https://vscode.dev/oauth/client-metadata.json';
-    const redirectUri = 'https://vscode.dev/redirect';
-    const flow = await startFlow(vscode, redirectUri);
+    const flow = await startFlow(CONNECTOR, CONNECTOR_CALLBACK);
     const code = new URL((await submitConsent(flow.nonce, flow.cookie)).headers.get('Location')).searchParams.get('code');
-    const tokens = await (await exchangeCode(code, vscode, redirectUri)).json();
+    const tokens = await (await exchangeCode(code, CONNECTOR, CONNECTOR_CALLBACK)).json();
     for (const outage of [
       () => new Response('forbidden', { status: 403 }),
       () => new Response('<html>challenge</html>', { headers: { 'Content-Type': 'text/html' } }),
       // A body cut off mid-transfer: JSON content type, unparseable text.
-      () => new Response('{"client_id":"https://vscode.dev/oauth/cli', { headers: { 'Content-Type': 'application/json' } }),
+      () => new Response('{"client_id":"https://connect.vercel.com/conn', { headers: { 'Content-Type': 'application/json' } }),
     ]) {
-      vendor.set(vscode, outage);
-      const res = await refresh(tokens.refresh_token, vscode);
+      vendor.set(CONNECTOR, outage);
+      const res = await refresh(tokens.refresh_token, CONNECTOR);
       assert.equal(res.status, 503);
-      assert.equal(JSON.parse(store.get(`oauth:refresh:${tokens.refresh_token}`)).client_id, vscode, 'refresh token restored');
+      assert.equal(JSON.parse(store.get(`oauth:refresh:${tokens.refresh_token}`)).client_id, CONNECTOR, 'refresh token restored');
     }
-    vendor.set(vscode, LIVE_DOCS[vscode]);
-    assert.equal((await refresh(tokens.refresh_token, vscode)).status, 200);
+    vendor.set(CONNECTOR, CONNECTOR_DOC);
+    assert.equal((await refresh(tokens.refresh_token, CONNECTOR)).status, 200);
   });
 
   it('a client removed from the vendor document stops refreshing on the next fetch', async () => {
@@ -351,9 +358,7 @@ describe('CIMD — consent page', () => {
   });
 
   it('a vendor outage at consent submit hands back a fresh session instead of ending the flow', async () => {
-    // VS Code serves its document no-store, so the submit always refetches it.
-    const vscode = 'https://vscode.dev/oauth/client-metadata.json';
-    const redirectUri = 'https://vscode.dev/redirect';
+    // The connector document is no-store, so the submit always refetches it.
     const post = (nonce, cookie, js) => authorizeHandler(new Request('https://api.worldmonitor.app/oauth/authorize', {
       method: 'POST',
       headers: { host: 'api.worldmonitor.app', origin: 'https://api.worldmonitor.app', 'Content-Type': 'application/x-www-form-urlencoded', cookie },
@@ -361,32 +366,32 @@ describe('CIMD — consent page', () => {
     }));
 
     // The consent page script path: JSON with a replacement nonce.
-    const flow = await startFlow(vscode, redirectUri);
-    vendor.set(vscode, () => new Response('down', { status: 503 }));
+    const flow = await startFlow(CONNECTOR, CONNECTOR_CALLBACK);
+    vendor.set(CONNECTOR, () => new Response('down', { status: 503 }));
     const failed = await post(flow.nonce, flow.cookie, true);
     assert.equal(failed.status, 503);
     const body = await failed.json();
     assert.equal(body.error, 'temporarily_unavailable');
     assert.match(body.message, /could not be verified right now/);
     assert.ok(body.nonce && body.nonce !== flow.nonce, 'a fresh nonce is issued');
-    vendor.set(vscode, LIVE_DOCS[vscode]);
+    vendor.set(CONNECTOR, CONNECTOR_DOC);
     const retried = await post(body.nonce, flow.cookie, true);
     assert.equal(retried.status, 200, await retried.clone().text());
     const location = new URL((await retried.json()).location);
-    assert.equal(`${location.origin}${location.pathname}`, redirectUri);
+    assert.equal(`${location.origin}${location.pathname}`, CONNECTOR_CALLBACK);
     assert.ok(location.searchParams.get('code'));
 
     // A plain form post re-renders the consent page with the replacement nonce.
     store.clear();
-    const flow2 = await startFlow(vscode, redirectUri);
-    vendor.set(vscode, () => new Response('down', { status: 503 }));
+    const flow2 = await startFlow(CONNECTOR, CONNECTOR_CALLBACK);
+    vendor.set(CONNECTOR, () => new Response('down', { status: 503 }));
     const page = await post(flow2.nonce, flow2.cookie, false);
     assert.equal(page.status, 503);
     const html = await page.text();
     assert.match(html, /could not be verified right now/);
     const fresh = html.match(/name="_nonce" id="nn" value="([^"]+)"/)?.[1];
     assert.ok(fresh && fresh !== flow2.nonce && store.has(`oauth:nonce:${fresh}`));
-    assert.match(html, /client ID from vscode\.dev/);
+    assert.match(html, /client ID from connect\.vercel\.com/);
   });
 
   it('does not warn for a hosted client', async () => {
@@ -462,7 +467,7 @@ describe('CIMD — Pro grant path', () => {
 
   it('a vendor outage at authorize-pro leaves the grant link usable on retry', async () => {
     process.env.MCP_PRO_GRANT_HMAC_SECRET = 'x'.repeat(48);
-    const flow = await startFlow(CHATGPT, REDIRECT);
+    const flow = await startFlow(CONNECTOR, CONNECTOR_CALLBACK);
     const mintRes = await mintGrantHandler(new Request('https://worldmonitor.app/api/internal/mcp-grant-mint', {
       method: 'POST', headers: { 'Content-Type': 'application/json', cookie: flow.cookie }, body: JSON.stringify({ nonce: flow.nonce }),
     }), {
@@ -489,19 +494,18 @@ describe('CIMD — Pro grant path', () => {
       now: () => NOW,
     };
 
-    // The cached document expires between the mint and the redirect.
-    store.delete(`oauth:cimd:${CHATGPT}`);
-    vendor.set(CHATGPT, () => new Response('down', { status: 503 }));
+    // The connector document is no-store, so the redirect refetches it.
+    vendor.set(CONNECTOR, () => new Response('down', { status: 503 }));
     const failed = await authorizeProHandler(new Request(link), proDeps);
     assert.equal(failed.status, 503);
     assert.match(await failed.text(), /could not be verified right now/);
     assert.ok(store.has(`mcp-grant:${flow.nonce}`), 'the grant is not consumed by a retryable failure');
     assert.ok(store.has(`oauth:nonce:${flow.nonce}`), 'the nonce is not consumed by a retryable failure');
 
-    vendor.set(CHATGPT, LIVE_DOCS[CHATGPT]);
+    vendor.set(CONNECTOR, CONNECTOR_DOC);
     const retried = await authorizeProHandler(new Request(link), proDeps);
     assert.equal(retried.status, 302, await retried.clone().text());
-    assert.equal(JSON.parse(store.get('oauth:code:code_pro_retry')).client_id, CHATGPT);
+    assert.equal(JSON.parse(store.get('oauth:code:code_pro_retry')).client_id, CONNECTOR);
   });
 
   it('mint refuses a redirect the document no longer lists', async () => {
@@ -528,6 +532,9 @@ const deps = (overrides = {}) => ({
   redisGet: async (key) => parseStored(store.get(key)),
   redisSetEx: async (key, value) => { store.set(key, JSON.stringify(value)); },
   fetch: vendorFetch,
+  // These tests pin how the live fetch is classified; the snapshot fallback
+  // has its own tests, which pass `snapshots: undefined` for the real set.
+  snapshots: {},
   ...overrides,
 });
 
@@ -723,10 +730,75 @@ describe('CIMD — rejected documents and client_ids', () => {
   });
 
   it('serves a transient failure on authorize as Service Unavailable, not Unknown Client', async () => {
-    vendor.set(LINEAR, () => new Response('down', { status: 502 }));
-    const flow = await startFlow(LINEAR, 'https://linear.app/connect/mcp/callback');
+    vendor.set(CONNECTOR, () => new Response('down', { status: 502 }));
+    const flow = await startFlow(CONNECTOR, CONNECTOR_CALLBACK);
     assert.equal(flow.res.status, 400);
     assert.match(flow.html, /could not be verified right now/);
+  });
+});
+
+describe('CIMD — vetted snapshots', () => {
+  const CHATGPT = 'https://chatgpt.com/oauth/client.json';
+  const CHATGPT_REDIRECT = 'https://chatgpt.com/connector_platform_oauth_redirect';
+  // What chatgpt.com sends Vercel Functions: a 403 page with no cf-ray.
+  const BLOCKED = () => new Response('<html> <head> <meta name="viewport" content="width=device-width, initial-scale=1" /> <style global>', {
+    status: 403, headers: { 'Content-Type': 'text/html; charset=UTF-8' },
+  });
+  const real = (overrides = {}) => deps({ snapshots: undefined, ...overrides });
+
+  it('every listed document has a snapshot that matches the live capture and validates', async () => {
+    assert.deepEqual(Object.keys(CLIENT_METADATA_SNAPSHOTS).sort(), Object.keys(LIVE_DOCS).sort());
+    for (const [url, snapshot] of Object.entries(CLIENT_METADATA_SNAPSHOTS)) {
+      for (const [field, value] of Object.entries(snapshot)) {
+        assert.deepEqual(value, LIVE_DOCS[url].body[field], `${url} ${field}`);
+      }
+      vendor.set(url, BLOCKED);
+      const resolved = await resolveOAuthClient(url, real());
+      assert.equal(resolved.ok, true, url);
+      assert.deepEqual(resolved.client.redirect_uris, LIVE_DOCS[url].body.redirect_uris, url);
+    }
+  });
+
+  it('ChatGPT connects end to end while its document is blocked, and nothing is cached', async () => {
+    vendor.set(CHATGPT, BLOCKED);
+    const flow = await startFlow(CHATGPT, CHATGPT_REDIRECT);
+    assert.equal(flow.res.status, 200, flow.html);
+    assert.match(flow.html, /client ID from chatgpt\.com/);
+    const code = new URL((await submitConsent(flow.nonce, flow.cookie)).headers.get('Location')).searchParams.get('code');
+    const exchanged = await exchangeCode(code, CHATGPT, CHATGPT_REDIRECT);
+    assert.equal(exchanged.status, 200, await exchanged.clone().text());
+    const refreshed = await refresh((await exchanged.json()).refresh_token, CHATGPT);
+    assert.equal(refreshed.status, 200, await refreshed.clone().text());
+    assert.equal(store.has(`oauth:cimd:${CHATGPT}`), false, 'the snapshot is never cached');
+    assert.ok(vendorFetches.filter((f) => f.url === CHATGPT).length >= 3, 'the live document is retried each time');
+  });
+
+  it('a withdrawn or invalid live document is not overridden by the snapshot', async () => {
+    vendor.delete(CHATGPT);
+    assert.deepEqual(await resolveOAuthClient(CHATGPT, real()), { ok: false, reason: 'document_not_found', transient: false });
+    vendor.set(CHATGPT, () => new Response('gone', { status: 410 }));
+    assert.equal((await resolveOAuthClient(CHATGPT, real())).reason, 'document_not_found');
+    vendor.set(CHATGPT, { ...LIVE_DOCS[CHATGPT], body: { ...LIVE_DOCS[CHATGPT].body, client_id: 'https://chatgpt.com/other.json' } });
+    assert.equal((await resolveOAuthClient(CHATGPT, real())).reason, 'client_id_mismatch');
+    // A vendor dropping a callback takes effect even though the snapshot lists it.
+    vendor.set(CHATGPT, { ...LIVE_DOCS[CHATGPT], body: { ...LIVE_DOCS[CHATGPT].body, redirect_uris: ['https://chatgpt.com/new_callback'] } });
+    const live = await resolveOAuthClient(CHATGPT, real());
+    assert.equal(clientAllowsRedirectUri(live.client, CHATGPT_REDIRECT), false);
+  });
+
+  it('logs the fallback', async () => {
+    const warned = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => { warned.push(args); };
+    try {
+      vendor.set(CHATGPT, BLOCKED);
+      await resolveOAuthClient(CHATGPT, real());
+    } finally {
+      console.warn = originalWarn;
+    }
+    const logged = JSON.parse(warned[0][1]);
+    assert.equal(logged.fallback, 'snapshot');
+    assert.equal(logged.status, 403);
   });
 });
 
