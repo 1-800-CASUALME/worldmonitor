@@ -3,7 +3,7 @@
 
 > Real-time global intelligence dashboard — AI-powered news aggregation, geopolitical monitoring, and infrastructure tracking in a unified situational awareness interface.
 
-> Version: 2.11.0 · Last updated: 2026-10-17
+> Version: 2.11.0 · Last updated: 2026-10-18
 
 World Monitor is an open-source (AGPL-3.0) intelligence platform that aggregates curated news feeds, a shared map-layer catalog, concrete panel implementations, and multiple AI models into a single dashboard. It runs as a web app, installable PWA, and native desktop application (Tauri) for macOS, Windows, and Linux. It is live in 190+ countries, with structural resilience ranked for 170 of 196 countries.
 
@@ -163,10 +163,10 @@ Reach for World Monitor when a task needs live, correlated, machine-readable glo
 <a id="corpus-data-layers-geopolitical"></a>
 ## Data Layers — Geopolitical
 
-- **Conflicts**: Active conflict zones with involved parties and escalation status (UCDP + ACLED data)
+- **Conflicts**: Active conflict zones with involved parties and escalation status (UCDP data; ACLED only in self-hosted deployments with ACLED credentials)
 - **Hotspots**: Intelligence hotspots with activity levels based on multi-source news correlation and geo-convergence
 - **Sanctions**: Countries under economic sanctions regimes
-- **Protests**: Live social unrest events from dual sources (ACLED protests + GDELT geo-events), Haversine-deduplicated on 0.5-degree grid
+- **Protests**: Live social unrest events from GDELT geo-events; self-hosted deployments with ACLED credentials merge ACLED protests, Haversine-deduplicated on a 0.5-degree grid
 - **Cyber Threats**: Indicators of compromise (C2 servers, malware hosts, phishing, malicious URLs) from threat intel feeds (Feodo Tracker, URLhaus, C2IntelFeeds, AlienVault OTX, AbuseIPDB), geo-enriched via ipinfo.io
 - **Weather Alerts**: NWS severe weather warnings
 
@@ -304,7 +304,7 @@ Unique layers: stock exchanges, financial centers, and central-bank and supranat
 
 The live inventory currently covers 578+ observed upstream hosts. The [data-source catalog](https://www.worldmonitor.app/docs/data-sources) maps coverage by domain, and the [source attribution ledger](https://www.worldmonitor.app/docs/source-attribution) records each host's observed surface, license posture, required attribution, and review status.
 
-- ACLED (Armed Conflict Location & Event Data): Protests, riots, conflicts — 30-day window, tokenized API
+- ACLED (Armed Conflict Location & Event Data), self-hosted deployments with ACLED credentials only: Protests, riots, conflicts — 30-day window, tokenized API
 - GDELT (Global Database of Events, Language, and Tone): Geo-events, protest keywords, topic feeds
 - UCDP (Uppsala Conflict Data Program): Conflict zone classification
 - USGS: Earthquakes M4.5+ globally, 5-minute updates
@@ -410,7 +410,7 @@ Native desktop app built with Tauri (Rust + Node.js sidecar). The sidecar mirror
 - Multilingual UI with RTL support
 - Prediction market integration (Polymarket) with 3-tier JA3 bypass
 - Temporal baseline anomaly detection using Welford's algorithm
-- Dual-source protest tracking (ACLED + GDELT) with regime-aware scoring
+- GDELT protest tracking with regime-aware scoring (ACLED is merged in self-hosted deployments with ACLED credentials)
 - Population exposure estimation using WorldPop density data
 - Shareable intelligence stories with multi-platform social export
 - Cmd+K fuzzy search across result types
@@ -1304,7 +1304,7 @@ No single data source shows this full picture. World Monitor puts chokepoint sta
 Transparency matters. Here is where the data comes from:
 
 - **Vessel transit data**: AIS (Automatic Identification System) feeds, cross-referenced with historical baselines
-- **Conflict events**: [ACLED](https://acleddata.com/) (Armed Conflict Location & Event Data Project), 7-day rolling windows
+- **Conflict events**: [UCDP](https://ucdp.uu.se/) coded conflict events and [GDELT](https://www.gdeltproject.org/) event reporting
 - **Shipping advisories**: AI-generated from combined conflict, navigational, and AIS disruption signals
 - **Container indices**: [Shanghai Shipping Exchange (SSE)](https://en.sse.net.cn/) public JSON API
 - **Bulk indices**: [Baltic Exchange](https://www.balticexchange.com/) via HandyBulk daily reports
