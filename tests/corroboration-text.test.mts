@@ -120,7 +120,20 @@ describe('mergeCorroboration — a digest story merged from several story cluste
   it('single-publisher members are one publisher only when their sources are one family', () => {
     assert.deepEqual(mergeCorroboration(['single-publisher|1', 'single-publisher|1'], 1), { state: 'single-publisher', publishers: 1 });
     assert.equal(mergeCorroboration(['single-publisher|1', 'single-publisher|1'], 2), null);
-    assert.equal(mergeCorroboration(['single-publisher|1'], 2), null, 'listed sources contradict the verdict');
+    assert.deepEqual(
+      mergeCorroboration(['single-publisher|1'], 2),
+      { state: 'single-publisher', publishers: 1 },
+      'an unmerged story keeps the server verdict: its feed labels can include reprints the same-copy check folded',
+    );
+  });
+
+  it('does not call merged single-publisher stories one publisher when their sources are unread', () => {
+    assert.equal(mergeCorroboration(['single-publisher|1', 'single-publisher|1'], 0), null);
+    assert.deepEqual(
+      mergeCorroboration(['single-publisher|1'], 0),
+      { state: 'single-publisher', publishers: 1 },
+      'an unmerged story keeps the verdict the server stored for it',
+    );
   });
 
   it('states nothing it would need source tiers to judge', () => {

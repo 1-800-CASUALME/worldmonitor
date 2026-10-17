@@ -404,6 +404,20 @@ async function holdEvent(userId, variant, eventJson) {
   await upstashRest('EXPIRE', key, String(QUIET_HELD_TTL));
 }
 
+/**
+ * One line per held alert, shared by the text batch and the Teams card.
+ * Titles get the same boundary as formatMessage: held events include
+ * relay-originated ones that never passed /api/notify, so raw titles here
+ * would bypass the field guarantee (issue #8397). #9213: each line carries the
+ * story's coverage token when known.
+ */
+function formatHeldAlertLines(events) {
+  return events.map((ev) => {
+    const coverage = formatEventCoverage(ev);
+    return `[${String(ev.severity ?? 'high').toUpperCase()}] ${formatEventTitle(ev)}${coverage ? ` · ${coverage}` : ''}`;
+  });
+}
+
 // Delivers (or discards) the held queue for a single user+variant.
 // Used by both drainBatchOnWake (wake-up) and processFlushQuietHeld (settings change).
 // allowedChannelTypes: which channels to attempt delivery on; null = use rule's channels.
@@ -424,15 +438,8 @@ async function drainHeldForUser(userId, variant, allowedChannelTypes) {
   }
   if (events.length === 0) { await upstashRest('DEL', key); return; }
 
-  const lines = [`WorldMonitor — ${events.length} held alert${events.length !== 1 ? 's' : ''} from quiet hours`, ''];
-  for (const ev of events) {
-    // Shape held titles with the same boundary as formatMessage: held events
-    // include relay-originated ones that never passed /api/notify, so raw
-    // titles here would bypass the field guarantee (issue #8397).
-    const heldTitle = formatEventTitle(ev);
-    const heldCoverage = formatEventCoverage(ev);
-    lines.push(`[${String(ev.severity ?? 'high').toUpperCase()}] ${heldTitle}${heldCoverage ? ` · ${heldCoverage}` : ''}`);
-  }
+  const heldLines = formatHeldAlertLines(events);
+  const lines = [`WorldMonitor — ${events.length} held alert${events.length !== 1 ? 's' : ''} from quiet hours`, '', ...heldLines];
   lines.push('', 'View full dashboard → worldmonitor.app');
   const text = lines.join('\n');
   const subject = `WorldMonitor — ${events.length} held alert${events.length !== 1 ? 's' : ''}`;
@@ -466,10 +473,7 @@ async function drainHeldForUser(userId, variant, allowedChannelTypes) {
       else if (ch.channelType === 'discord' && ch.webhookEnvelope) ok = await sendDiscord(userId, ch.webhookEnvelope, text);
       else if (ch.channelType === 'teams' && ch.webhookEnvelope) ok = await sendTeamsCards(userId, ch.webhookEnvelope, buildTeamsNoticePayloads({
         title: lines[0],
-        lines: events.map((ev) => {
-          const coverage = formatEventCoverage(ev);
-          return `[${String(ev.severity ?? 'high').toUpperCase()}] ${formatEventTitle(ev)}${coverage ? ` · ${coverage}` : ''}`;
-        }),
+        lines: heldLines,
         link: NOTIFY_DASHBOARD_URL,
         linkTitle: 'Open dashboard',
       }));
@@ -2033,6 +2037,7 @@ module.exports = {
   buildSlackMessagePayload,
   buildDiscordMessagePayload,
   buildTeamsAlertForEvent,
+  formatHeldAlertLines,
   sendTeams,
   processWelcome,
   popNextEvent,
