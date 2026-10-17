@@ -1701,7 +1701,8 @@
       "scripts/shared/geo-extract.mjs",
       "scripts/shared/publisher-families.js",
       "scripts/shared/source-tiers.json",
-      "scripts/shared/story-identity.js"
+      "scripts/shared/story-identity.js",
+      "scripts/shared/syndication.js"
     ],
     "documentedAt": "tests/scripts-railway-nixpacks-no-escape-import.test.mts (added PR #3836)"
   },
