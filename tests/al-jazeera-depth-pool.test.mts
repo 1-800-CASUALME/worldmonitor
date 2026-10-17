@@ -4,6 +4,7 @@
 // That search feeds the claim pool only: the digest and panels keep the
 // native feed.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { VARIANT_FEEDS } from '../server/worldmonitor/news/v1/_feeds';
 import { __testing__ as digest } from '../server/worldmonitor/news/v1/list-feed-digest';
@@ -20,6 +21,7 @@ const envKeys = ['UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN', 'VERCEL_E
 const oldEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
 const originalFetch = globalThis.fetch;
 let cache: Map<string, unknown>;
+let revoked: string[];
 
 const hoursAgo = (hours: number) => Date.now() - hours * 3600_000;
 const nativeXml = (titles: string[]) => `<?xml version="1.0"?><rss><channel>${titles.map((title, i) => `<item>
@@ -39,6 +41,7 @@ beforeEach(() => {
   __resetKeyPrefixCacheForTests();
   claimPool.resetPool();
   cache = new Map();
+  revoked = [];
 });
 
 afterEach(() => {
@@ -74,7 +77,7 @@ function stubFetch(publisher: Record<string, string>, fetched: string[] = []) {
       return Response.json(batch.map((command) => {
         if (command[0] === 'SMEMBERS') {
           assert.equal(command[1], REVOKED_URLS_KEY);
-          return { result: [] };
+          return { result: revoked };
         }
         if (command[0] === 'GET') return { result: cache.has(command[1]!) ? JSON.stringify(cache.get(command[1]!)) : null };
         return { result: 'OK' };
@@ -93,31 +96,50 @@ describe('Al Jazeera claim-pool depth feed', () => {
     assert.ok(!digestUrls.includes(DEPTH_URL), 'the depth search is not a digest feed');
   });
 
-  it('fetches the depth URL alongside the native feed in the full variant and serves only native items to the digest', async () => {
+  it('warms every depth URL at once in the full variant, without touching native feeds', async () => {
     const fetched: string[] = [];
-    stubFetch({
-      [NATIVE_URL]: nativeXml(['Gaza ceasefire talks resume in Cairo']),
-      [DEPTH_URL]: depthXml(['Sudan army retakes Wad Madani bridge']),
-    }, fetched);
-    const result = await digest.fetchDigestFeed(aljazeera, 'full', new AbortController().signal);
-    assert.deepEqual(fetched.sort(), [DEPTH_URL, NATIVE_URL].sort());
-    assert.deepEqual(result.items.map((item) => item.title), ['Gaza ceasefire talks resume in Cairo']);
+    stubFetch({ [DEPTH_URL]: depthXml(['Sudan army retakes Wad Madani bridge']) }, fetched);
+    const entries = digest.buildDigestFeedBatches('full', 'en').allEntries;
+    await digest.warmDepthFeeds(entries, 'full', new AbortController().signal);
+    assert.deepEqual(fetched, [DEPTH_URL]);
     const depth = cache.get(rssFeedCacheKey('full', DEPTH_URL)) as { items: Array<{ source: string; link: string }> };
     assert.equal(depth.items[0]!.source, 'Al Jazeera');
     assert.match(depth.items[0]!.link, /^https:\/\/news\.google\.com\/rss\/articles\//, 'the publisher-link gate keeps Google News links');
   });
 
-  it('does not fetch the depth URL outside the full variant', async () => {
+  it('warms nothing outside the full variant', async () => {
     const fetched: string[] = [];
-    stubFetch({ [NATIVE_URL]: nativeXml(['Gaza ceasefire talks resume in Cairo']) }, fetched);
-    await digest.fetchDigestFeed(aljazeera, 'finance', new AbortController().signal);
-    assert.deepEqual(fetched, [NATIVE_URL]);
+    stubFetch({}, fetched);
+    await digest.warmDepthFeeds([{ attemptId: 'middleeast:0', category: 'middleeast', feed: aljazeera }], 'finance', new AbortController().signal);
+    assert.deepEqual(fetched, []);
   });
 
-  it('still returns the native result when the depth fetch fails', async () => {
-    stubFetch({ [NATIVE_URL]: nativeXml(['Gaza ceasefire talks resume in Cairo']) });
-    const result = await digest.fetchDigestFeed(aljazeera, 'full', new AbortController().signal);
-    assert.deepEqual(result.items.map((item) => item.title), ['Gaza ceasefire talks resume in Cairo']);
+  it('settles when the build deadline aborts a stalled depth fetch, and never throws', async () => {
+    stubFetch({});
+    const stalled = globalThis.fetch;
+    globalThis.fetch = async (url, init) => String(url) === DEPTH_URL
+      ? new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+      : stalled(url, init);
+    const deadline = new AbortController();
+    let settled = false;
+    const warming = digest.warmDepthFeeds([{ attemptId: 'middleeast:0', category: 'middleeast', feed: aljazeera }], 'full', deadline.signal)
+      .then(() => { settled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(settled, false, 'still waiting on the stalled depth fetch');
+    deadline.abort();
+    await warming;
+    assert.equal(settled, true);
+  });
+
+  it('starts depth warming before the batches and awaits it only after them', () => {
+    const src = readFileSync(new URL('../server/worldmonitor/news/v1/list-feed-digest.ts', import.meta.url), 'utf8');
+    const start = src.indexOf('const depthWarming = warmDepthFeeds(allEntries, variant, deadlineController.signal);');
+    const batches = src.indexOf('const attempts = await runFeedAttemptBatches(');
+    const settle = src.indexOf('await depthWarming;');
+    assert.ok(start > 0 && start < batches && batches < settle, 'warm, then run batches, then settle');
+    const attempt = src.slice(batches, settle);
+    assert.match(attempt, /fetchAndParseRss\(feed, variant, deadlineController\.signal\)/);
+    assert.doesNotMatch(attempt, /depth/i, 'no batch attempt waits on a depth fetch');
   });
 
   it('lets /verify find a story that only the depth search carries, credited to Al Jazeera without the suffix', async () => {
@@ -143,6 +165,17 @@ describe('Al Jazeera claim-pool depth feed', () => {
     const copies = search.candidates.filter((item) => item.title === title);
     assert.equal(copies.length, 1);
     assert.match(copies[0]!.link, /^https:\/\/www\.aljazeera\.com\//);
+  });
+
+  it('keeps a story out when its native link is revoked, even through the Google News copy', async () => {
+    stubFetch({});
+    const title = 'Gaza ceasefire talks resume in Cairo with Qatari mediators';
+    const native = digest.parseRssXml(nativeXml([title, 'Unrelated story about Lebanon solar plant']), aljazeera, 'full')!;
+    revoked = ['https://www.aljazeera.com/news/2026/10/17/story-0'];
+    cache.set(rssFeedCacheKey('full', NATIVE_URL), native);
+    cache.set(rssFeedCacheKey('full', DEPTH_URL), digest.parseRssXml(depthXml([title]), { name: 'Al Jazeera', url: DEPTH_URL }, 'full'));
+    const search = await searchClaimPool(title);
+    assert.ok(!search.candidates.some((item) => item.title === title), 'the revoked story stays out');
   });
 
   it('searches a cached depth URL without counting it as a cached feed', async () => {

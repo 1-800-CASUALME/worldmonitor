@@ -121,12 +121,17 @@ async function readPool(): Promise<ClaimPool> {
     const before = items.length;
     const titles = new Set<string>();
     for (const value of rows ?? []) {
+      // Every native title, kept or not, so a revoked or stale native story
+      // cannot come back through its depth copy's different link.
+      const row = value as Record<string, unknown> | null;
+      if (feed.depthUrl && row && row.source === feed.name && typeof row.title === 'string') {
+        titles.add(row.title.replace(/\s+/g, ' ').trim().toLowerCase());
+      }
       const item = poolItem(value, feed.name, multiPublisher, now, cutoff, revoked.urls);
       if (!item) continue;
       const dedupe = item.link || `${item.source}|${item.title}`;
       if (seen.has(dedupe)) continue;
       seen.add(dedupe);
-      titles.add(item.title.toLowerCase());
       items.push(item);
     }
     for (const value of depthRows ?? []) {

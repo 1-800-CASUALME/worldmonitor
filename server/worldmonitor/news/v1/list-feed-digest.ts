@@ -3033,16 +3033,16 @@ async function writeStoryTracking(
 }
 
 /**
- * A digest feed's own result. In the full variant a feed's depthUrl is
- * fetched alongside it so its cache entry stays warm for claim search; its
- * items never reach the digest, and its failure never fails the feed.
+ * Fetches each full-variant feed's depthUrl so its cache entry stays warm for
+ * claim search. It runs beside the feed batches rather than in a batch slot,
+ * so a slow depth fetch never holds back a digest feed; the build's deadline
+ * signal bounds it, and a failure is ignored. Its items never reach the digest.
  */
-async function fetchDigestFeed(feed: ServerFeed, variant: string, signal: AbortSignal): Promise<ParseResult> {
-  const depth = variant === 'full' && feed.depthUrl
-    ? fetchAndParseRss({ name: feed.name, url: feed.depthUrl, ...(feed.lang ? { lang: feed.lang } : {}) }, variant, signal).catch(() => null)
-    : null;
-  const [result] = await Promise.all([fetchAndParseRss(feed, variant, signal), depth]);
-  return result;
+async function warmDepthFeeds(entries: DigestFeedEntry[], variant: string, signal: AbortSignal): Promise<void> {
+  if (variant !== 'full') return;
+  await Promise.allSettled(entries.flatMap(({ feed }) => feed.depthUrl
+    ? [fetchAndParseRss({ name: feed.name, url: feed.depthUrl, ...(feed.lang ? { lang: feed.lang } : {}) }, variant, signal)]
+    : []));
 }
 
 function buildDigestFeedBatches(variant: string, lang: string): {
@@ -3115,6 +3115,7 @@ async function buildDigest(
 
   try {
     const { allEntries, batches } = buildDigestFeedBatches(variant, lang);
+    const depthWarming = warmDepthFeeds(allEntries, variant, deadlineController.signal);
 
     const results = new Map<string, ParsedItem[]>();
     const buildStart = Date.now();
@@ -3124,7 +3125,7 @@ async function buildDigest(
       deadlineController.signal,
       async (entry) => {
         const { category, feed } = entry;
-        const result = await fetchDigestFeed(feed, variant, deadlineController.signal);
+        const result = await fetchAndParseRss(feed, variant, deadlineController.signal);
         const outcome = classifyFeedAttempt(true, result.attempt ?? {
           source: 'cache', failure: null, negativeCache: false,
         }, {
@@ -3157,6 +3158,8 @@ async function buildDigest(
         };
       },
     );
+
+    await depthWarming;
 
     for (const { value } of attempts.fulfilled) {
       const { category, items, droppedUndated, droppedFeedCap } = value;
@@ -3598,7 +3601,7 @@ export const __testing__ = {
   recoverFailedAttempt,
   shouldStartDigestAttempt,
   buildDigestFeedBatches,
-  fetchDigestFeed,
+  warmDepthFeeds,
   parseRssXml,
   isTrustedOriginAggregator,
   decodeXmlEntities,
