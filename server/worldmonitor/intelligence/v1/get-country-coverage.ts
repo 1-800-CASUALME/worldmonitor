@@ -32,6 +32,7 @@ import type { ThreatLevel as ProtoThreatLevel } from '../../../../src/generated/
 import type { ThreatLevel as SharedThreatLevel } from '../../../../shared/threat-keyword-classifier';
 
 import { TIER1_COUNTRIES } from '../../../../src/config/countries';
+import { isAssignedCountryCode } from '../../../../shared/country-code-resolve';
 import { countryDisplayName } from '../../../../shared/country-mention.js';
 import { getCountrySearchTerms } from '../../../../shared/country-headline-match';
 import {
@@ -233,15 +234,15 @@ export async function getCountryCoverage(
   req: GetCountryCoverageRequest,
   deps: CountryCoverageDependencies = defaultCountryCoverageDependencies,
 ): Promise<GetCountryCoverageResponse> {
-  // The gateway applies the proto's buf.validate rules, but this handler is
-  // also called directly (tests, batch). Re-assert the shape here so an
-  // unvalidated caller gets the same structured 400 rather than a key-space
-  // walk over 1.1M possible strings.
+  // The proto checks shape only, and this handler is also called directly
+  // (tests, batch). Check membership here so an unassigned code such as ZZ gets
+  // a structured 400 instead of a coverage fetch for a country that does not
+  // exist, answered as a quiet week.
   const code = req.countryCode?.trim().toUpperCase() ?? '';
-  if (!/^[A-Z]{2}$/.test(code)) {
+  if (!isAssignedCountryCode(code)) {
     throw new ValidationError([{
       field: 'country_code',
-      description: 'country_code must be an ISO 3166-1 alpha-2 code, e.g. "IQ".',
+      description: 'country_code must be an assigned ISO 3166-1 alpha-2 code, e.g. "IQ".',
     }]);
   }
   const requestedWindow = Number.isFinite(req.windowHours) ? req.windowHours : 0;
