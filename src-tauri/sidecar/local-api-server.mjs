@@ -1664,7 +1664,7 @@ async function dispatch(requestUrl, req, routes, context) {
         return json({ error: 'Request body too large' }, 413, { Connection: 'close' });
       }
       const parsed = JSON.parse(body);
-      const email = parsed.email;
+      const email = parsed?.email;
       if (typeof email !== 'string' || email.length > MAX_REGISTRATION_EMAIL_LENGTH
         || !/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email)) {
         return json({ error: 'Invalid email address' }, 400);

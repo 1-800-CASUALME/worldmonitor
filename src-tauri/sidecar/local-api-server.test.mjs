@@ -978,6 +978,12 @@ test('bounds self-hosted register-interest input before the Convex bridge', asyn
     else process.env.CONVEX_SERVER_SHARED_SECRET = originalSecret;
   });
 
+  await t.test('rejects a null registration payload', async () => {
+    const response = await postJsonViaHttp(`${base}/api/register-interest`, null);
+    assert.equal(response.status, 400);
+    assert.equal(bridgeCalls, 0);
+  });
+
   for (const [email, status] of [
     ['a'.repeat(242) + '@example.com', 200],
     ['first.last+tag@sub.example.com', 200],
