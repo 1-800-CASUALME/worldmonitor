@@ -363,9 +363,11 @@ function mountPlugin(): void {
     return view.category ? DEFAULT_PANELS[view.category]?.name ?? view.category : 'All news panels';
   }
 
-  function publishContext(receipt: object): void {
-    viewportObservation++;
-    observedViewportAuthority = map.getViewportAuthorityToken();
+  function publishContext(receipt: object, { preserveViewportObservation = false } = {}): void {
+    if (!preserveViewportObservation) {
+      viewportObservation++;
+      observedViewportAuthority = map.getViewportAuthorityToken();
+    }
     if (modelContext) void request('ui/update-model-context', { content: [{ type: 'text', text: JSON.stringify(receipt) }] }).catch(() => {});
   }
 
@@ -461,11 +463,11 @@ function mountPlugin(): void {
     });
     map.onCountryClicked(country => { if (country.code) void applyView({ country: country.code }).catch(() => { status.textContent = 'Country view could not be applied.'; }); });
     map.onStateChanged(() => {
-      const authority = map.getViewportAuthorityToken();
-      if (authority === observedViewportAuthority) return;
       const observation = ++viewportObservation;
-      queueMicrotask(() => {
+      setTimeout(() => {
         if (mapClosed || observation !== viewportObservation) return;
+        const authority = map.getViewportAuthorityToken();
+        if (authority === observedViewportAuthority) return;
         void (async () => {
           await map.whenViewportSettled();
           await viewQueue;
@@ -476,12 +478,12 @@ function mountPlugin(): void {
           const renderer = reconcileReadyRenderer();
           publishContext({ view, categoryLabel: visibleCategoryLabel(), latestInteraction, renderer, center: map.getCenter(), map: map.getState(), viewport: { settled: true } });
         })().catch(() => {});
-      });
+      }, 0);
     });
     map.onNewsClicked(item => {
       const article = item.article;
       if (!article || !visibleMarkers.some(marker => marker.title === item.title && marker.article?.link === article.link && marker.article.title === article.title && marker.article.source === article.source) || !recordNewsInteraction(article, item.title)) return;
-      publishContext({ view, categoryLabel: visibleCategoryLabel(), latestInteraction, center: map.getCenter(), map: map.getState() });
+      publishContext({ view, categoryLabel: visibleCategoryLabel(), latestInteraction, center: map.getCenter(), map: map.getState() }, { preserveViewportObservation: true });
     });
     map.onTimeRangeChanged(time_range => {
       if (applyingTimeRange) return;

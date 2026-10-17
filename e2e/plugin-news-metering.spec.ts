@@ -911,6 +911,344 @@ type RendererProbeWindow = Window & {
   __newsAuthority?: number;
 };
 
+type GlobeMovementProbe = {
+  controls: { autoRotate: boolean; enableDamping: boolean };
+  globe: { pointOfView(): { lat: number; lng: number; altitude: number } };
+  viewportTarget: { lat: number; lng: number; altitude: number } | null;
+  viewportAutoRotateBeforeMove: boolean | null;
+  whenViewportSettled(): Promise<boolean>;
+  setRenderPaused(paused: boolean): void;
+};
+type GlobeMovementWindow = RendererProbeWindow & {
+  __newsCamera: GlobeMovementProbe;
+  __movement?: Promise<boolean>;
+  __movements?: Promise<boolean>[];
+  __movementTarget?: { lat: number; lng: number; altitude: number };
+  __markerDelivered?: boolean;
+  __cameraWrites?: number;
+  __observedMovement?: Promise<boolean>;
+  __observedTarget?: { lat: number; lng: number; altitude: number } | null;
+  __observedSettlement?: Promise<{
+    completed: boolean;
+    target: { lat: number; lng: number; altitude: number } | null;
+    pov: { lat: number; lng: number; altitude: number };
+    zoom: number;
+    flags: { autoRotate: boolean; enableDamping: boolean };
+    savedRotation: boolean | null;
+  }>;
+};
+
+async function clickObservedGlobeControl(page: Page, selector: string): Promise<void> {
+  const button = page.frameLocator('iframe').locator(selector);
+  await button.evaluate(() => document.addEventListener('click', () => {
+    const probe = window as GlobeMovementWindow;
+    probe.__observedTarget = probe.__newsCamera.viewportTarget && { ...probe.__newsCamera.viewportTarget };
+    probe.__observedMovement = probe.__newsCamera.whenViewportSettled();
+    const target = probe.__observedTarget;
+    probe.__observedSettlement = probe.__observedMovement.then(completed => ({
+      completed, target, pov: probe.__newsCamera.globe.pointOfView(), zoom: probe.__newsMap.getState().zoom,
+      flags: { autoRotate: probe.__newsCamera.controls.autoRotate, enableDamping: probe.__newsCamera.controls.enableDamping },
+      savedRotation: probe.__newsCamera.viewportAutoRotateBeforeMove,
+    }));
+  }, { once: true }));
+  await button.click();
+}
+
+for (const flags of [
+  { autoRotate: false, enableDamping: false },
+  { autoRotate: true, enableDamping: false },
+  { autoRotate: false, enableDamping: true },
+]) {
+  test(`globe controls restore rotation ${flags.autoRotate} damping ${flags.enableDamping}`, async ({ page }, info) => {
+    await page.setViewportSize({ width: 1280, height: 1200 });
+    const host = await installNewsHost(page, false, true, false, true, true, { renderer: 'globe', map_layers: [] }, true);
+    const frame = page.frameLocator('iframe');
+    await expect(frame.locator('#panelsGrid')).toContainText('Controlled earthquake report in Japan');
+    expect((await newsAction(page, 'focus_news_article', { link: 'https://example.com/news' })).isError).not.toBe(true);
+    await frame.locator('body').evaluate((_element, preferences) => {
+      Object.assign((window as GlobeMovementWindow).__newsCamera.controls, preferences);
+    }, flags);
+    const outcomes = [];
+    for (const button of ['.zoom-in', '.zoom-reset']) {
+      await frame.locator(button).click();
+      const result = await frame.locator('body').evaluate(async () => {
+        const camera = (window as GlobeMovementWindow).__newsCamera;
+        const target = camera.viewportTarget && { ...camera.viewportTarget };
+        const completed = await camera.whenViewportSettled();
+        const restored = { autoRotate: camera.controls.autoRotate, enableDamping: camera.controls.enableDamping };
+        camera.setRenderPaused(true);
+        const paused = { autoRotate: camera.controls.autoRotate, enableDamping: camera.controls.enableDamping };
+        camera.setRenderPaused(false);
+        return { completed, target, pov: camera.globe.pointOfView(), restored, paused,
+          resumed: { autoRotate: camera.controls.autoRotate, enableDamping: camera.controls.enableDamping } };
+      });
+      outcomes.push({ button, result });
+      await writeFile(info.outputPath('preferences-before-assertion.json'), JSON.stringify({ flags, outcomes, contexts: host.contexts, calls: host.calls }, null, 2));
+      expect(result.completed).toBe(true);
+      expect(result.restored).toEqual(flags);
+      expect(result.paused).toEqual({ autoRotate: false, enableDamping: false });
+      expect(result.resumed).toEqual(flags);
+    }
+    expect(host.calls.map(call => call.name)).toEqual(['open_news_dashboard']);
+  });
+}
+
+for (const gesture of ['pointer', 'wheel'] as const) {
+test(`physical globe ${gesture} interruption fails the old Zoom and keeps later controls usable`, async ({ page }, info) => {
+  await page.setViewportSize({ width: 1280, height: 1200 });
+  const host = await installNewsHost(page, false, true, false, true, true, { renderer: 'globe', map_layers: [] }, true);
+  const frame = page.frameLocator('iframe');
+  await expect(frame.locator('#panelsGrid')).toContainText('Controlled earthquake report in Japan');
+  expect((await newsAction(page, 'focus_news_article', { link: 'https://example.com/news' })).isError).not.toBe(true);
+  await frame.locator('body').evaluate(() => {
+    const probe = window as GlobeMovementWindow;
+    const globe = probe.__newsCamera.globe as unknown as { pointOfView(...args: unknown[]): unknown };
+    const original = globe.pointOfView;
+    probe.__cameraWrites = 0;
+    globe.pointOfView = function (...args) {
+      if (args.length) probe.__cameraWrites!++;
+      return original.apply(this, args);
+    };
+  });
+  await frame.locator('.zoom-in').click();
+  await frame.locator('body').evaluate(() => {
+    const probe = window as GlobeMovementWindow;
+    if (!probe.__newsCamera.viewportTarget) throw new Error('Zoom must still be active before physical interruption');
+    probe.__movement = probe.__newsCamera.whenViewportSettled();
+  });
+  const bounds = await frame.locator('#mapContainer canvas').first().boundingBox();
+  await page.mouse.move(bounds!.x + 100, bounds!.y + 100);
+  if (gesture === 'pointer') {
+    await page.mouse.down();
+    await page.mouse.move(bounds!.x + 180, bounds!.y + 130, { steps: 8 });
+    await page.mouse.up();
+  } else await page.mouse.wheel(0, -100);
+  const interrupted = await frame.locator('body').evaluate(async () => {
+    const probe = window as GlobeMovementWindow;
+    return { completed: await probe.__movement, autoRotate: probe.__newsCamera.controls.autoRotate, enableDamping: probe.__newsCamera.controls.enableDamping, writes: probe.__cameraWrites };
+  });
+  await page.waitForTimeout(1400);
+  const laterWrites = await frame.locator('body').evaluate(() => (window as GlobeMovementWindow).__cameraWrites);
+  await writeFile(info.outputPath('interruption-before-assertion.json'), JSON.stringify({ interrupted, laterWrites, contexts: host.contexts, calls: host.calls }, null, 2));
+  expect(interrupted.completed).toBe(false);
+  expect(interrupted.autoRotate).toBe(gesture === 'wheel');
+  expect(interrupted.enableDamping).toBe(true);
+  expect(laterWrites).toBe(interrupted.writes);
+  for (const button of ['.zoom-in', '.zoom-reset']) {
+    await frame.locator(button).click();
+    expect(await frame.locator('body').evaluate(() => (window as GlobeMovementWindow).__newsCamera.whenViewportSettled())).toBe(true);
+  }
+  expect(host.calls.map(call => call.name)).toEqual(['open_news_dashboard']);
+});
+}
+
+for (const autoRotate of [false, true]) {
+test(`physical Zoom supersedes a longer globe move through both tween durations rotation ${autoRotate}`, async ({ page }, info) => {
+  await page.setViewportSize({ width: 1280, height: 1200 });
+  const host = await installNewsHost(page, false, true, false, true, true, { renderer: 'globe', map_layers: [] }, true);
+  const frame = page.frameLocator('iframe');
+  await expect(frame.locator('#panelsGrid')).toContainText('Controlled earthquake report in Japan');
+  expect((await newsAction(page, 'focus_news_article', { link: 'https://example.com/news' })).isError).not.toBe(true);
+  await frame.locator('body').evaluate((_element, rotate) => {
+    (window as GlobeMovementWindow).__newsCamera.controls.autoRotate = rotate;
+  }, autoRotate);
+  const pending = newsAction(page, 'apply_news_view', { map_latitude: -20, map_longitude: 50, map_zoom: 6 });
+  await expect.poll(() => frame.locator('body').evaluate(() => Boolean((window as GlobeMovementWindow).__newsCamera.viewportTarget))).toBe(true);
+  await frame.locator('body').evaluate(() => {
+    const probe = window as GlobeMovementWindow;
+    probe.__movement = probe.__newsCamera.whenViewportSettled();
+  });
+  await frame.locator('.zoom-in').click();
+  const superseded = await frame.locator('body').evaluate(async () => {
+    const probe = window as GlobeMovementWindow;
+    const camera = probe.__newsCamera;
+    const target = camera.viewportTarget && { ...camera.viewportTarget };
+    const newer = camera.whenViewportSettled();
+    const oldCompleted = await probe.__movement;
+    const newCompleted = await newer;
+    return { oldCompleted, newCompleted, target, pov: camera.globe.pointOfView(),
+      flags: { autoRotate: camera.controls.autoRotate, enableDamping: camera.controls.enableDamping } };
+  });
+  await pending;
+  // Both original (1200 ms) and Zoom (500 ms) animations must have finished.
+  await page.waitForTimeout(1400);
+  const final = await frame.locator('body').evaluate(() => {
+    const camera = (window as GlobeMovementWindow).__newsCamera;
+    return { pov: camera.globe.pointOfView(), flags: { autoRotate: camera.controls.autoRotate, enableDamping: camera.controls.enableDamping } };
+  });
+  await writeFile(info.outputPath('supersession-before-assertion.json'), JSON.stringify({ superseded, final, contexts: host.contexts, calls: host.calls }, null, 2));
+  expect(superseded.oldCompleted).toBe(false);
+  expect(superseded.newCompleted).toBe(true);
+  expect(superseded.target).not.toBeNull();
+  expect(Math.abs(superseded.pov.lat - superseded.target!.lat)).toBeLessThanOrEqual(0.0001);
+  expect(Math.abs((((superseded.pov.lng - superseded.target!.lng) + 540) % 360) - 180)).toBeLessThanOrEqual(0.0001);
+  expect(Math.abs(superseded.pov.altitude - superseded.target!.altitude)).toBeLessThanOrEqual(0.001);
+  expect(Math.abs(final.pov.lat - superseded.target!.lat)).toBeLessThanOrEqual(0.0001);
+  expect(Math.abs(final.pov.altitude - superseded.target!.altitude)).toBeLessThanOrEqual(0.001);
+  if (!autoRotate) expect(Math.abs((((final.pov.lng - superseded.target!.lng) + 540) % 360) - 180)).toBeLessThanOrEqual(0.0001);
+  else expect(final.pov.lng).not.toBe(superseded.pov.lng);
+  expect(final.flags).toEqual({ autoRotate, enableDamping: true });
+  expect(host.calls.map(call => call.name)).toEqual(['open_news_dashboard']);
+});
+}
+
+test('globe longitude wrap and rapid physical supersession retain the latest camera', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1280, height: 1200 });
+  const host = await installNewsHost(page, false, true, false, true, true, { renderer: 'globe', map_layers: [] }, true);
+  const frame = page.frameLocator('iframe');
+  await expect(frame.locator('#panelsGrid')).toContainText('Controlled earthquake report in Japan');
+  expect((await newsAction(page, 'focus_news_article', { link: 'https://example.com/news' })).isError).not.toBe(true);
+  await frame.locator('body').evaluate(() => { (window as GlobeMovementWindow).__newsCamera.controls.autoRotate = false; });
+  expect((await newsAction(page, 'apply_news_view', { map_latitude: 0, map_longitude: 179, map_zoom: 3 })).isError).not.toBe(true);
+  const crossing = newsAction(page, 'apply_news_view', { map_latitude: 0, map_longitude: -179 });
+  await expect.poll(() => frame.locator('body').evaluate(() => Boolean((window as GlobeMovementWindow).__newsCamera.viewportTarget))).toBe(true);
+  await page.waitForTimeout(250);
+  const duringWrap = await frame.locator('body').evaluate(() => (window as GlobeMovementWindow).__newsCamera.globe.pointOfView());
+  expect(Math.abs(duringWrap.lng)).toBeGreaterThan(178);
+  expect((await crossing).isError).not.toBe(true);
+  const wrapped = await frame.locator('body').evaluate(() => (window as GlobeMovementWindow).__newsCamera.globe.pointOfView());
+  expect(Math.abs((((wrapped.lng + 179) + 540) % 360) - 180)).toBeLessThanOrEqual(0.0001);
+  await frame.locator('body').evaluate(() => { (window as GlobeMovementWindow).__movements = []; });
+  for (const button of ['.zoom-in', '.zoom-out', '.zoom-in']) {
+    await frame.locator(button).click();
+    await frame.locator('body').evaluate(() => {
+      const probe = window as GlobeMovementWindow;
+      probe.__movements!.push(probe.__newsCamera.whenViewportSettled());
+      probe.__movementTarget = { ...probe.__newsCamera.viewportTarget! };
+    });
+  }
+  const results = await frame.locator('body').evaluate(async () => Promise.all((window as GlobeMovementWindow).__movements!));
+  await page.waitForTimeout(1400);
+  const final = await frame.locator('body').evaluate(() => {
+    const probe = window as GlobeMovementWindow;
+    return { target: probe.__movementTarget!, pov: probe.__newsCamera.globe.pointOfView(), zoom: probe.__newsMap.getState().zoom };
+  });
+  await writeFile(info.outputPath('wrap-rapid-before-assertion.json'), JSON.stringify({ duringWrap, wrapped, results, final, contexts: host.contexts, calls: host.calls }, null, 2));
+  expect(results).toEqual([false, false, true]);
+  expect(Math.abs(final.pov.lat - final.target.lat)).toBeLessThanOrEqual(0.0001);
+  expect(Math.abs((((final.pov.lng - final.target.lng) + 540) % 360) - 180)).toBeLessThanOrEqual(0.0001);
+  expect(Math.abs(final.pov.altitude - final.target.altitude)).toBeLessThanOrEqual(0.001);
+  await expect.poll(() => host.contexts.at(-1)?.map?.zoom).toBeCloseTo(final.zoom, 4);
+  expect(host.calls.map(call => call.name)).toEqual(['open_news_dashboard']);
+});
+
+test('an active globe movement pauses without camera writes and resumes with its preferences', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1280, height: 1200 });
+  const host = await installNewsHost(page, false, true, false, true, true, { renderer: 'globe', map_layers: [] }, true);
+  const frame = page.frameLocator('iframe');
+  await expect(frame.locator('#panelsGrid')).toContainText('Controlled earthquake report in Japan');
+  expect((await newsAction(page, 'focus_news_article', { link: 'https://example.com/news' })).isError).not.toBe(true);
+  await frame.locator('.zoom-in').click();
+  const paused = await frame.locator('body').evaluate(() => {
+    const probe = window as GlobeMovementWindow;
+    probe.__movement = probe.__newsCamera.whenViewportSettled();
+    probe.__movementTarget = { ...probe.__newsCamera.viewportTarget! };
+    probe.__newsCamera.setRenderPaused(true);
+    return probe.__newsCamera.globe.pointOfView();
+  });
+  await page.waitForTimeout(700);
+  const during = await frame.locator('body').evaluate(() => (window as GlobeMovementWindow).__newsCamera.globe.pointOfView());
+  const result = await frame.locator('body').evaluate(async () => {
+    const probe = window as GlobeMovementWindow;
+    probe.__newsCamera.setRenderPaused(false);
+    const completed = await probe.__movement;
+    return { completed, target: probe.__movementTarget!, pov: probe.__newsCamera.globe.pointOfView(), flags: { autoRotate: probe.__newsCamera.controls.autoRotate, enableDamping: probe.__newsCamera.controls.enableDamping } };
+  });
+  await writeFile(info.outputPath('active-pause-before-assertion.json'), JSON.stringify({ paused, during, result, contexts: host.contexts }, null, 2));
+  expect(during.lat).toBeCloseTo(paused.lat, 10);
+  expect(during.lng).toBeCloseTo(paused.lng, 10);
+  expect(during.altitude).toBeCloseTo(paused.altitude, 10);
+  expect(result.completed).toBe(true);
+  expect(Math.abs(result.pov.lat - result.target.lat)).toBeLessThanOrEqual(0.0001);
+  expect(Math.abs((((result.pov.lng - result.target.lng) + 540) % 360) - 180)).toBeLessThanOrEqual(0.0001);
+  expect(Math.abs(result.pov.altitude - result.target.altitude)).toBeLessThanOrEqual(0.001);
+  expect(result.flags).toEqual({ autoRotate: true, enableDamping: true });
+});
+
+test('renderer replacement cancels an active globe movement and its scheduled writes', async ({ page }, info) => {
+  await page.route(/^https:\/\/(tiles\.openfreemap\.org\/styles\/|basemaps\.cartocdn\.com\/gl\/)/, route => route.fulfill({
+    json: { version: 8, sources: {}, layers: [] }, headers: { 'Access-Control-Allow-Origin': '*' },
+  }));
+  const host = await installNewsHost(page, false, true, false, true, true, { renderer: 'globe', map_layers: [] }, true);
+  const frame = page.frameLocator('iframe');
+  await expect(frame.locator('#panelsGrid')).toContainText('Controlled earthquake report in Japan');
+  expect((await newsAction(page, 'focus_news_article', { link: 'https://example.com/news' })).isError).not.toBe(true);
+  await frame.locator('.zoom-in').click();
+  const result = await frame.locator('body').evaluate(async () => {
+    const probe = window as GlobeMovementWindow;
+    const pending = probe.__newsCamera.whenViewportSettled();
+    await probe.__newsMap.switchToFlat();
+    const camera = probe.__newsCamera as GlobeMovementProbe & { destroyed: boolean; viewportAnimationFrame: number | null };
+    return { completed: await pending, destroyed: camera.destroyed, frame: camera.viewportAnimationFrame };
+  });
+  const count = host.contexts.length;
+  await page.waitForTimeout(1400);
+  await writeFile(info.outputPath('replacement-before-assertion.json'), JSON.stringify({ result, count, contexts: host.contexts, calls: host.calls }, null, 2));
+  expect(result).toEqual({ completed: false, destroyed: true, frame: null });
+  expect(host.contexts.slice(count).every(context => (context as NewsContext & { renderer?: { mode?: string } }).renderer?.mode === 'flat')).toBe(true);
+  expect(host.calls.map(call => call.name)).toEqual(['open_news_dashboard']);
+});
+
+for (const initialZoom of [1.5, 4]) {
+  test(`globe wheel then Zoom settles at initial zoom ${initialZoom}`, async ({ page }, info) => {
+    await page.setViewportSize({ width: 1280, height: 1200 });
+    await page.route('**/textures/**', route => route.fulfill({
+      path: join(process.cwd(), 'public/textures', new URL(route.request().url()).pathname.split('/').at(-1)!),
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    }));
+    const host = await installNewsHost(page, false, true, false, true, true, { renderer: 'globe', map_layers: [] }, true);
+    const frame = page.frameLocator('iframe');
+    await expect(frame.locator('#panelsGrid')).toContainText('Controlled earthquake report in Japan');
+    expect((await newsAction(page, 'focus_news_article', { link: 'https://example.com/news' })).isError).not.toBe(true);
+    expect((await newsAction(page, 'apply_news_view', { map_zoom: initialZoom })).isError).not.toBe(true);
+    const article = { kind: 'news-article', link: 'https://example.com/news', title: 'Controlled earthquake report in Japan', source: 'Fixture publisher', displayLabel: 'Controlled earthquake report in Japan' };
+    const marker = frame.locator('#mapContainer [title="Controlled earthquake report in Japan"]');
+    await expect(marker).toBeAttached();
+    await marker.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await frame.locator('#mapContainer').evaluate(element => element.addEventListener('click', event => {
+      (window as GlobeMovementWindow).__markerDelivered = event.isTrusted && event.target instanceof Element
+        && event.target.closest('[title]')?.getAttribute('title') === 'Controlled earthquake report in Japan';
+    }, { once: true, capture: true }));
+    const beforeMarker = host.contexts.length;
+    await marker.click({ force: true });
+    await expect.poll(() => host.contexts.length).toBeGreaterThan(beforeMarker);
+    expect(await frame.locator('body').evaluate(() => (window as GlobeMovementWindow).__markerDelivered)).toBe(true);
+    expect(host.contexts.at(-1)?.latestInteraction).toEqual(article);
+    const before = await frame.locator('body').evaluate(() => {
+      const probe = window as GlobeMovementWindow;
+      return { zoom: probe.__newsMap.getState().zoom, flags: { autoRotate: probe.__newsCamera.controls.autoRotate, enableDamping: probe.__newsCamera.controls.enableDamping } };
+    });
+    expect(before.flags.autoRotate).toBe(true);
+    expect(before.flags.enableDamping).toBe(true);
+    const beforeWheel = host.contexts.length;
+    const bounds = await frame.locator('#mapContainer canvas').first().boundingBox();
+    expect(bounds).not.toBeNull();
+    await page.mouse.move(bounds!.x + bounds!.width * 0.7, bounds!.y + bounds!.height * 0.7);
+    await page.mouse.wheel(0, -400);
+    await expect.poll(() => host.contexts.length).toBeGreaterThan(beforeWheel);
+    const wheel = await frame.locator('body').evaluate(() => (window as GlobeMovementWindow).__newsMap.getState().zoom);
+    expect(wheel).toBeGreaterThan(before.zoom);
+    await expect.poll(() => host.contexts.at(-1)?.map?.zoom).toBeCloseTo(wheel, 4);
+    const beforeZoom = host.contexts.length;
+    await clickObservedGlobeControl(page, '.zoom-in');
+    const result = await frame.locator('body').evaluate(() => (window as GlobeMovementWindow).__observedSettlement!);
+    await writeFile(info.outputPath('wheel-zoom-before-assertion.json'), JSON.stringify({ initialZoom, before, wheel, beforeZoom, result, contexts: host.contexts, calls: host.calls }, null, 2));
+    expect(result.completed).toBe(true);
+    expect(result.target).not.toBeNull();
+    expect(Math.abs(result.pov.lat - result.target!.lat)).toBeLessThanOrEqual(0.0001);
+    expect(Math.abs((((result.pov.lng - result.target!.lng) + 540) % 360) - 180)).toBeLessThanOrEqual(0.0001);
+    expect(Math.abs(result.pov.altitude - result.target!.altitude)).toBeLessThanOrEqual(0.001);
+    expect(result.zoom).toBeGreaterThan(wheel);
+    expect(result.flags).toEqual({ autoRotate: true, enableDamping: true });
+    expect(result.savedRotation).toBeNull();
+    await expect.poll(() => host.contexts.length).toBeGreaterThan(beforeZoom);
+    await expect.poll(() => host.contexts.at(-1)?.map?.zoom).toBeCloseTo(result.zoom, 4);
+    expect(host.contexts.at(-1)?.latestInteraction).toEqual(article);
+    expect(host.calls.map(call => call.name)).toEqual(['open_news_dashboard']);
+    await writeFile(info.outputPath('wheel-zoom-final.json'), JSON.stringify({ initialZoom, result, beforeZoom, contexts: host.contexts, calls: host.calls }, null, 2));
+  });
+}
+
 for (const failure of ['human', 'nonhuman', 'button', 'readiness'] as const) {
   test(`renderer recovery reconciles ${failure} failure without applying pending filters`, async ({ page }, info) => {
     await page.route(/^https:\/\/(tiles\.openfreemap\.org\/styles\/|basemaps\.cartocdn\.com\/gl\/)/, route => route.fulfill({
@@ -1006,6 +1344,100 @@ for (const failure of ['human', 'nonhuman', 'button', 'readiness'] as const) {
   });
 }
 
+test('isolated globe wheel publishes the changed camera without another view command', async ({ page }, info) => {
+  const host = await installNewsHost(page, false, true, false, true, true, { renderer: 'globe', map_layers: [] }, true);
+  const frame = page.frameLocator('iframe');
+  await expect(frame.locator('#panelsGrid')).toContainText('Controlled earthquake report in Japan');
+  expect((await newsAction(page, 'focus_news_article', { link: 'https://example.com/news' })).isError).not.toBe(true);
+  expect((await newsAction(page, 'apply_news_view', {})).isError).not.toBe(true);
+  const selected = host.contexts.at(-1)?.latestInteraction;
+  const callsBefore = host.calls.length;
+  const contextsBefore = host.contexts.length;
+  const before = await frame.locator('body').evaluate(() => {
+    const map = (window as RendererProbeWindow).__newsMap;
+    return { zoom: map.getState().zoom, authority: map.getViewportAuthorityToken() };
+  });
+  const bounds = await frame.locator('#mapContainer canvas').first().boundingBox();
+  expect(bounds).not.toBeNull();
+  await page.mouse.move(bounds!.x + bounds!.width / 2, bounds!.y + bounds!.height / 2);
+  await page.mouse.wheel(0, -400);
+  await expect.poll(() => frame.locator('body').evaluate(() => (window as RendererProbeWindow).__newsMap.getState().zoom)).toBeGreaterThan(before.zoom);
+  const changed = await frame.locator('body').evaluate(async () => {
+    const map = (window as RendererProbeWindow).__newsMap;
+    await map.whenViewportSettled();
+    return { zoom: map.getState().zoom, authority: map.getViewportAuthorityToken() };
+  });
+  await writeFile(info.outputPath('isolated-wheel-before-assertion.json'), JSON.stringify({ before, changed, contextsBefore, contexts: host.contexts, calls: host.calls }, null, 2));
+  expect(changed.authority).toBeGreaterThan(before.authority);
+  await expect.poll(() => host.contexts.length, { timeout: 3000 }).toBeGreaterThan(contextsBefore);
+  await expect.poll(() => host.contexts.at(-1)?.map?.zoom).toBeCloseTo(changed.zoom, 4);
+  expect(host.contexts.at(-1)?.latestInteraction).toEqual(selected);
+  expect(host.calls).toHaveLength(callsBefore);
+});
+
+test('a news marker clicked during globe Zoom retains the settled camera context', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1280, height: 1200 });
+  await page.route('**/textures/**', route => route.fulfill({ body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1sAAAAASUVORK5CYII=', 'base64'), contentType: 'image/png', headers: { 'Access-Control-Allow-Origin': '*' } }));
+  const host = await installNewsHost(page, false, true, false, true, true, { renderer: 'globe', map_layers: [] }, true);
+  const frame = page.frameLocator('iframe');
+  await expect(frame.locator('#panelsGrid')).toContainText('Controlled earthquake report in Japan');
+  await frame.locator('#mapContainer canvas').first().click({ position: { x: 30, y: 30 } });
+  expect((await newsAction(page, 'focus_news_article', { link: 'https://example.com/news' })).isError).not.toBe(true);
+  const selected = host.contexts.at(-1)?.latestInteraction;
+  expect(selected).toEqual({ kind: 'news-article', link: 'https://example.com/news', title: 'Controlled earthquake report in Japan', source: 'Fixture publisher', displayLabel: 'Controlled earthquake report in Japan' });
+  const callsBefore = host.calls.length;
+  await expect(frame.locator('#mapContainer [title="Controlled earthquake report in Japan"]')).toBeAttached();
+  await frame.locator('#mapContainer').evaluate(container => {
+    const probe = window as GlobeMovementWindow & { __orbitStarts?: number };
+    probe.__orbitStarts = 0;
+    (probe.__newsCamera.controls as { autoRotate: boolean; enableDamping: boolean; addEventListener(type: string, callback: () => void): void }).addEventListener('start', () => { probe.__orbitStarts!++; });
+    const observeMarker = (event: Event) => {
+      const title = event.target instanceof Element ? event.target.closest('[title]')?.getAttribute('title') ?? null : null;
+      if (title !== 'Controlled earthquake report in Japan') return;
+      (probe as GlobeMovementWindow & { __newsMarkerClick?: object }).__newsMarkerClick = {
+        title: event.target instanceof Element ? event.target.closest('[title]')?.getAttribute('title') ?? null : null,
+        targetTitle: event.target instanceof Element ? event.target.closest('[title]')?.getAttribute('title') ?? null : null,
+        pending: Boolean(probe.__newsCamera.viewportTarget),
+        isTrusted: event.isTrusted,
+        zoom: probe.__newsMap.getState().zoom,
+        target: probe.__newsCamera.viewportTarget && { ...probe.__newsCamera.viewportTarget },
+        orbitStarts: probe.__orbitStarts,
+      };
+      container.removeEventListener('click', observeMarker, true);
+    };
+    container.addEventListener('click', observeMarker, { capture: true });
+  });
+  const contextsBeforeMarker = host.contexts.length;
+  const zoomBounds = await frame.locator('.zoom-in').boundingBox();
+  const markerBounds = await frame.locator('#mapContainer [title="Controlled earthquake report in Japan"]').boundingBox();
+  await page.mouse.click(zoomBounds!.x + zoomBounds!.width / 2, zoomBounds!.y + zoomBounds!.height / 2);
+  await page.mouse.click(markerBounds!.x + markerBounds!.width / 2, markerBounds!.y + markerBounds!.height / 2);
+  await expect.poll(() => host.contexts.length, { timeout: 1000 }).toBeGreaterThan(contextsBeforeMarker);
+  const clicked = await frame.locator('body').evaluate(() => {
+    const probe = window as unknown as { __newsMarkerClick?: { zoom: number; target: object; title: string | null; targetTitle: string | null; pending: boolean; isTrusted: boolean } };
+    return probe.__newsMarkerClick!;
+  });
+  const markerContext = host.contexts[contextsBeforeMarker];
+  const contextsAfterMarker = contextsBeforeMarker + 1;
+  const settled = await frame.locator('body').evaluate(async () => {
+    const map = (window as RendererProbeWindow).__newsMap;
+    let failure: string | undefined;
+    try { await map.whenViewportSettled(); } catch (error) { failure = String(error); }
+    return { center: map.getCenter(), map: map.getState(), failure };
+  });
+  await writeFile(info.outputPath('marker-during-zoom-before-assertion.json'), JSON.stringify({ clicked, markerContext, contextsBeforeMarker, contextsAfterMarker, settled, context: host.contexts.at(-1), contexts: host.contexts, calls: host.calls }, null, 2));
+  expect(clicked).toMatchObject({ title: 'Controlled earthquake report in Japan', targetTitle: 'Controlled earthquake report in Japan', pending: true, isTrusted: true, orbitStarts: 0 });
+  expect(markerContext?.latestInteraction).toEqual(selected);
+  expect(markerContext?.map?.zoom).toBeLessThan(5);
+  expect(settled.failure).toBeUndefined();
+  expect(settled.map.zoom).toBeGreaterThan(clicked.zoom);
+  await expect.poll(() => host.contexts.length, { timeout: 3000 }).toBeGreaterThan(contextsAfterMarker);
+  await expect.poll(() => host.contexts.at(-1)?.map?.zoom, { timeout: 3000 }).toBeCloseTo(settled.map.zoom, 4);
+  expect(host.contexts.at(-1)?.latestInteraction).toEqual(selected);
+  expect(host.calls).toHaveLength(callsBefore);
+  await writeFile(info.outputPath('marker-during-zoom-final.json'), JSON.stringify({ clicked, markerContext, contextsBeforeMarker, contextsAfterMarker, settled, contexts: host.contexts, calls: host.calls }, null, 2));
+});
+
 test('direct news Zoom and Reset publish the settled camera without another view command', async ({ page }, info) => {
   await page.route(/^https:\/\/(tiles\.openfreemap\.org\/styles\/|basemaps\.cartocdn\.com\/gl\/)/, route => route.fulfill({
     json: { version: 8, sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#111111' } }] },
@@ -1023,7 +1455,20 @@ test('direct news Zoom and Reset publish the settled camera without another view
   expect((await newsAction(page, 'focus_news_article', { link: 'https://example.com/news' })).isError).not.toBe(true);
   const latestInteraction = host.contexts.at(-1)?.latestInteraction;
   const before = host.calls.length;
+  const contextsBeforeZoom = host.contexts.length;
+  const zoomBefore = await frame.locator('body').evaluate(() => (window as RendererProbeWindow).__newsMap.getState().zoom);
   await frame.locator('.zoom-in').click();
+  await expect.poll(() => frame.locator('body').evaluate(() => (window as RendererProbeWindow).__newsMap.getState().zoom)).toBeGreaterThan(zoomBefore);
+  const zoomed = await frame.locator('body').evaluate(async () => {
+    const map = (window as RendererProbeWindow).__newsMap;
+    await map.whenViewportSettled();
+    return { center: map.getCenter(), map: map.getState() };
+  });
+  await expect.poll(() => host.contexts.length).toBeGreaterThan(contextsBeforeZoom);
+  expect(zoomed.map.zoom).toBeGreaterThan(zoomBefore);
+  await expect.poll(() => host.contexts.at(-1)?.map?.zoom).toBeCloseTo(zoomed.map.zoom, 4);
+  expect(host.contexts.at(-1)?.latestInteraction).toEqual(latestInteraction);
+  expect(host.calls).toHaveLength(before);
   await frame.locator('.zoom-reset').click();
   const settled = await frame.locator('body').evaluate(async () => {
     const map = (window as RendererProbeWindow).__newsMap;
