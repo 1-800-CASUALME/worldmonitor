@@ -16,6 +16,7 @@ const {
 const {
   buildTeamsAlertPayload,
   buildTeamsNoticePayload,
+  buildTeamsNoticePayloads,
   sendTeamsPayload,
 } = require('./lib/notification-teams.cjs');
 const { callLLM } = require('./lib/llm-chain.cjs');
@@ -463,9 +464,12 @@ async function drainHeldForUser(userId, variant, allowedChannelTypes) {
       if (ch.channelType === 'telegram' && ch.chatId) ok = await sendTelegram(userId, ch.chatId, text);
       else if (ch.channelType === 'slack' && ch.webhookEnvelope) ok = await sendSlack(userId, ch.webhookEnvelope, text);
       else if (ch.channelType === 'discord' && ch.webhookEnvelope) ok = await sendDiscord(userId, ch.webhookEnvelope, text);
-      else if (ch.channelType === 'teams' && ch.webhookEnvelope) ok = await sendTeams(userId, ch.webhookEnvelope, buildTeamsNoticePayload({
+      else if (ch.channelType === 'teams' && ch.webhookEnvelope) ok = await sendTeamsCards(userId, ch.webhookEnvelope, buildTeamsNoticePayloads({
         title: lines[0],
-        lines: events.map(ev => `[${String(ev.severity ?? 'high').toUpperCase()}] ${formatEventTitle(ev)}`),
+        lines: events.map((ev) => {
+          const coverage = formatEventCoverage(ev);
+          return `[${String(ev.severity ?? 'high').toUpperCase()}] ${formatEventTitle(ev)}${coverage ? ` · ${coverage}` : ''}`;
+        }),
         link: NOTIFY_DASHBOARD_URL,
         linkTitle: 'Open dashboard',
       }));
@@ -774,6 +778,18 @@ async function sendTeams(userId, webhookEnvelope, payload) {
   return true;
 }
 
+/**
+ * Post every card of a split notice in order. Delivered only when all of
+ * them are: a partly delivered quiet-hours batch keeps its held queue, so a
+ * retry may repeat earlier cards but never drops an alert.
+ */
+async function sendTeamsCards(userId, webhookEnvelope, payloads) {
+  for (const payload of payloads) {
+    if (!(await sendTeams(userId, webhookEnvelope, payload))) return false;
+  }
+  return payloads.length > 0;
+}
+
 /** Adaptive Card for a realtime event, shaped by the same field helpers as the text sinks. */
 function buildTeamsAlertForEvent(event, impact) {
   const rawCountry = event.payload?.countryCode ?? event.payload?.country ?? event.country;
@@ -782,6 +798,7 @@ function buildTeamsAlertForEvent(event, impact) {
     severity: event.severity ?? 'high',
     countryCode: typeof rawCountry === 'string' && rawCountry.trim() ? normalizeEventCountryCode(rawCountry) : null,
     source: formatEventSource(event),
+    coverage: corroborationText(eventCorroboration(event)),
     description: NOTIFY_RELAY_INCLUDE_SNIPPET ? truncateForDisplay(formatEventDescription(event), SNIPPET_TELEGRAM_MAX) : '',
     link: event.payload?.link ?? event.payload?.url,
     eventType: sanitizeNotificationTitle(event.eventType),
