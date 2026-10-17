@@ -23,12 +23,55 @@ import { getCountryNameByCode, preloadCountryGeometry, hasCountryGeometry, isCoo
 import { toCachedCII } from '@/services/cached-risk-scores';
 import { initI18n, t as translate } from '@/services/i18n';
 import { combineAbortSignals } from '@/services/timeout-signal';
-import { createHostCountryDownload, CountryDownloadRequestError, COUNTRY_EXPORT_REQUEST_BYTES } from '@/utils/country-text-download';
+import { createHostCountryDownload, hostSupportsCountryDownload, CountryDownloadRequestError, COUNTRY_EXPORT_REQUEST_BYTES } from '@/utils/country-text-download';
 import type { CountryIntelData } from '@/components/CountryBriefPanel';
 
 const CHINA_MODEL_CONTEXT_BYTES = 32768;
 const chinaContextTitles = ['Macro Signals', 'Policy & Enforcement', 'Cross-Strait Activity', 'Corporate Disclosures', 'Corridor Conditions', 'Activity Nowcast'];
 const contextBytes = (value: unknown): number => new TextEncoder().encode(JSON.stringify(value)).length;
+
+class CountryModelContextError extends Error {
+  constructor(public readonly kind: 'local-limit' | 'rpc' | 'timeout' | 'closed') { super(kind); }
+}
+
+type ContextTarget = { countryCode: string | null; topic: string | null; revision: number; viewOpen: boolean };
+type ContextStatus = { generation: number } & (
+  | { phase: 'idle' | 'superseded'; target: null }
+  | { phase: 'scheduled' | 'unsupported' | 'waiting' | 'host-acknowledged' | 'timeout'; target: ContextTarget }
+  | { phase: 'rejected'; target: ContextTarget; reason: 'host' | 'local-limit' }
+  | { phase: 'unconfirmed'; target: ContextTarget; reason: 'malformed-result' | 'closed' | 'other' }
+);
+const connectionRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
+const capabilityKind = (value: unknown) => value === undefined ? 'absent' : connectionRecord(value) ? 'record' : 'malformed';
+
+function connectionProjection(initialized: unknown, negotiation: 'pending' | 'received' | 'unconfirmed', contextEnabled: boolean) {
+  const value = connectionRecord(initialized) ? initialized : undefined;
+  const protocol = value?.protocolVersion;
+  const capabilities = connectionRecord(value?.hostCapabilities) ? value.hostCapabilities : undefined;
+  return {
+    negotiation,
+    protocol: { kind: !value && negotiation === 'received' ? 'malformed' : protocol === '2026-01-26' ? 'supported' : typeof protocol === 'string' && /^20\d{2}-\d{2}-\d{2}$/.test(protocol) ? 'other' : protocol === undefined ? 'missing' : 'malformed', value: typeof protocol === 'string' && /^20\d{2}-\d{2}-\d{2}$/.test(protocol) ? protocol : null },
+    hostCapabilities: negotiation !== 'received' ? 'not-established' : value ? capabilityKind(value.hostCapabilities) : 'malformed',
+    downloadFile: capabilities ? capabilityKind(capabilities.downloadFile) : 'not-established',
+    downloadAllowed: hostSupportsCountryDownload(initialized), contextEnabled,
+  };
+}
+
+function createConnectionDetails(status: HTMLElement) {
+  const root = document.createElement('details');
+  root.id = 'countryConnection';
+  const summary = document.createElement('summary');
+  summary.textContent = 'Connection details';
+  const protocol = document.createElement('p');
+  protocol.textContent = 'UI protocol negotiation pending.';
+  const download = document.createElement('p');
+  download.textContent = 'Download capability not established. File completion is not confirmed.';
+  const context = document.createElement('p');
+  context.textContent = 'No context update sent yet.';
+  root.append(summary, protocol, download, context);
+  status.after(root);
+  return { root, protocol, download, context };
+}
 
 function completeUnicode(value: string): boolean {
   for (let index = 0; index < value.length; index++) {
@@ -305,6 +348,11 @@ async function mountPlugin(): Promise<void> {
   const admissions = new Map<string, PanelAdmission>();
   let admission: PanelAdmission | undefined;
   const status = document.getElementById('countryStatus')!;
+  const connection = createConnectionDetails(status);
+  let negotiationState: 'pending' | 'received' | 'unconfirmed' = 'pending';
+  let contextGeneration = 0;
+  let contextClosed = false;
+  let contextStatus: ContextStatus = { phase: 'idle', target: null, generation: 0 };
   const form = document.getElementById('countryControls') as HTMLFormElement;
   const input = form.elements.namedItem('country') as HTMLInputElement;
   const pending = new Map<number, { method: string; resolve: (result: unknown) => void; reject: (error: unknown) => void; cleanup: () => void }>();
@@ -330,14 +378,14 @@ async function mountPlugin(): Promise<void> {
     const id = nextId++;
     if (method === 'ui/download-file' && new TextEncoder().encode(JSON.stringify({ jsonrpc: '2.0', id, method, params })).length > COUNTRY_EXPORT_REQUEST_BYTES) return Promise.reject(new CountryDownloadRequestError('size'));
     if (method === 'ui/update-model-context' && panel.isVisible() && panel.getCode() === 'CN'
-      && contextBytes({ jsonrpc: '2.0', id, method, params }) > CHINA_MODEL_CONTEXT_BYTES) return Promise.reject(new Error('China model context exceeds the local size limit.'));
+      && contextBytes({ jsonrpc: '2.0', id, method, params }) > CHINA_MODEL_CONTEXT_BYTES) return Promise.reject(new CountryModelContextError('local-limit'));
     return new Promise((resolve, reject) => {
       const finish = (error: unknown) => { pending.get(id)?.cleanup(); pending.delete(id); reject(error); };
       const abort = () => {
         send({ method: 'notifications/cancelled', params: { requestId: id, reason: 'Country view changed' } });
         finish(signal?.reason);
       };
-      const timeout = setTimeout(() => finish(method === 'ui/download-file' ? new CountryDownloadRequestError('timeout') : new Error('WorldMonitor host request timed out.')), 30_000);
+      const timeout = setTimeout(() => finish(method === 'ui/download-file' ? new CountryDownloadRequestError('timeout') : method === 'ui/update-model-context' ? new CountryModelContextError('timeout') : new Error('WorldMonitor host request timed out.')), 30_000);
       const cleanup = () => { clearTimeout(timeout); signal?.removeEventListener('abort', abort); };
       pending.set(id, { method, resolve, reject, cleanup });
       signal?.addEventListener('abort', abort, { once: true });
@@ -386,10 +434,71 @@ async function mountPlugin(): Promise<void> {
     return chinaVisible ? boundedChinaContext(withCommodity, modelContextRoot, nextId) : withCommodity;
   }
 
+  function contextTarget(value?: Record<string, unknown>): ContextTarget {
+    const currentDocument = panel.isVisible() && panel.getCode() === 'CN' ? modelContextRoot : document;
+    return {
+      countryCode: value ? typeof value.countryCode === 'string' ? value.countryCode : null : panel.getCode(),
+      topic: value ? typeof value.topic === 'string' ? value.topic : null : currentDocument?.querySelector<HTMLElement>('.cdp-shell')?.dataset.briefTopic ?? null,
+      revision: value && typeof value.revision === 'number' ? value.revision : revision,
+      viewOpen: panel.isVisible(),
+    };
+  }
+
+  function renderConnection(): void {
+    const projected = connectionProjection(initialization, negotiationState, modelContext);
+    const protocol = projected.negotiation === 'pending' ? 'UI protocol negotiation pending.' : projected.negotiation === 'unconfirmed' ? 'UI protocol negotiation unconfirmed.' : projected.protocol.value ? `UI protocol ${projected.protocol.value}.` : projected.protocol.kind === 'missing' ? 'UI protocol not supplied.' : 'UI protocol malformed.';
+    const capability = projected.downloadFile === 'record' ? 'advertised' : projected.downloadFile === 'absent' ? 'not advertised' : projected.downloadFile === 'malformed' ? 'malformed' : 'not established';
+    const download = `Host capabilities ${projected.hostCapabilities}. Download capability ${capability}. Download request ${projected.downloadAllowed ? 'allowed' : 'unavailable'} under the current guard. File completion is not confirmed.`;
+    const target = contextStatus.target;
+    const prefix = target ? `${target.viewOpen ? target.countryCode ?? 'Country not supplied' : 'Closed view'} / ${target.topic ?? 'topic not supplied'} / revision ${target.revision} / ` : '';
+    let outcome: string;
+    switch (contextStatus.phase) {
+      case 'idle': outcome = projected.negotiation === 'received' ? `Context updates ${projected.contextEnabled ? 'enabled' : 'unsupported'} under the current host gate. No context update sent yet.` : 'No context update sent yet.'; break;
+      case 'superseded': outcome = 'Previous context update superseded. Country view change is pending.'; break;
+      case 'scheduled': outcome = 'Update scheduled. No request sent yet.'; break;
+      case 'unsupported': outcome = 'Context updates unsupported by the negotiated host capability.'; break;
+      case 'waiting': outcome = 'Waiting for host.'; break;
+      case 'host-acknowledged': outcome = 'Host acknowledged the update request. Model use is not confirmed.'; break;
+      case 'rejected': outcome = contextStatus.reason === 'local-limit' ? 'Request blocked by the existing local size limit.' : 'Host rejected the update request.'; break;
+      case 'timeout': outcome = 'No host acknowledgement within 30 seconds.'; break;
+      case 'unconfirmed': outcome = 'Context update unconfirmed. Model use is not confirmed.'; break;
+    }
+    for (const [element, text] of [[connection.protocol, protocol], [connection.download, download], [connection.context, prefix + outcome]] as const) if (element.textContent !== text) element.textContent = text;
+  }
+
+  async function publishContext(generation: number): Promise<void> {
+    if (contextClosed) return;
+    const current = () => !contextClosed && generation === contextGeneration;
+    let target = contextStatus.target ?? { countryCode: null, topic: null, revision, viewOpen: false };
+    try {
+      const value = snapshot();
+      const text = JSON.stringify(value);
+      target = contextTarget(value);
+      if (current()) { contextStatus = { phase: 'waiting', target, generation }; renderConnection(); }
+      const result = await request('ui/update-model-context', { content: [{ type: 'text', text }] });
+      if (!current()) return;
+      contextStatus = connectionRecord(result) ? { phase: 'host-acknowledged', target, generation } : { phase: 'unconfirmed', target, generation, reason: 'malformed-result' };
+    } catch (error) {
+      if (!current()) return;
+      contextStatus = error instanceof CountryModelContextError
+        ? error.kind === 'timeout' ? { phase: 'timeout', target, generation }
+          : error.kind === 'rpc' || error.kind === 'local-limit' ? { phase: 'rejected', target, generation, reason: error.kind === 'rpc' ? 'host' : 'local-limit' }
+            : { phase: 'unconfirmed', target, generation, reason: 'closed' }
+        : { phase: 'unconfirmed', target, generation, reason: 'other' };
+    }
+    renderConnection();
+  }
+
   function scheduleContext(): void {
+    if (contextClosed) return;
     clearTimeout(contextTimer);
+    const generation = ++contextGeneration;
+    contextStatus = { phase: 'scheduled', target: contextTarget(), generation };
+    renderConnection();
     contextTimer = setTimeout(() => {
-      if (modelContext) void request('ui/update-model-context', { content: [{ type: 'text', text: JSON.stringify(snapshot()) }] }).catch(() => {});
+      if (contextClosed) return;
+      if (modelContext) void publishContext(generation);
+      else if (generation === contextGeneration && negotiationState === 'received') { contextStatus = { phase: 'unsupported', target: contextTarget(), generation }; renderConnection(); }
     }, 200);
   }
 
@@ -504,6 +613,8 @@ async function mountPlugin(): Promise<void> {
     const name = getCountryNameByCode(code) ?? new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
     const selectedInput = input.value;
     const openedRevision = ++revision;
+    contextStatus = { phase: 'superseded', target: null, generation: ++contextGeneration };
+    renderConnection();
     openRequest?.abort();
     openRequest = new AbortController();
     const admissionSignal = openRequest.signal;
@@ -635,6 +746,7 @@ async function mountPlugin(): Promise<void> {
       call.cleanup(); pending.delete(message.id);
       if (message.error) {
         if (call.method === 'ui/download-file') { call.reject(new CountryDownloadRequestError('rpc')); return; }
+        if (call.method === 'ui/update-model-context') { call.reject(new CountryModelContextError('rpc')); return; }
         const denied = [-32001, -32002].includes(message.error.code) || /subscription|billing|entitlement|scope|unauthoriz|forbidden/i.test(JSON.stringify(message.error));
         call.reject(new CountrySectionError(denied ? 'locked' : 'unavailable', denied ? 'This connection is not authorized for this section.' : String(message.error.message ?? 'The host rejected this request.')));
       }
@@ -710,8 +822,9 @@ async function mountPlugin(): Promise<void> {
   mutation.observe(document.getElementById('country-deep-dive-panel')!, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'open', 'data-brief-topic', 'data-section-state'] });
   panel.onClose(() => { signalSlots = undefined; signalCoverage = null; revision++; openRequest?.abort(); controller.dispose(); timeline?.destroy(); timeline = undefined; scheduleContext(); });
   window.addEventListener('pagehide', () => {
+    contextClosed = true; contextGeneration++;
     clearTimeout(contextTimer); mutation.disconnect(); panel.hide();
-    for (const call of pending.values()) { call.cleanup(); call.reject(call.method === 'ui/download-file' ? new CountryDownloadRequestError('closed') : new Error('Country view closed')); }
+    for (const call of pending.values()) { call.cleanup(); call.reject(call.method === 'ui/download-file' ? new CountryDownloadRequestError('closed') : call.method === 'ui/update-model-context' ? new CountryModelContextError('closed') : new Error('Country view closed')); }
     pending.clear(); source.clearLoadedData(); admissions.clear(); assessments.clear(); assessmentTimes.clear(); coverages.clear();
   });
 
@@ -720,9 +833,12 @@ async function mountPlugin(): Promise<void> {
     document.getElementById('deep-dive-close')!.setAttribute('aria-label', 'Close country brief');
     const initialized = await request('ui/initialize', { appInfo: { name: 'WorldMonitor country brief', version: '1.0.0' }, appCapabilities: { tools: {} }, protocolVersion: '2026-01-26' }) as { hostCapabilities?: { serverTools?: object; openLinks?: object; updateModelContext?: object }; hostContext?: { theme?: string } };
     initialization = initialized;
+    negotiationState = 'received';
+    renderConnection();
     toolsAvailable = Boolean(initialized.hostCapabilities?.serverTools);
     linksAvailable = Boolean(initialized.hostCapabilities?.openLinks);
     modelContext = Boolean(initialized.hostCapabilities?.updateModelContext);
+    renderConnection();
     ready = true;
     send({ method: 'ui/notifications/initialized' });
     const resize = new ResizeObserver(() => send({ method: 'ui/notifications/size-changed', params: { height: document.documentElement.scrollHeight } }));
@@ -732,7 +848,7 @@ async function mountPlugin(): Promise<void> {
     status.textContent = toolsAvailable ? 'Select a country to open its brief.' : 'This host cannot call the connected country tools.';
     if (queuedView) await open(queuedView.raw, false, queuedView.receipt, queuedView.fromHost);
   }
-  void start().catch(() => { status.textContent = 'The ChatGPT host connection is unavailable. Reload the country view.'; });
+  void start().catch(() => { if (negotiationState === 'pending') negotiationState = 'unconfirmed'; renderConnection(); status.textContent = 'The ChatGPT host connection is unavailable. Reload the country view.'; });
 
 }
 const mount = () => { void mountPlugin().catch(() => { document.getElementById('countryStatus')!.textContent = 'The country interface could not be loaded. Refresh to retry.'; }); };
