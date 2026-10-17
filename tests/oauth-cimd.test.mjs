@@ -350,6 +350,45 @@ describe('CIMD — consent page', () => {
     assert.match(html, /class="client-warn"/);
   });
 
+  it('a vendor outage at consent submit hands back a fresh session instead of ending the flow', async () => {
+    // VS Code serves its document no-store, so the submit always refetches it.
+    const vscode = 'https://vscode.dev/oauth/client-metadata.json';
+    const redirectUri = 'https://vscode.dev/redirect';
+    const post = (nonce, cookie, js) => authorizeHandler(new Request('https://api.worldmonitor.app/oauth/authorize', {
+      method: 'POST',
+      headers: { host: 'api.worldmonitor.app', origin: 'https://api.worldmonitor.app', 'Content-Type': 'application/x-www-form-urlencoded', cookie },
+      body: new URLSearchParams({ api_key: ENTERPRISE_KEY, _nonce: nonce, ...(js ? { _js: '1' } : {}) }).toString(),
+    }));
+
+    // The consent page script path: JSON with a replacement nonce.
+    const flow = await startFlow(vscode, redirectUri);
+    vendor.set(vscode, () => new Response('down', { status: 503 }));
+    const failed = await post(flow.nonce, flow.cookie, true);
+    assert.equal(failed.status, 503);
+    const body = await failed.json();
+    assert.equal(body.error, 'temporarily_unavailable');
+    assert.match(body.message, /could not be verified right now/);
+    assert.ok(body.nonce && body.nonce !== flow.nonce, 'a fresh nonce is issued');
+    vendor.set(vscode, LIVE_DOCS[vscode]);
+    const retried = await post(body.nonce, flow.cookie, true);
+    assert.equal(retried.status, 200, await retried.clone().text());
+    const location = new URL((await retried.json()).location);
+    assert.equal(`${location.origin}${location.pathname}`, redirectUri);
+    assert.ok(location.searchParams.get('code'));
+
+    // A plain form post re-renders the consent page with the replacement nonce.
+    store.clear();
+    const flow2 = await startFlow(vscode, redirectUri);
+    vendor.set(vscode, () => new Response('down', { status: 503 }));
+    const page = await post(flow2.nonce, flow2.cookie, false);
+    assert.equal(page.status, 503);
+    const html = await page.text();
+    assert.match(html, /could not be verified right now/);
+    const fresh = html.match(/name="_nonce" id="nn" value="([^"]+)"/)?.[1];
+    assert.ok(fresh && fresh !== flow2.nonce && store.has(`oauth:nonce:${fresh}`));
+    assert.match(html, /client ID from vscode\.dev/);
+  });
+
   it('does not warn for a hosted client', async () => {
     const flow = await startFlow('https://claude.ai/oauth/mcp-oauth-client-metadata', 'https://claude.ai/api/mcp/auth_callback');
     assert.doesNotMatch(flow.html, /class="client-warn"/);
@@ -419,6 +458,50 @@ describe('CIMD — Pro grant path', () => {
     assert.equal(`${location.origin}${location.pathname}`, REDIRECT);
     assert.equal(issuedFor.clientId, CHATGPT, 'the Convex grant records the client_id URL');
     assert.equal(JSON.parse(store.get('oauth:code:code_pro_1')).client_id, CHATGPT);
+  });
+
+  it('a vendor outage at authorize-pro leaves the grant link usable on retry', async () => {
+    process.env.MCP_PRO_GRANT_HMAC_SECRET = 'x'.repeat(48);
+    const flow = await startFlow(CHATGPT, REDIRECT);
+    const mintRes = await mintGrantHandler(new Request('https://worldmonitor.app/api/internal/mcp-grant-mint', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', cookie: flow.cookie }, body: JSON.stringify({ nonce: flow.nonce }),
+    }), {
+      resolveUserId: async () => 'user_pro',
+      redisGet,
+      redisSetEx: async (k, v) => { store.set(k, JSON.stringify(v)); return true; },
+      redisSetNxEx: async (k, v) => { if (store.has(k)) return false; store.set(k, JSON.stringify(v)); return true; },
+      getEntitlements: async () => PRO_ENT,
+      isAllowedRedirectUri,
+      signGrant: (p) => signGrant(p),
+      now: () => NOW,
+    });
+    assert.equal(mintRes.status, 200, await mintRes.clone().text());
+    const link = (await mintRes.json()).redirect;
+    const proDeps = {
+      redisGetDel: async (k) => { const v = store.get(k); store.delete(k); return parseStored(v); },
+      redisGet,
+      redisSetEx: async (k, v) => { store.set(k, JSON.stringify(v)); return true; },
+      verifyGrant: (token, secret) => verifyGrant(token, secret, NOW),
+      getEntitlements: async () => PRO_ENT,
+      issueProMcpTokenForUser: async () => ({ tokenId: 'tok_1' }),
+      revokeProMcpToken: async () => ({ ok: true }),
+      randomCode: () => 'code_pro_retry',
+      now: () => NOW,
+    };
+
+    // The cached document expires between the mint and the redirect.
+    store.delete(`oauth:cimd:${CHATGPT}`);
+    vendor.set(CHATGPT, () => new Response('down', { status: 503 }));
+    const failed = await authorizeProHandler(new Request(link), proDeps);
+    assert.equal(failed.status, 503);
+    assert.match(await failed.text(), /could not be verified right now/);
+    assert.ok(store.has(`mcp-grant:${flow.nonce}`), 'the grant is not consumed by a retryable failure');
+    assert.ok(store.has(`oauth:nonce:${flow.nonce}`), 'the nonce is not consumed by a retryable failure');
+
+    vendor.set(CHATGPT, LIVE_DOCS[CHATGPT]);
+    const retried = await authorizeProHandler(new Request(link), proDeps);
+    assert.equal(retried.status, 302, await retried.clone().text());
+    assert.equal(JSON.parse(store.get('oauth:code:code_pro_retry')).client_id, CHATGPT);
   });
 
   it('mint refuses a redirect the document no longer lists', async () => {
@@ -581,6 +664,31 @@ describe('CIMD — rejected documents and client_ids', () => {
     assert.deepEqual(await resolveOAuthClient(LINEAR, deps()), { ok: false, reason: 'document_not_found', transient: false });
     vendor.set(LINEAR, () => new Response('gone', { status: 410 }));
     assert.deepEqual(await resolveOAuthClient(LINEAR, deps()), { ok: false, reason: 'document_not_found', transient: false });
+  });
+
+  it('logs what the vendor sent when a document is unusable', async () => {
+    const warned = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => { warned.push(args); };
+    try {
+      vendor.set(LINEAR, () => new Response('<html>challenge</html>', {
+        status: 403, headers: { 'Content-Type': 'text/html', 'cf-mitigated': 'challenge', server: 'cloudflare' },
+      }));
+      await resolveOAuthClient(LINEAR, deps());
+      vendor.set(LINEAR, () => { throw new TypeError('fetch failed'); });
+      await resolveOAuthClient(LINEAR, deps());
+    } finally {
+      console.warn = originalWarn;
+    }
+    assert.equal(warned.length, 2);
+    assert.equal(warned[0][0], '[oauth/cimd] client document unusable');
+    assert.deepEqual(JSON.parse(warned[0][1]), {
+      client_id: LINEAR, reason: 'document_fetch_failed', transient: true,
+      status: 403, content_type: 'text/html', cf_mitigated: 'challenge', server: 'cloudflare',
+    });
+    assert.deepEqual(JSON.parse(warned[1][1]), {
+      client_id: LINEAR, reason: 'document_fetch_failed', transient: true, error: 'TypeError: fetch failed',
+    });
   });
 
   it('enforces a per-connector pinned callback on a cache hit too', async () => {

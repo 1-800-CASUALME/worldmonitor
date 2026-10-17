@@ -6,7 +6,7 @@ import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { checkBootstrapUserApiKeyRateLimit, validateBootstrapUserApiKey } from '../_user-api-key.js';
 import { redirectDisplayHost } from './_redirect-uri.js';
-import { clientAllowsRedirectUri, clientDisplayInfo, describeClientFailure, resolveOAuthClient } from './_client-metadata.js';
+import { clientAllowsRedirectUri, clientDisplayInfo, describeClientFailure, isClientMetadataDocumentId, resolveOAuthClient } from './_client-metadata.js';
 import { isHostedAppOrigin } from '../_cors.js';
 import {
   hashOAuthBindValue,
@@ -384,6 +384,14 @@ export default async function handler(req) {
 
     const resolved = await resolveClient(client_id);
     if (!resolved.ok) {
+      // The nonce is spent, so a vendor blip on a CIMD document gets a fresh
+      // one rather than sending the user back to their MCP client.
+      if (resolved.transient && isClientMetadataDocumentId(client_id)) {
+        const placeholder = { client_id, client_name: new URL(client_id).hostname, cimd: true };
+        return retryConsent(req, nonceData, placeholder, isXHR, {
+          error: 'temporarily_unavailable', message: describeClientFailure(resolved), status: 503,
+        });
+      }
       return resolved.transient
         ? htmlError('Service Unavailable', describeClientFailure(resolved))
         : htmlError('Unknown Client', resolved.reason === 'unknown_client' ? 'The client registration has expired. Please re-register.' : describeClientFailure(resolved));
