@@ -12,7 +12,7 @@
  * visible Settings link, so mail still goes out.
  */
 
-const SETTINGS_URL = 'https://www.worldmonitor.app/settings';
+const SETTINGS_URL = 'https://www.worldmonitor.app/dashboard?settings=notifications';
 const UNSUBSCRIBE_SLOT = '<!--wm-unsubscribe-slot-->';
 
 /** @param {unknown} channel @param {'brief' | 'alerts'} list */

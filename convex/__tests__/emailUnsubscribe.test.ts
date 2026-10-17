@@ -100,6 +100,8 @@ describe("/email/unsubscribe", () => {
     const html = await res.text();
     expect(html).toContain('method="post"');
     expect(html).toContain("daily brief");
+    expect(html).toContain('href="https://www.worldmonitor.app/dashboard?settings=notifications"');
+    expect(html).toContain('mailto:support@worldmonitor.app?subject=Unsubscribe%20from%20product%20emails');
     expect((await channelsByVariant(t)).full).toEqual(["email", "telegram"]);
   });
 
@@ -250,12 +252,14 @@ describe("winback", () => {
     expect(await t.query(internal.emailSuppressions.isEmailSuppressed, { email: EMAIL, purpose: "marketing" })).toBe(true);
   });
 
-  test("without the secret, winback still has a visible Settings opt-out and no header", () => {
+  test("without the secret, winback has an explicit support opt-out and no header", () => {
     const { html } = buildDunningEmail("winback_day30", "Pro (Monthly)", "https://www.worldmonitor.app/pro", undefined, undefined, null);
-    expect(html).toContain("https://www.worldmonitor.app/settings");
-    expect(html).toContain("Manage email preferences");
+    expect(html).toContain('href="mailto:support@worldmonitor.app?subject=Unsubscribe%20from%20product%20emails"');
+    expect(html).toContain("Email support to unsubscribe from product emails");
+    expect(html).not.toContain("https://www.worldmonitor.app/settings");
     const dunning = buildDunningEmail("dunning_day3", "Pro (Monthly)", "https://www.worldmonitor.app/dashboard");
-    expect(dunning.html).not.toContain("Manage email preferences");
+    expect(dunning.html).not.toContain("Unsubscribe%20from%20product%20emails");
+    expect(dunning.html).not.toContain("Unsubscribe from World Monitor product emails");
     expect(listUnsubscribeHeaders(null)).toBeUndefined();
   });
 

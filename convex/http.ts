@@ -792,7 +792,7 @@ function unsubscribePage(status: number, title: string, bodyHtml: string): Respo
 <p style="font-size:13px;font-weight:800;letter-spacing:1px;color:#4ade80;margin:0 0 16px;">WORLD MONITOR</p>
 <h1 style="font-size:20px;color:#fff;margin:0 0 12px;">${title}</h1>
 ${bodyHtml}
-<p style="font-size:12px;color:#777;margin:24px 0 0;">Change any notification at any time in <a href="https://www.worldmonitor.app/settings" style="color:#4ade80;">Settings</a>.</p>
+<p style="font-size:12px;color:#777;line-height:1.5;margin:24px 0 0;">Manage daily brief and alert emails in <a href="https://www.worldmonitor.app/dashboard?settings=notifications" style="color:#4ade80;">Notification settings</a>. For product emails, <a href="mailto:support@worldmonitor.app?subject=Unsubscribe%20from%20product%20emails" style="color:#4ade80;">email support to unsubscribe</a>.</p>
 </div></body></html>`;
   return new Response(html, {
     status,
@@ -811,7 +811,7 @@ function invalidUnsubscribeLink(): Response {
   return unsubscribePage(
     400,
     "This unsubscribe link is not valid",
-    `<p style="font-size:14px;color:#aaa;line-height:1.5;margin:0;">The link may be incomplete. Open the latest email again, or turn off email notifications in Settings.</p>`,
+    `<p style="font-size:14px;color:#aaa;line-height:1.5;margin:0;">The link may be incomplete. Open the latest email again, or use the options below.</p>`,
   );
 }
 

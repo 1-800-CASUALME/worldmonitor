@@ -50,6 +50,7 @@ describe('scripts/lib/email-unsubscribe.cjs', () => {
   });
 
   it('falls back to a visible Settings link and appends when no slot exists', () => {
+    assert.equal(SETTINGS_URL, 'https://www.worldmonitor.app/dashboard?settings=notifications');
     const out = injectUnsubscribeFooterHtml('<div>body</div>', null, 'Unsubscribe');
     assert.ok(out.startsWith('<div>body</div>'));
     assert.ok(out.includes(SETTINGS_URL));
@@ -69,13 +70,13 @@ describe('workers wire the unsubscribe URL into recurring mail', () => {
     assert.match(src, /sendEmail\(ch\.email, subject, text, html, ch\)/);
     assert.match(src, /unsubscribeUrlFor\(channel, 'brief'\)/);
     assert.ok(src.includes(UNSUBSCRIBE_SLOT), 'formatDigestHtml footer must keep the unsubscribe slot');
-    assert.match(src, /payload\.headers = headers/);
+    assert.match(src, /headers: listUnsubscribeHeaders\(unsubscribeUrl\)/);
   });
 
   it('relay alert emails (real-time and held batches) pass the alerts URL', () => {
     const src = readFileSync(join(root, 'scripts/notification-relay.cjs'), 'utf8');
     const calls = src.match(/sendEmail\(ch\.email, subject, (?:text|deliveryText), unsubscribeUrlFor\(ch, 'alerts'\)\)/g) ?? [];
     assert.equal(calls.length, 2);
-    assert.match(src, /payload\.headers = headers/);
+    assert.match(src, /payload\.headers = listUnsubscribeHeaders\(unsubscribeUrl\)/);
   });
 });

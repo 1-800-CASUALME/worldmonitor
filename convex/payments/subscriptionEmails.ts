@@ -753,11 +753,11 @@ export const recordDunningStepSent = internalMutation({
 function dunningEmailShell(headline: string, bodyHtml: string, ctaLabel: string, ctaHref: string, footerNote: string, unsubscribeUrl?: string | null): string {
   // `undefined`: payment-failure mail, no line. `null`: a marketing email whose
   // one-click URL could not be signed (EMAIL_UNSUBSCRIBE_SECRET unset); keep
-  // a visible opt-out path via Settings instead of dropping the line.
+  // a visible support opt-out instead of dropping the line.
   const unsubscribeLine = unsubscribeUrl
     ? `<a href="${escapeHtml(unsubscribeUrl)}" style="color: #666; text-decoration: underline;">Unsubscribe from World Monitor product emails</a><br />`
     : unsubscribeUrl === null
-    ? `<a href="https://www.worldmonitor.app/settings" style="color: #666; text-decoration: underline;">Manage email preferences</a><br />`
+    ? `<a href="mailto:support@worldmonitor.app?subject=Unsubscribe%20from%20product%20emails" style="color: #666; text-decoration: underline;">Email support to unsubscribe from product emails</a><br />`
     : "";
   return `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #e0e0e0;">
