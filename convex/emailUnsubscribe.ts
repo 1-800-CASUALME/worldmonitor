@@ -46,7 +46,9 @@ export const applyUnsubscribe = internalMutation({
       const subscriptions = await ctx.db
         .query("subscriptions")
         .withIndex("by_userId", (q) => q.eq("userId", args.userId))
-        .take(20);
+        // Uncapped: winback can address any of the user's subscriptions, so
+        // every checkout address must be covered (a user has a handful).
+        .collect();
       const checkoutEmails = subscriptions.map(
         (sub) => (sub.rawPayload as { customer?: { email?: unknown } } | null)?.customer?.email,
       );

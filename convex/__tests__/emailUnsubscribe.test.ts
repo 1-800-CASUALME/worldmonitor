@@ -14,7 +14,7 @@ import {
   signUnsubscribeToken,
   verifyUnsubscribeToken,
 } from "../lib/emailUnsubscribe";
-import { WINBACK_MIN_AGE_MS } from "../payments/subscriptionEmails";
+import { WINBACK_MIN_AGE_MS, buildDunningEmail } from "../payments/subscriptionEmails";
 
 const modules = import.meta.glob("../**/*.ts");
 const SECRET = "test-email-unsubscribe-secret-0123456789";
@@ -248,6 +248,36 @@ describe("winback", () => {
     // Following the link stops the next winback-class (marketing) send.
     await t.mutation(internal.emailUnsubscribe.applyUnsubscribe, { userId: USER, list: "marketing" });
     expect(await t.query(internal.emailSuppressions.isEmailSuppressed, { email: EMAIL, purpose: "marketing" })).toBe(true);
+  });
+
+  test("without the secret, winback still has a visible Settings opt-out and no header", () => {
+    const { html } = buildDunningEmail("winback_day30", "Pro (Monthly)", "https://www.worldmonitor.app/pro", undefined, undefined, null);
+    expect(html).toContain("https://www.worldmonitor.app/settings");
+    expect(html).toContain("Manage email preferences");
+    const dunning = buildDunningEmail("dunning_day3", "Pro (Monthly)", "https://www.worldmonitor.app/dashboard");
+    expect(dunning.html).not.toContain("Manage email preferences");
+    expect(listUnsubscribeHeaders(null)).toBeUndefined();
+  });
+
+  test("marketing unsubscribe covers every subscription checkout address", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 25; i++) {
+        await ctx.db.insert("subscriptions", {
+          userId: USER,
+          dodoSubscriptionId: `sub_many_${i}`,
+          dodoProductId: "pdt_test",
+          planKey: "pro_monthly",
+          status: "cancelled",
+          currentPeriodStart: 1,
+          currentPeriodEnd: 2,
+          rawPayload: { customer: { email: `checkout${i}@example.com` } },
+          updatedAt: 1,
+        });
+      }
+    });
+    await t.mutation(internal.emailUnsubscribe.applyUnsubscribe, { userId: USER, list: "marketing" });
+    expect(await t.query(internal.emailSuppressions.isEmailSuppressed, { email: "checkout24@example.com", purpose: "marketing" })).toBe(true);
   });
 
   test("payment-failure dunning stays on noreply@ without unsubscribe headers", async () => {
