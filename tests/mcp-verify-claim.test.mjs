@@ -5,6 +5,24 @@ import assert from 'node:assert/strict';
 
 import { HMAC_SECRET, callBody, makeProDeps, proReq } from './helpers/mcp-pro-deps.mjs';
 import { documentedOutputSchema } from './helpers/mcp-output-schema.mjs';
+import { __testing__ as claimPool } from '../server/worldmonitor/news/v1/search-claim-headlines.ts';
+import { rssFeedCacheKey } from '../server/worldmonitor/news/v1/_rss-cache.ts';
+
+// Parsed RSS caches by feed URL, as the digest writes them. Empty: the pool is unavailable.
+let feedCaches;
+const BBC_WORLD = 'https://feeds.bbci.co.uk/news/world/rss.xml';
+const GUARDIAN_WORLD = 'https://www.theguardian.com/world/rss';
+const AL_JAZEERA = 'https://www.aljazeera.com/xml/rss/all.xml';
+
+function upstash(url, init) {
+  if (feedCaches.size === 0 || new URL(url).pathname !== '/pipeline') return Response.json([{ result: null }]);
+  const batch = JSON.parse(String(init?.body));
+  return Response.json(batch.map(([command, key]) => {
+    if (command === 'SMEMBERS') return { result: [] };
+    const url = [...feedCaches.keys()].find((feedUrl) => String(key).endsWith(rssFeedCacheKey('full', feedUrl)));
+    return { result: url ? JSON.stringify(feedCaches.get(url)) : null };
+  }));
+}
 
 const originalFetch = globalThis.fetch;
 const originalEnv = { ...process.env };
@@ -59,12 +77,14 @@ describe('verify_claim MCP tool', () => {
     process.env.UPSTASH_REDIS_REST_TOKEN = 'fake-token';
     requests = [];
     digest = liveDigest;
+    feedCaches = new Map();
+    claimPool.resetPool();
     process.env.GOOGLE_FACT_CHECK_API_KEY = 'test-key';
     factChecks = () => Response.json(GOOGLE_ANSWER);
-    globalThis.fetch = async (input) => {
+    globalThis.fetch = async (input, init) => {
       const url = String(input);
       requests.push(url);
-      if (new URL(url).hostname === 'fake-upstash.test') return Response.json([{ result: null }]);
+      if (new URL(url).hostname === 'fake-upstash.test') return upstash(url, init);
       if (url.includes('/api/news/v1/list-feed-digest')) return Response.json(digest);
       if (new URL(url).hostname === 'factchecktools.googleapis.com') return factChecks();
       throw new Error(`unexpected fetch: ${url}`);
@@ -137,6 +157,46 @@ describe('verify_claim MCP tool', () => {
     assert.equal(result.found, false);
     assert.equal(result.state, 'unknown');
     assert.equal(result.digestCoverage?.state, 'unavailable');
+  });
+
+  describe('full searches every fresh headline in the feed caches', () => {
+    const hourAgo = () => Date.now() - 3_600_000;
+    beforeEach(() => {
+      // Each feed's first five entries are `items`; later ones are `countryItems`,
+      // which the served digest never carries.
+      feedCaches.set(BBC_WORLD, {
+        items: [{ source: 'BBC World', title: 'Storm hits Manila', link: 'https://www.bbc.co.uk/news/1', publishedAt: hourAgo() }],
+        countryItems: [{ source: 'BBC World', title: 'Trump strikes diesel deal with Putin', link: 'https://www.bbc.co.uk/news/2', publishedAt: hourAgo() }],
+      });
+      feedCaches.set(GUARDIAN_WORLD, {
+        items: [],
+        countryItems: [{ source: 'Guardian World', title: 'Trump and Putin strike diesel deal', link: 'https://www.theguardian.com/world/3', publishedAt: hourAgo() }],
+      });
+      feedCaches.set(AL_JAZEERA, {
+        items: [{ source: 'Al Jazeera', title: 'Floods close schools across Kerala', link: 'https://www.aljazeera.com/4', publishedAt: hourAgo() }],
+      });
+    });
+
+    it('finds headlines past the digest cap, in-process, without reading the digest', async () => {
+      const result = await callTool({ claim: 'Trump strikes diesel deal with Putin' });
+      assert.equal(result.state, 'corroborated');
+      assert.deepEqual(result.publishers.map((p) => p.name).sort(), ['BBC', 'The Guardian'].sort());
+      assert.equal(result.variant, 'full');
+      assert.ok(Number.isFinite(Date.parse(result.generatedAt)));
+      assert.equal(requests.filter((url) => url.includes('/api/news/v1/')).length, 0, 'no gateway request: no digest read, no second billed unit');
+    });
+
+    it('a searched pool with no match is not-found, not unknown', async () => {
+      const result = await callTool({ claim: 'Mars colony declares independence from Earth' });
+      assert.equal(result.found, false);
+      assert.equal(result.state, 'not-found');
+      assert.equal(requests.filter((url) => url.includes('list-feed-digest')).length, 0);
+    });
+
+    it('the tech variant still searches its own digest', async () => {
+      await callTool({ claim: 'Trump strikes diesel deal with Putin', variant: 'tech' });
+      assert.ok(requests.some((url) => url.includes('list-feed-digest?variant=tech')));
+    });
   });
 
   it('rejects an empty claim without fetching', async () => {

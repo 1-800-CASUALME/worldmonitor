@@ -8,6 +8,7 @@ import { listLabelChanges } from './list-label-changes';
 import { listErrorReports, reviewErrorReport, submitErrorReport } from './error-reports';
 import { searchFactChecks } from './search-fact-checks';
 import { checkMediaProvenance, checkReportMedia, getMediaProvenance, getReportMedia } from './media-provenance';
+import { searchClaimHeadlines } from './search-claim-headlines';
 
 export const newsHandler: NewsServiceHandler = {
   summarizeArticle,
@@ -23,4 +24,5 @@ export const newsHandler: NewsServiceHandler = {
   getMediaProvenance,
   checkReportMedia,
   getReportMedia,
+  searchClaimHeadlines,
 };

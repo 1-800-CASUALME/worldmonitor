@@ -8,6 +8,7 @@ import { createDomainGateway, serverOptions } from '../server/gateway.ts';
 import { __resetRateLimitForTest, checkEndpointRateLimit } from '../server/_shared/rate-limit.ts';
 import { installRedis } from './helpers/fake-upstash-redis.mts';
 import { readLimiterRequest } from './helpers/upstash-limiter-wire.mjs';
+import { decodeTfs, loadGoogleFlightsRelay, pageFixture, relayTransport, resultsPage } from './helpers/google-flights-page.mts';
 import { issueSessionToken } from '../api/_session.js';
 const originalFetch = globalThis.fetch;
 const originalEnv = { ...process.env };
@@ -279,44 +280,50 @@ test('unsigned trusted-marker spoof cannot create a verified MCP admission', asy
   assert.equal(feeds().length, 0);
 });
 
-test('real relay shopping handler uses the fixed upstream once and preserves round-trip filters', async () => {
-  const { readFileSync } = await import('node:fs');
-  const { runInNewContext } = await import('node:vm');
-  const source = readFileSync(new URL('../scripts/ais-relay.cjs', import.meta.url), 'utf8');
-  const helpers = source.slice(source.indexOf('const GF_SHOPPING_URL ='), source.indexOf('function buildDateFilters('));
-  const handler = source.slice(source.indexOf('async function handleGoogleFlightsSearch('), source.indexOf('async function handleGoogleFlightsDates('));
-  const upstream: { url: string; init: RequestInit }[] = [];
-  const flights = [{ legs: [], price: 123, durationMinutes: 60, stops: 0 }];
-  const relay = runInNewContext(helpers + handler + '\nhandleGoogleFlightsSearch', {
-    URL, Date, AbortSignal, process: { env: {} }, console,
-    incrementRelayMetric() {}, recordRelayOutcome() {}, parseGfFlights: () => flights,
-    fetch: async (url: string, init: RequestInit) => { upstream.push({ url, init }); return new Response('synthetic shopping result'); },
-  }) as (req: { url: string }, res: { writeHead(status: number, headers: Record<string, string>): void; end(body: string): void }) => Promise<void>;
-  const transport = globalThis.fetch;
-  globalThis.fetch = (async (input, init) => {
-    const url = new URL(String(input));
-    if (url.hostname !== 'relay.example') return transport(input, init);
-    let status = 0; let headers: Record<string, string> = {}; let body = '';
-    await relay({ url: url.pathname + url.search }, { writeHead(code, value) { status = code; headers = value; }, end(value) { body = value; } });
-    return new Response(body, { status, headers });
-  }) as typeof fetch;
-  const query = { departureDate: '2028-02-29', returnDate: '2028-02-29', cabinClass: 'business', maxStops: '1', sortBy: 'departure', departureWindow: '0-24', passengers: 3, airlines: ['BA', 'U2'] };
-  assert.deepEqual(await read(query), { flights, degraded: false, error: '' });
-  assert.deepEqual(await read(query), { flights, degraded: false, error: '' });
-  assert.equal(upstream.length, 1);
-  assert.equal(upstream[0]!.url, 'https://www.google.com/_/FlightsFrontendUi/data/travel.frontend.flights.FlightsFrontendService/GetShoppingResults');
-  assert.equal(upstream[0]!.init.method, 'POST');
-  const filters = JSON.parse(JSON.parse(new URLSearchParams(String(upstream[0]!.init.body)).get('f.req')!)[1]);
-  assert.equal(filters[1][2], 1);
-  assert.equal(filters[1][5], 3);
-  assert.deepEqual(filters[1][6], [3, 0, 0, 0]);
-  assert.equal(filters[2], 3);
-  const segments = filters[1][13];
-  assert.equal(segments.length, 2);
-  assert.deepEqual(segments.map((segment: unknown[]) => [segment[0], segment[1], segment[2], segment[3], segment[4], segment[6]]), [
-    [[[["DXB", 0]]], [[["LHR", 0]]], [0, 24, null, null], 2, ['BA', 'U2'], '2028-02-29'],
-    [[[["LHR", 0]]], [[["DXB", 0]]], [0, 24, null, null], 2, ['BA', 'U2'], '2028-02-29'],
-  ]);
+test('real relay search reads one results page with every filter in tfs, then applies the window and sort', async () => {
+  const pages: URL[] = [];
+  const relay = loadGoogleFlightsRelay((async (input) => {
+    pages.push(new URL(String(input)));
+    return new Response(resultsPage([
+      { price: 500, departure: [7, 0], date: '2028-02-29' },
+      { price: 300, departure: [19, 0], date: '2028-02-29' },
+      { price: 200, departure: [21, 0], date: '2028-02-29', stops: 1 },
+    ]));
+  }) as typeof fetch);
+  globalThis.fetch = relayTransport(relay.search, globalThis.fetch);
+  const query = { departureDate: '2028-02-29', returnDate: '2028-03-07', cabinClass: 'business', maxStops: '1', sortBy: 'price', departureWindow: '18-24', passengers: 3, airlines: ['U2', 'BA'] };
+  const first = await read(query);
+  assert.deepEqual(first.flights.map(f => [f.price, f.legs[0]!.departureDatetime]), [[200, '2028-02-29T21:00'], [300, '2028-02-29T19:00']]);
+  assert.deepEqual(await read(query), first);
+  assert.equal(pages.length, 1);
+  assert.equal(pages[0]!.origin + pages[0]!.pathname, 'https://www.google.com/travel/flights/search');
+  assert.deepEqual(decodeTfs(pages[0]!), {
+    legs: [
+      { date: '2028-02-29', maxStops: 1, airlines: ['BA', 'U2'], from: 'DXB', to: 'LHR' },
+      { date: '2028-03-07', maxStops: 1, airlines: ['BA', 'U2'], from: 'LHR', to: 'DXB' },
+    ],
+    adults: 3,
+    seat: 3,
+    trip: 1,
+  });
+});
+
+test('the captured JFK-LHR results page parses to its live itineraries', async () => {
+  globalThis.fetch = relayTransport(loadGoogleFlightsRelay((async () => new Response(pageFixture('jfk-lhr-2026-11-15.html'))) as typeof fetch).search, globalThis.fetch);
+  const { flights, degraded } = await read({ origin: 'JFK', departureDate: '2026-11-15', maxStops: 'ANY' });
+  assert.equal(degraded, false);
+  assert.equal(flights.length, 23);
+  assert.deepEqual(flights[0], {
+    legs: [{ airlineCode: 'VS', flightNumber: '26', departureAirport: 'JFK', arrivalAirport: 'LHR', departureDatetime: '2026-11-15T08:00', arrivalDatetime: '2026-11-15T20:10', durationMinutes: 430 }],
+    price: 295, durationMinutes: 430, stops: 0,
+  });
+  assert.equal(Math.min(...flights.map(f => f.price)), 293);
+  assert.ok(flights.some(f => f.stops === 1 && f.legs.length === 2));
+});
+
+test('a route with no service is an empty search, not a failure', async () => {
+  globalThis.fetch = relayTransport(loadGoogleFlightsRelay((async () => new Response(pageFixture('bti-lhr-no-service.html'))) as typeof fetch).search, globalThis.fetch);
+  assert.deepEqual(await read({ origin: 'BTI', departureDate: '2026-11-15' }), { flights: [], degraded: false, error: '' });
 });
 test('upstream failure remains degraded and is not cached as a successful search', async () => {
   const transport = globalThis.fetch;
@@ -357,32 +364,20 @@ test('provider cooldown remains degraded and is never stored as a healthy empty 
   assert.equal([...redis.redis.keys()].filter(key => key.startsWith('aviation:gf:')).length, 0);
 });
 
-test('a Google RPC rejection reaches the caller as a degraded search, not an empty flight list', async () => {
-  const { readFileSync } = await import('node:fs');
-  const { runInNewContext } = await import('node:vm');
-  const source = readFileSync(new URL('../scripts/ais-relay.cjs', import.meta.url), 'utf8');
-  const relaySource = source.slice(source.indexOf('const GF_SHOPPING_URL ='), source.indexOf('// ─── Widget Agent'));
-  const outcomes: string[] = [];
-  // Captured from GetShoppingResults on 2026-10-16: HTTP 200, no payload, RPC status 13.
-  const rejection = ')]}\'\n\n[["wrb.fr",null,null,null,null,[13]],["di",142],["af.httprm",142,"7097742796501415412",112]]';
-  const relay = runInNewContext(relaySource + '\nhandleGoogleFlightsSearch', {
-    URL, Date, AbortSignal, process: { env: {} }, console: { warn() {}, error() {} },
-    incrementRelayMetric() {}, recordRelayOutcome(_route: string, outcome: string) { outcomes.push(outcome); },
-    fetch: async () => new Response(rejection),
-  }) as (req: { url: string }, res: { writeHead(status: number, headers: Record<string, string>): void; end(body: string): void }) => Promise<void>;
-  const transport = globalThis.fetch;
-  globalThis.fetch = (async (input, init) => {
-    const url = new URL(String(input));
-    if (url.hostname !== 'relay.example') return transport(input, init);
-    let status = 0; let headers: Record<string, string> = {}; let body = '';
-    await relay({ url: url.pathname + url.search }, { writeHead(code, value) { status = code; headers = value; }, end(value) { body = value; } });
-    return new Response(body, { status, headers });
-  }) as typeof fetch;
-
-  const result = await read({ origin: 'JFK', departureDate: '2026-11-15' });
-  assert.equal(result.degraded, true);
-  assert.deepEqual(result.flights, []);
-  assert.match(result.error, /^relay returned 502: Google Flights returned RPC error 13/);
-  assert.deepEqual(outcomes, ['terminalFailure']);
-  assert.equal([...redis.redis.keys()].filter(key => key.startsWith('aviation:gf:')).length, 0);
+test('a page without results or a Google error page reaches the caller as a degraded search', async () => {
+  for (const [page, reason] of [
+    ['<html><body>Our systems have detected unusual traffic</body></html>', 'Google Flights returned a page without flight results'],
+    [pageFixture('jfk-lhr-past-date.html'), 'Google Flights rejected the search'],
+  ] as const) {
+    const outcomes: string[] = [];
+    const transport = globalThis.fetch;
+    globalThis.fetch = relayTransport(loadGoogleFlightsRelay((async () => new Response(page)) as typeof fetch, outcomes).search, transport);
+    const result = await read({ origin: 'JFK', departureDate: '2026-11-15' });
+    globalThis.fetch = transport;
+    assert.equal(result.degraded, true);
+    assert.deepEqual(result.flights, []);
+    assert.ok(result.error.startsWith(`relay returned 502: ${reason}`), result.error);
+    assert.deepEqual(outcomes, ['terminalFailure']);
+    assert.equal([...redis.redis.keys()].filter(key => key.startsWith('aviation:gf:')).length, 0);
+  }
 });

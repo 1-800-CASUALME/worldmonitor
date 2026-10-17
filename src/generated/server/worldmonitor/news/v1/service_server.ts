@@ -302,6 +302,27 @@ export interface GetReportMediaRequest {
   jobId: string;
 }
 
+export interface SearchClaimHeadlinesRequest {
+  claim: string;
+}
+
+export interface SearchClaimHeadlinesResponse {
+  headlines: ClaimHeadline[];
+  searchedHeadlines: number;
+  searchedFeeds: number;
+  feedTotal: number;
+  feedCached: number;
+  state: string;
+  readAt: string;
+}
+
+export interface ClaimHeadline {
+  source: string;
+  title: string;
+  link: string;
+  publishedAt: number;
+}
+
 export type StoryPhase = "STORY_PHASE_UNSPECIFIED" | "STORY_PHASE_BREAKING" | "STORY_PHASE_DEVELOPING" | "STORY_PHASE_SUSTAINED" | "STORY_PHASE_FADING";
 
 export type SummarizeStatus = "SUMMARIZE_STATUS_UNSPECIFIED" | "SUMMARIZE_STATUS_SUCCESS" | "SUMMARIZE_STATUS_CACHED" | "SUMMARIZE_STATUS_SKIPPED" | "SUMMARIZE_STATUS_ERROR";
@@ -366,6 +387,7 @@ export interface NewsServiceHandler {
   getMediaProvenance(ctx: ServerContext, req: GetMediaProvenanceRequest): Promise<GetMediaProvenanceResponse>;
   checkReportMedia(ctx: ServerContext, req: CheckReportMediaRequest): Promise<MediaCheckJob>;
   getReportMedia(ctx: ServerContext, req: GetReportMediaRequest): Promise<GetMediaProvenanceResponse>;
+  searchClaimHeadlines(ctx: ServerContext, req: SearchClaimHeadlinesRequest): Promise<SearchClaimHeadlinesResponse>;
 }
 
 export function createNewsServiceRoutes(
@@ -945,6 +967,53 @@ export function createNewsServiceRoutes(
 
           const result = await handler.getReportMedia(ctx, body);
           return new Response(JSON.stringify(result as GetMediaProvenanceResponse), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        } catch (err: unknown) {
+          if (err instanceof ValidationError) {
+            return new Response(JSON.stringify({ violations: err.violations }), {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          if (options?.onError) {
+            return options.onError(err, req);
+          }
+          const message = err instanceof Error ? err.message : String(err);
+          return new Response(JSON.stringify({ message }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/news/v1/search-claim-headlines",
+      handler: async (req: Request): Promise<Response> => {
+        try {
+          const pathParams: Record<string, string> = {};
+          const url = new URL(req.url, "http://localhost");
+          const params = url.searchParams;
+          const body: SearchClaimHeadlinesRequest = {
+            claim: params.get("claim") ?? "",
+          };
+          if (options?.validateRequest) {
+            const bodyViolations = options.validateRequest("searchClaimHeadlines", body);
+            if (bodyViolations) {
+              throw new ValidationError(bodyViolations);
+            }
+          }
+
+          const ctx: ServerContext = {
+            request: req,
+            pathParams,
+            headers: Object.fromEntries(req.headers.entries()),
+          };
+
+          const result = await handler.searchClaimHeadlines(ctx, body);
+          return new Response(JSON.stringify(result as SearchClaimHeadlinesResponse), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });

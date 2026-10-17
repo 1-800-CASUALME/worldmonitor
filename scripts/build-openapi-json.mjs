@@ -208,6 +208,7 @@ export const SCANNER_BUNDLE_EXCLUDED_OPERATIONS = Object.freeze({
   '/api/news/v1/get-media-provenance': 'Media check result for the /verify page (#9096); documented in the NewsService spec.',
   '/api/news/v1/check-report-media': 'Operator media check for a reader report, secret-gated (#9096).',
   '/api/news/v1/get-report-media': 'Operator media check result, secret-gated (#9096).',
+  '/api/news/v1/search-claim-headlines': 'Claim headline search for the /verify page and verify_claim; documented in the NewsService spec.',
 });
 
 /**

@@ -11,6 +11,7 @@ import "worldmonitor/news/v1/list_label_changes.proto";
 import "worldmonitor/news/v1/error_reports.proto";
 import "worldmonitor/news/v1/search_fact_checks.proto";
 import "worldmonitor/news/v1/media_provenance.proto";
+import "worldmonitor/news/v1/search_claim_headlines.proto";
 
 // NewsService provides AI-powered article summarization and feed aggregation.
 service NewsService {
@@ -84,5 +85,10 @@ service NewsService {
   // Requires the X-Trust-Review-Key header (the server's TRUST_REVIEW_SECRET), not an API key; without it the response is 401.
   rpc GetReportMedia(GetReportMediaRequest) returns (GetMediaProvenanceResponse) {
     option (sebuf.http.config) = {path: "/get-report-media", method: HTTP_METHOD_GET};
+  }
+
+  // SearchClaimHeadlines returns the fresh headlines from every configured feed that share a claim's words, so the /verify page and verify_claim can build its coverage card.
+  rpc SearchClaimHeadlines(SearchClaimHeadlinesRequest) returns (SearchClaimHeadlinesResponse) {
+    option (sebuf.http.config) = {path: "/search-claim-headlines", method: HTTP_METHOD_GET};
   }
 }

@@ -1229,7 +1229,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `verify_claim`
 
-针对一条说法或标题的证据卡。在实时摘要中找出报道同一事件的话题簇（一个事件常分布在多个簇中），并基于匹配簇给出 WorldMonitor 的覆盖判定。当簇中某条标题包含说法中至少一半的实义词且至少两个时即视为匹配；最多保留匹配度最高的 8 个簇。判定由 `assessCorroboration` 对所有匹配标题计算，因此同一发布方的转载源只计一次。
+针对一条说法或标题的证据卡。在最新标题中找出报道同一事件的话题簇（一个事件常分布在多个簇中），并基于匹配簇给出 WorldMonitor 的覆盖判定。`variant: full`（默认）检索 WorldMonitor 信息源缓存中的所有最新标题（每个信息源最多 30 条），而不只是仪表板摘要提供的标题；与说法共享实义词最多的 100 条标题参与聚类。`tech` 变体检索其摘要。当簇中某条标题包含说法中至少一半的实义词且至少两个时即视为匹配；最多保留匹配度最高的 8 个簇。判定由 `assessCorroboration` 对所有匹配标题计算，因此同一发布方的转载源只计一次。
 
 返回 `found`、`state`（覆盖判定；已检索摘要但没有任何报道时为 `not-found`；摘要为空或不可用、未进行检索时为 `unknown` 且 `found: false`）、`corroboration`（`single-publisher`、`tier4-only`、`corroborated`、`unknown`）、带声明层级的 `publishers` 名单、最多 10 条带来源溯源信息的匹配 `headlines`、最佳匹配的 `credibilityScore`、`firstSeen` / `lastUpdated`，以及 `figures`：用简报溯源规则核对说法中的数字和日期是否出现在匹配标题中。`figures.ungrounded` 列出没有任何匹配标题提及的数字，并不表示该数字错误。`found: false` 表示没有匹配：`state` 为 `not-found` 时，该说法不在 WorldMonitor 当前的来源中；为 `unknown` 时，表示未进行检索。它绝不表示该说法为假。每个响应都带有相同的 `caveat`：衡量的是覆盖情况，而非准确性。
 
@@ -1250,9 +1250,9 @@ curl -s https://worldmonitor.app/mcp \
 | `claim` | string | 要核查的说法或标题，最多 300 个字符。必填。 |
 | `variant` | `string: full / tech` | 要搜索的标题摘要变体。默认为 full。 |
 
-- **API 端点：** `GET /api/news/v1/list-feed-digest`、`GET /api/news/v1/search-fact-checks`
+- **API 端点：** `GET /api/news/v1/list-feed-digest`、`GET /api/news/v1/search-fact-checks`、`GET /api/news/v1/search-claim-headlines`
 - **访问：** `subscription` — 需要 Pro 订阅。
-- **类型：** 基于实时摘要窗口的确定性本地计算，并非历史索引。不使用 LLM。
+- **类型：** 基于最新标题窗口（最近 96 小时）的确定性本地计算，并非历史索引。不使用 LLM。
 - **配额：** 标准 — 每次调用都会消耗 MCP 每日配额。
 
 <CodeGroup>
@@ -2010,7 +2010,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `search_flights`
 
-在 Google Flights 上搜索特定日期两个机场之间的实时航班选项。返回可用航班，含价格、经停、航空公司和航段详情。使用 IATA 机场代码（例如 "JFK"、"LHR"、"DXB"）。
+从 Google Flights 结果页实时读取特定日期两个机场之间的行程。每个行程包含全部乘客的美元总价、经停、时长，以及每个航段的航空公司、航班号、机场和当地出发与到达时间。提供 return_date 时价格覆盖往返行程，航段为去程。degraded 带 error 表示数据源失败；无 degraded 的空列表表示未找到行程。机场使用 IATA 代码（例如 "JFK"、"LHR"、"DXB"）。
 
 **参数：**
 
@@ -2045,7 +2045,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `search_flight_prices_by_date`
 
-在 Google Flights 上搜索日期范围内日期网格的定价。返回两个机场之间每个出发日期的最便宜价格。适用于寻找最便宜的飞行日期。使用 IATA 机场代码。
+两个机场之间每个出发日期的 Google Flights 最低票价，日期范围最多 31 天（每个日期一次结果页搜索）。每行包含日期、往返行程的返程日期（出发日期加 trip_duration），以及全部乘客的最低美元总价。没有行程的日期不列出。degraded 带 error 表示部分或全部日期失败，列表只包含有结果的日期。机场使用 IATA 代码。
 
 **参数：**
 
@@ -2054,7 +2054,7 @@ curl -s https://worldmonitor.app/mcp \
 | `origin` | string | **是** | 出发机场的 IATA 代码，例如 "JFK" |
 | `destination` | string | **是** | 到达机场的 IATA 代码，例如 "LHR" |
 | `start_date` | string | **是** | 日期范围起始，格式为 YYYY-MM-DD |
-| `end_date` | string | **是** | 日期范围结束，格式为 YYYY-MM-DD |
+| `end_date` | string | **是** | 日期范围结束，格式为 YYYY-MM-DD，最多在 start_date 之后 30 天 |
 | `is_round_trip` | boolean | 否 | 是否搜索往返价格（默认 false）。为 true 时需要 trip_duration。 |
 | `trip_duration` | number | 否 | 行程天数 — is_round_trip 为 true 时必填（例如 7 表示一周行程） |
 | `cabin_class` | string | 否 | 舱位等级："economy"、"premium_economy"、"business" 或 "first"（可选） |

@@ -182,7 +182,10 @@ function evictOldestIsolateEntry(): void {
   if (!oldest.done) fallbackDigestCache.delete(oldest.value);
 }
 const ITEMS_PER_FEED = 5;
-const COUNTRY_ITEMS_PER_FEED = 20;
+// Full-variant entries kept past the dashboard cap, for country headlines and
+// /verify claim search. 30 found 49 of 70 Google News World stories on
+// 2026-10-16 (20 found 44; uncapped 54), so the next entries add little.
+const COUNTRY_ITEMS_PER_FEED = 30;
 const MAX_ITEMS_PER_CATEGORY = 20;
 const FEED_TIMEOUT_MS = 8_000;
 // Vercel Edge functions have a 25s initial-response ceiling. The digest

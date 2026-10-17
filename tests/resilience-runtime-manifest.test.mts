@@ -280,6 +280,7 @@ describe('resilience runtime manifest gateway auth', () => {
         '/api/news/v1/search-fact-checks',
         '/api/news/v1/check-report-media',
         '/api/news/v1/get-report-media',
+        '/api/news/v1/search-claim-headlines',
       ],
     );
     assert.equal(PREMIUM_RPC_PATHS.has('/api/resilience/v1/get-runtime-manifest'), false);

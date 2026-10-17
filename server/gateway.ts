@@ -420,6 +420,8 @@ const RPC_CACHE_TIER: Record<string, CacheTier> = {
   // #9096: per-caller job results, never shared or cached.
   '/api/news/v1/get-media-provenance': 'no-store',
   '/api/news/v1/get-report-media': 'no-store',
+  // /verify claim search over the feed caches; the CDN key includes the claim.
+  '/api/news/v1/search-claim-headlines': 'fast',
   '/api/intelligence/v1/get-country-facts': 'daily',
   '/api/intelligence/v1/list-security-advisories': 'slow',
   '/api/intelligence/v1/list-satellites': 'static',
@@ -581,6 +583,10 @@ export const PUBLIC_NO_AUTH_RPC_PATHS = new Set<string>([
   // queue: TRUST_REVIEW_SECRET in the handler, fail-closed per-IP limits.
   '/api/news/v1/check-report-media',
   '/api/news/v1/get-report-media',
+  // /verify: the fresh headlines that share a claim's words, read from the
+  // RSS caches the digest already writes (no publisher fetch). Free like
+  // /verify; bounded by a per-IP limit and the 'fast' CDN tier.
+  '/api/news/v1/search-claim-headlines',
 ]);
 
 // Cacheable, non-premium RPC endpoints the Railway relay periodically warm-pings
