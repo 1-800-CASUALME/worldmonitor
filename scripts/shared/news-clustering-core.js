@@ -282,10 +282,9 @@ export function topClusterKeywords(cluster, limit = 5) {
  * Publishers behind one story's items: publisher families by feed label, with
  * families that carried the same copy counted once (#9095). Every path that
  * builds or rebuilds a cluster's uniquePublisherCount from items that carry lead
- * text must use this, so a merged cluster cannot add reprints back. Known
- * exception: scripts/_clustering.mjs (insights and brief leads) clusters items
- * whose lead text normalizeDigestItemsForInsights drops, so it still counts
- * families by label.
+ * text must use this, so a merged cluster cannot add reprints back.
+ * scripts/_clustering.mjs (insights and brief leads) calls detectSyndication
+ * directly, because its entity bucket also needs the merged families.
  *
  * @param {readonly { source: string; title?: string; snippet?: string }[]} items
  * @returns {number}

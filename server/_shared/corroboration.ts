@@ -176,13 +176,29 @@ export function evidenceFromCluster(cluster: {
  * sources are legacy or malformed and contribute nothing.
  */
 export function evidenceFromStory(
-  story: { readonly sources?: unknown; readonly corroborationCount?: unknown },
+  story: { readonly sources?: unknown; readonly corroborationCount?: unknown; readonly sameCopy?: unknown },
 ): Extract<ClaimEvidence, { kind: 'grouped' }> {
   const labels = Array.isArray(story.sources)
     ? story.sources.filter((label): label is string => typeof label === 'string' && label.length > 0)
     : [];
   const count = typeof story.corroborationCount === 'number' ? story.corroborationCount : null;
-  return { kind: 'grouped', labels, reportedPublishers: positiveCount(count) };
+  // The seeder's same-copy groups (#9095). Only families present in `sources`
+  // can join, so a malformed group can lower the count of the labels shown
+  // here and never names a publisher that is not listed.
+  const present = new Set(labels.map(publisherFamilyFor));
+  const sameCopy = Array.isArray(story.sameCopy)
+    ? story.sameCopy
+      .map((group) => (Array.isArray(group)
+        ? [...new Set(group.filter((family): family is string => typeof family === 'string' && present.has(family)))]
+        : []))
+      .filter((group) => group.length > 1)
+    : [];
+  return {
+    kind: 'grouped',
+    labels,
+    reportedPublishers: positiveCount(count),
+    ...(sameCopy.length > 0 ? { sameCopy } : {}),
+  };
 }
 
 export function evidenceFromItem(item: { readonly source: string; readonly corroborationCount?: number }): ClaimEvidence {
