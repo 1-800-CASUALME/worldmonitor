@@ -96,46 +96,6 @@ export async function summarizeArticle(
     return payload;
   };
 
-  const MAX_HEADLINES = 10;
-  const MAX_HEADLINE_LEN = 500;
-  const MAX_GEO_CONTEXT_LEN = 2000;
-
-  // Bounded raw headlines — used for cache key so browser/server keys agree.
-  // Only structural patterns stripped (delimiters, control chars); semantic
-  // phrases kept intact to avoid mangling legitimate security news headlines.
-  //
-  // Zip with bodies BEFORE dropping anything: sanitizeHeadlinesLight filters
-  // out entries that reduce to empty, so pairing bodies by index afterwards
-  // shifted every later body one slot left and grounded each headline on the
-  // PREVIOUS story's article text. Drop each headline together with its own
-  // body instead, so the 1:1 association survives the filter.
-  const rawBodiesIn = Array.isArray(req.bodies) ? req.bodies : [];
-  const intakePairs = (req.headlines || [])
-    .slice(0, MAX_HEADLINES)
-    .map((h, i) => ({
-      h: typeof h === 'string' ? h.slice(0, MAX_HEADLINE_LEN) : '',
-      b: rawBodiesIn[i],
-    }))
-    .map(p => ({ h: sanitizeHeadlinesLight([p.h])[0] ?? '', b: p.b }))
-    .filter(p => p.h.length > 0);
-
-  const headlines = intakePairs.map(p => p.h);
-
-  // geoContext gets full injection sanitization — it is free-form user text.
-  const sanitizedGeoContext = sanitizeForPrompt(
-    typeof geoContext === 'string' ? geoContext.slice(0, MAX_GEO_CONTEXT_LEN) : '',
-  );
-
-  // Bodies (RSS descriptions) paired 1:1 with headlines. Full injection
-  // sanitisation applied — bodies are untrusted upstream text identical in
-  // trust-level to geoContext. Taken from the zipped intake pairs above, so a
-  // headline dropped by light sanitisation takes its own body with it rather
-  // than shifting its successors'. Callers may omit bodies entirely (old
-  // path) or pass a shorter/longer array (handler tolerates).
-  const bodies = intakePairs.map(p =>
-    typeof p.b === 'string' ? sanitizeForPrompt(p.b.slice(0, MAX_BODY_LEN)) : '',
-  );
-
   if (requiresPremium && !isPremium) {
     const billingDenial = premiumIdentity.billingDenial;
     if (billingDenial) {
@@ -182,6 +142,46 @@ export async function summarizeArticle(
       statusDetail: 'Unsupported translation language',
     });
   }
+
+  const MAX_HEADLINES = 10;
+  const MAX_HEADLINE_LEN = 500;
+  const MAX_GEO_CONTEXT_LEN = 2000;
+
+  // Bounded raw headlines — used for cache key so browser/server keys agree.
+  // Only structural patterns stripped (delimiters, control chars); semantic
+  // phrases kept intact to avoid mangling legitimate security news headlines.
+  //
+  // Zip with bodies BEFORE dropping anything: sanitizeHeadlinesLight filters
+  // out entries that reduce to empty, so pairing bodies by index afterwards
+  // shifted every later body one slot left and grounded each headline on the
+  // PREVIOUS story's article text. Drop each headline together with its own
+  // body instead, so the 1:1 association survives the filter.
+  const rawBodiesIn = Array.isArray(req.bodies) ? req.bodies : [];
+  const intakePairs = (req.headlines || [])
+    .slice(0, MAX_HEADLINES)
+    .map((h, i) => ({
+      h: typeof h === 'string' ? h.slice(0, MAX_HEADLINE_LEN) : '',
+      b: rawBodiesIn[i],
+    }))
+    .map(p => ({ h: sanitizeHeadlinesLight([p.h])[0] ?? '', b: p.b }))
+    .filter(p => p.h.length > 0);
+
+  const headlines = intakePairs.map(p => p.h);
+
+  // geoContext gets full injection sanitization — it is free-form user text.
+  const sanitizedGeoContext = sanitizeForPrompt(
+    typeof geoContext === 'string' ? geoContext.slice(0, MAX_GEO_CONTEXT_LEN) : '',
+  );
+
+  // Bodies (RSS descriptions) paired 1:1 with headlines. Full injection
+  // sanitisation applied — bodies are untrusted upstream text identical in
+  // trust-level to geoContext. Taken from the zipped intake pairs above, so a
+  // headline dropped by light sanitisation takes its own body with it rather
+  // than shifting its successors'. Callers may omit bodies entirely (old
+  // path) or pass a shorter/longer array (handler tolerates).
+  const bodies = intakePairs.map(p =>
+    typeof p.b === 'string' ? sanitizeForPrompt(p.b.slice(0, MAX_BODY_LEN)) : '',
+  );
 
   // Provider credential check
   const skipReasons: Record<string, string> = {
