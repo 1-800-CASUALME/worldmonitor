@@ -145,7 +145,7 @@ export const COMPARISON_NARRATIVES = {
         name: 'ACLED',
         paragraphs: [
           'ACLED is a coded conflict-event dataset with a public research franchise and a commercial license wall. Open access covers real-time aggregated data without API access. Research, Partner, and Enterprise tiers add API access and more detailed event data. Event coverage runs from 1997. Commercial use requires a license under the ACLED EULA.',
-          'Pick ACLED when you need citable, downloadable structured events for research or a model. It is a complement to a live map, not a map alternative, and World Monitor ingests ACLED among its sources rather than trying to replace the archive.',
+          'Pick ACLED when you need citable, downloadable structured events for research or a model. It is a complement to a live map, not a map alternative. worldmonitor.app holds no ACLED data and uses UCDP and GDELT instead; a self-hosted deployment with its own ACLED credentials can add ACLED events.',
         ],
       },
       {
@@ -266,7 +266,7 @@ export const COMPARISON_NARRATIVES = {
 
   'worldmonitor-vs-acled': {
     headingProse: [
-      'ACLED is the named company on this URL, and it is not a mapping startup. It is a coded conflict-event dataset with academic citability, a license wall for commercial use, and an archive from 1997. World Monitor is a live multi-domain watch that ingests ACLED among its sources. The honest product relationship is complement, not replacement, and the rest of the page is written to that fact.',
+      'ACLED is the named company on this URL, and it is not a mapping startup. It is a coded conflict-event dataset with academic citability, a license wall for commercial use, and an archive from 1997. World Monitor is a live multi-domain watch built on UCDP and GDELT; worldmonitor.app holds no ACLED data, and a self-hosted deployment with its own ACLED credentials can add ACLED events. The honest product relationship is complement, not replacement, and the rest of the page is written to that fact.',
     ],
     competitorProfiles: [
       {
@@ -282,7 +282,7 @@ export const COMPARISON_NARRATIVES = {
     evaluationProse: [
       'First decide whether you need an alternative at all. ACLED alternatives in search results are often live maps that cannot produce a citable event table. If the job is citation and download, there is no alternative on this page — there is a complement. If the job is live monitoring without a myACLED account, then you are shopping for a different product category that happens to share some upstream events.',
       'Score licensing before features. Open access, research, partner, and enterprise are different products. Commercial use is a license question, not a pricing-page question. An "alternative" that ignores the EULA is not ready for procurement. Then score API access by tier, event ontology, archive start year, and whether you are allowed to redistribute.',
-      'Only after that, score the live layer: signup friction, domain coverage beyond conflict, and whether the product ingests ACLED or tries to re-code the world. Ingesting ACLED and adding context is a complement. Re-coding ACLED\'s events without the archive or the license is a downgrade dressed up as a substitute.',
+      'Only after that, score the live layer: signup friction, domain coverage beyond conflict, and whether the product sits beside ACLED or tries to re-code the world. Live context next to the ACLED archive is a complement. Re-coding ACLED\'s events without the archive or the license is a downgrade dressed up as a substitute.',
     ],
     switchHeading: 'Why teams look for an ACLED alternative',
     switchProse: [
@@ -293,11 +293,11 @@ export const COMPARISON_NARRATIVES = {
       'ACLED access, API availability, and commercial-use rules were read from public myACLED and EULA pages. This page does not invent a complimentary access SKU or a Creative Commons non-commercial license; those are not the current public terms we can cite.',
     ),
     whyWeWinBody: [
-      'World Monitor\'s job on this page is the live layer ACLED is not selling: no signup, conflict plus adjacent domains, REST from $99.99/month, MCP from Pro. It ingests ACLED rather than asking you to delete ACLED. That is the only win that does not insult the archive.',
+      'World Monitor\'s job on this page is the live layer ACLED is not selling: no signup, conflict plus adjacent domains, REST from $99.99/month, MCP from Pro. It sits beside ACLED rather than asking you to delete ACLED. That is the only win that does not insult the archive.',
       'If you need 1997–present coded events, a downloadable dataset, and a citation that survives peer review, ACLED still wins and should. The complement framing is the product. A replacement framing would be a lie, and it would not survive the concession list.',
     ],
     extraFaqs: [
-      ['Does World Monitor include ACLED data?', 'Yes. ACLED is among the attributed sources World Monitor ingests. That is why this page calls World Monitor a complement, not a replacement.'],
+      ['Does World Monitor include ACLED data?', 'Not on worldmonitor.app, which uses UCDP and GDELT; a self-hosted deployment with its own ACLED credentials can add ACLED events. That is why this page calls World Monitor a complement, not a replacement.'],
       ['Can I download ACLED-style event tables from World Monitor?', 'No. Downloadable structured ACLED datasets are an ACLED product, behind ACLED terms. World Monitor is a live watch and API, not an ACLED redistribution.'],
       ['Does ACLED require an account?', 'myACLED does. Open access and the paid tiers have different rules. The World Monitor public dashboard does not require an account.'],
       ['Is ACLED open source?', 'No. ACLED data is under the ACLED EULA. World Monitor the software is AGPL-3.0; that license does not make ACLED data open.'],

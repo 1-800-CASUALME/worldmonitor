@@ -26,7 +26,7 @@ More than most buyers expect. Using [World Monitor's free tier](https://www.worl
 
 The catch, and it is a fair one: free-tier refresh cadence is typically **5–15 minutes** rather than seconds, and the workflow layer — analyst chat, scheduled digests, API access, team features — sits behind paid plans.
 
-Free tiers built on open data are not a marketing trick. Much of the underlying signal (ACLED, UCDP, USGS, NASA FIRMS, GDELT) is [free at the source](https://www.worldmonitor.app/blog/posts/free-geopolitical-data-apis-2026/); what a free dashboard adds is aggregation, normalization, and a single view.
+Free tiers built on open data are not a marketing trick. Much of the underlying signal (UCDP, USGS, NASA FIRMS, GDELT) is [free at the source](https://www.worldmonitor.app/blog/posts/free-geopolitical-data-apis-2026/); what a free dashboard adds is aggregation, normalization, and a single view.
 
 ## What do paid tiers actually add?
 

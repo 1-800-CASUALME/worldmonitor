@@ -48,7 +48,7 @@ World Monitor's API is organized into domain-specific services:
 |--------|---------------|
 | **Aviation** | Airport delays, flight tracking, airspace data |
 | **Climate** | Temperature anomalies, precipitation, sea level |
-| **Conflict** | [UCDP](https://ucdp.uu.se/) events, [GDELT](https://www.gdeltproject.org/) reporting, hotspot scoring |
+| **Conflict** | [UCDP](https://ucdp.uu.se/) events, hotspot scoring |
 | **Consumer Prices** | CPI and consumer-price intelligence |
 | **Cyber** | Threat feeds, C2 servers, malware URLs |
 | **Displacement** | UNHCR refugee and IDP data |
