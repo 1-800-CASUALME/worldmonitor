@@ -568,7 +568,7 @@ export class NewsPanel extends Panel {
         const provenance = renderPrimarySourceProvenance(item.source);
         const titleLink = sanitizeUrl(item.link);
         return `
-      <div class="item ${item.isAlert ? 'alert' : ''}" ${item.monitorColor ? `style="border-inline-start-color: ${escapeHtml(item.monitorColor)}"` : ''}>
+      <div class="item ${item.isAlert ? 'alert' : ''}" data-news-id="${escapeHtml(item.link)}" ${item.monitorColor ? `style="border-inline-start-color: ${escapeHtml(item.monitorColor)}"` : ''}>
         <div class="item-source">
           ${escapeHtml(item.source)}
           ${renderCredibilityBadge(item.source, item)}
