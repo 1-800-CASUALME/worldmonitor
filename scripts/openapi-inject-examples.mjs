@@ -185,6 +185,10 @@ const GDELT_TOPIC_EXAMPLE_ID = (() => {
 // IS informative in that state.
 function isCuratedOmission(key, context = {}) {
   const where = `${context.operationId ?? ''} ${context.path ?? ''}`.toLowerCase();
+  // RegisterWebhook: the request example depicts the default
+  // chokepoint.disruption subscription, and the handler rejects `countries` on
+  // that event, so the field would make the sample un-runnable.
+  if (key === 'countries' && where.includes('registerwebhook')) return true;
   // GetTradeFlows / GetTariffTrends: a 200 carrying rows always has
   // unavailableReason at the UNSPECIFIED zero value. The generic enum picker
   // skips the zero value and so paired rows with INVALID_REQUEST — a response
@@ -212,6 +216,13 @@ function isCuratedOmission(key, context = {}) {
 function overrideStringExample(key, context = {}) {
   const where = `${context.operationId ?? ''} ${context.path ?? ''}`.toLowerCase();
   if (key === 'jmespath') return 'keys(@)';
+  // Shipping v2 webhooks: eventType is a registry key (shared/event-triggers.json)
+  // and countries holds monitored ISO2 codes; the heuristic's "all" / "example"
+  // are rejected by registerWebhook.
+  if (where.includes('registerwebhook') || where.includes('listwebhooks') || where.includes('/api/v2/shipping/webhooks')) {
+    if (key === 'eventtype') return 'chokepoint.disruption';
+    if (key === 'countries') return 'US';
+  }
   // IOM DTM keys countries by ISO3; the generic ISO2 'US' fails the pattern.
   if (key === 'countrycode' && (where.includes('getinternaldisplacement') || where.includes('get-internal-displacement'))) {
     return 'SDN';

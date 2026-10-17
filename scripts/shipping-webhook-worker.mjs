@@ -8,14 +8,22 @@
  *   startCommand: node shipping-webhook-worker.mjs
  *   cronSchedule: <none> (always-on long-running process)
  *
- * Every tick reads the chokepoint status feed, compares each subscriber's
- * chokepoints with its alertThreshold, and POSTs a signed
- * `chokepoint.disruption` event once per upward crossing. Delivery state per
- * (subscriber, chokepoint) lives in `webhook:state:<id>:v1`; delivery counters
+ * Every tick reads the event feeds and, for each subscriber record, evaluates
+ * the event it registered for (shared/event-triggers.json, mirrored at
+ * scripts/shared/event-triggers.json):
+ *   - `chokepoint.disruption`: compares each subscribed chokepoint's
+ *     disruptionScore with the record's alertThreshold (and its live-signal
+ *     floor, minLiveSignal) and POSTs one signed event per upward crossing.
+ *   - `country.risk_surge`: fires once per country when the Country
+ *     Instability Index rose by riseThreshold within 24 h above the floor,
+ *     with a 24 h cooldown per country.
+ * Delivery state per (subscriber, entity) lives in `webhook:state:<id>:v1`
+ * (chokepoint ids and `cii:<CC>` fields share the hash); delivery counters
  * live on the subscriber record. Delivery is at-least-once.
  */
 
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 import {
   CHROME_UA,
@@ -24,6 +32,7 @@ import {
   loadEnvFile,
   releaseLock,
 } from './_seed-utils.mjs';
+import { CII_RISK_SCORE_CACHE_KEYS } from './_cii-risk-cache-keys.mjs';
 import { isMainModule } from './lib/main-module.mjs';
 import {
   ALL_INDEX_KEY,
@@ -33,8 +42,34 @@ import {
   webhookKey,
 } from './lib/shipping-webhook-delivery.mjs';
 
+// Railway runs this file with rootDirectory=scripts, so the registry is read
+// from the scripts/shared mirror (tests/scripts-shared-mirror.test.mjs pins it
+// to shared/event-triggers.json).
+export const EVENT_REGISTRY = JSON.parse(
+  readFileSync(new URL('./shared/event-triggers.json', import.meta.url), 'utf8'),
+);
+export const CHOKEPOINT_EVENT = 'chokepoint.disruption';
+export const RISK_SURGE_EVENT = 'country.risk_surge';
+const RISK_SURGE = EVENT_REGISTRY.events[RISK_SURGE_EVENT];
+export const RISK_SURGE_RULE = Object.freeze({
+  rise: RISK_SURGE.threshold.riseThreshold,
+  floor: RISK_SURGE.threshold.floor,
+  rearmBelow: RISK_SURGE.cooldown.rearmBelow,
+  cooldownMs: RISK_SURGE.cooldown.minimumSeconds * 1000,
+});
+const CHOKEPOINT_LIVE_COOLDOWN = EVENT_REGISTRY.events[CHOKEPOINT_EVENT].cooldown.withLiveSignal;
+export const CHOKEPOINT_LIVE_RULE = Object.freeze({
+  rearmScoreMargin: CHOKEPOINT_LIVE_COOLDOWN.rearmScoreMargin,
+  rearmLiveBelow: CHOKEPOINT_LIVE_COOLDOWN.rearmLiveBelow,
+  cooldownMs: CHOKEPOINT_LIVE_COOLDOWN.minimumSeconds * 1000,
+});
+export const RISK_SURGE_COUNTRY_NAMES = Object.freeze({ ...RISK_SURGE.countries });
+
 export const CHOKEPOINT_STATUS_KEY = 'supply_chain:chokepoints:v4';
 export const CHOKEPOINT_STATUS_RPC_URL = 'https://api.worldmonitor.app/api/supply-chain/v1/get-chokepoint-status';
+export const RISK_SCORES_KEY = CII_RISK_SCORE_CACHE_KEYS.live;
+export const RISK_SCORES_STALE_KEY = CII_RISK_SCORE_CACHE_KEYS.stale;
+export const RISK_SCORES_RPC_URL = 'https://api.worldmonitor.app/api/intelligence/v1/get-risk-scores';
 export const WORKER_STATUS_KEY = 'shipping:webhook-worker:v1';
 export const WORKER_META_KEY = 'seed-meta:shipping:webhook-worker';
 export const WORKER_ACTIVATION_KEY = 'seed-activated:shipping:webhook-worker';
@@ -104,6 +139,33 @@ export function reasonFor(chokepoint) {
  */
 export const SCORE_SOURCE_MAX_POINTS = Object.freeze({ navigationalWarnings: 15, ais: 15, transit: 10 });
 
+/**
+ * THREAT_LEVEL in _scoring.mjs keyed by the warRiskTier the feed carries; the
+ * standing part of a score that never changes without a config edit. Pinned
+ * by a test. Live signal = score minus this standing level.
+ */
+export const THREAT_POINTS_BY_TIER = Object.freeze({
+  WAR_RISK_TIER_WAR_ZONE: 70,
+  WAR_RISK_TIER_CRITICAL: 40,
+  WAR_RISK_TIER_HIGH: 30,
+  WAR_RISK_TIER_ELEVATED: 15,
+  WAR_RISK_TIER_NORMAL: 0,
+});
+
+export function liveSignal(chokepoint) {
+  const standing = THREAT_POINTS_BY_TIER[chokepoint?.warRiskTier] ?? 0;
+  return Math.max(0, Number(chokepoint?.disruptionScore) - standing);
+}
+
+export function recordEventType(record) {
+  return typeof record?.eventType === 'string' && record.eventType ? record.eventType : CHOKEPOINT_EVENT;
+}
+
+/** State hash field for a country.risk_surge entity; chokepoints use their id. */
+export function countryStateField(countryCode) {
+  return `cii:${countryCode}`;
+}
+
 /** Which score inputs the feed had for a chokepoint. A missing input scores 0. */
 export function scoreSources(chokepoint) {
   return {
@@ -121,16 +183,66 @@ export function scoreSources(chokepoint) {
  * the disruption ending. Missing state is armed.
  * A crossing keeps its `pending` delivery id and triggeredAt until it is
  * delivered or re-armed, so a retry is the same event to the receiver.
+ *
+ * With a live-signal floor (`minLive` > 0, the record's minLiveSignal) the
+ * score must also sit `minLive` points above the chokepoint's standing threat
+ * level to fire, so a war zone that stands at 70 does not fire once at
+ * subscription and go silent. Live signals move in 5-point steps (one
+ * navigational warning), so the pair re-arms only once they have clearly
+ * subsided (CHOKEPOINT_LIVE_RULE, the in-app chokepoint_disruption rule's
+ * hysteresis) and refires at most once per cooldown.
  */
-export function nextChokepointState(previous, score, threshold, sources = {}) {
+export function nextChokepointState(previous, score, threshold, sources = {}, { live = null, minLive = 0, nowMs = Date.now(), rule = CHOKEPOINT_LIVE_RULE } = {}) {
+  const withLive = minLive > 0;
   const armed = previous?.armed ?? true;
-  const fire = armed && score >= threshold;
+  const liveOk = !withLive || (Number.isFinite(live) && live >= minLive);
+  const lastDeliveredMs = previous?.lastDeliveredAt ? Date.parse(previous.lastDeliveredAt) : NaN;
+  const cooled = !withLive || !Number.isFinite(lastDeliveredMs) || nowMs - lastDeliveredMs >= rule.cooldownMs;
+  const fire = armed && score >= threshold && liveOk && cooled;
   const missingPoints = Object.entries(previous?.sources ?? {})
     .filter(([name, present]) => present && !sources[name])
     .reduce((sum, [name]) => sum + (SCORE_SOURCE_MAX_POINTS[name] ?? 0), 0);
-  const state = { armed: armed || score + missingPoints < threshold, lastScore: score };
+  const subsided = withLive
+    ? score + missingPoints < threshold - rule.rearmScoreMargin
+      || (Number.isFinite(live) && live + missingPoints < Math.min(rule.rearmLiveBelow, minLive))
+    : score + missingPoints < threshold;
+  const state = { armed: armed || subsided, lastScore: score };
+  if (minLive > 0 && Number.isFinite(live)) state.lastLive = live;
   if (previous?.lastDeliveredAt) state.lastDeliveredAt = previous.lastDeliveredAt;
   if (!state.armed && previous?.sources) state.sources = previous.sources;
+  if (fire && previous?.pending) state.pending = previous.pending;
+  return { fire, state };
+}
+
+/**
+ * country.risk_surge edge state. `dynamicScore` is the feed's own 24 h
+ * movement, so one reading carries the rise. armed --(rise >= RULE.rise and
+ * score >= RULE.floor, outside the cooldown)--> deliver; a delivery disarms;
+ * disarmed --(rise < RULE.rearmBelow)--> armed. The cooldown is measured from
+ * the last successful delivery, so a surge that lasts past it is reported
+ * again at most once per cooldown. Missing state is armed.
+ */
+export function nextCountryState(previous, cii, nowMs, rule = RISK_SURGE_RULE) {
+  const rise = Number(cii?.dynamicScore);
+  const score = Number(cii?.combinedScore);
+  if (!Number.isFinite(rise) || !Number.isFinite(score)) return { fire: false, state: previous ?? { armed: true } };
+  // deriveCiiTrendDelta reports 0 with TREND_DIRECTION_UNSPECIFIED when it has
+  // no prior snapshot. That is unknown movement, not a settled surge: it must
+  // neither fire nor re-arm, or a delivered surge could be reported again once
+  // history returns.
+  if (rise === 0 && cii?.trend === 'TREND_DIRECTION_UNSPECIFIED') return { fire: false, state: previous ?? { armed: true } };
+  const baseline = Number.isFinite(cii?.staticBaseline) ? cii.staticBaseline : null;
+  // A changed static baseline is a methodology or baseline edit, not an event
+  // (Brazil and Mexico stepped 50 to 70 in one tick in the backtest). It
+  // consumes the surge: disarm until the 24 h movement settles.
+  const baselineEdited = baseline !== null && Number.isFinite(previous?.lastBaseline) && previous.lastBaseline !== baseline;
+  const armed = !baselineEdited && (previous?.armed ?? true);
+  const lastDeliveredMs = previous?.lastDeliveredAt ? Date.parse(previous.lastDeliveredAt) : NaN;
+  const cooled = !Number.isFinite(lastDeliveredMs) || nowMs - lastDeliveredMs >= rule.cooldownMs;
+  const fire = armed && rise >= rule.rise && score >= rule.floor && cooled;
+  const state = { armed: armed || rise < rule.rearmBelow, lastScore: score, lastDelta: rise };
+  if (baseline !== null) state.lastBaseline = baseline;
+  if (previous?.lastDeliveredAt) state.lastDeliveredAt = previous.lastDeliveredAt;
   if (fire && previous?.pending) state.pending = previous.pending;
   return { fire, state };
 }
@@ -165,57 +277,127 @@ export function parseStateHash(flat) {
   return state;
 }
 
+function planChokepointRecord({ record, previous, next, byId, now, triggeredAt, scoresFetchedAt, makeId, deliveries }) {
+  const minLive = Number.isFinite(record.minLiveSignal) && record.minLiveSignal > 0 ? record.minLiveSignal : 0;
+  for (const chokepointId of new Set(record.chokepointIds)) {
+    const chokepoint = byId.get(chokepointId);
+    if (!chokepoint) continue;
+    const score = chokepoint.disruptionScore;
+    const sources = scoreSources(chokepoint);
+    const live = liveSignal(chokepoint);
+    const { fire, state } = nextChokepointState(previous[chokepointId], score, record.alertThreshold, sources, { live, minLive, nowMs: now });
+    next[chokepointId] = state;
+    if (!fire) continue;
+    state.pending ??= { deliveryId: makeId(), triggeredAt };
+    deliveries.push({
+      record,
+      event: CHOKEPOINT_EVENT,
+      stateField: chokepointId,
+      chokepoint,
+      sources,
+      deliveryId: state.pending.deliveryId,
+      payload: {
+        subscriberId: record.subscriberId,
+        chokepointId,
+        score,
+        alertThreshold: record.alertThreshold,
+        triggeredAt: state.pending.triggeredAt,
+        reason: reasonFor(chokepoint),
+        details: {
+          name: chokepoint.name ?? chokepointId,
+          status: chokepoint.status ?? null,
+          activeWarnings: chokepoint.activeWarnings ?? 0,
+          aisDisruptions: chokepoint.aisDisruptions ?? 0,
+          congestionLevel: chokepoint.congestionLevel ?? null,
+          warRiskTier: chokepoint.warRiskTier ?? null,
+          wowChangePct: chokepoint.transitSummary?.todayCountsAvailable === true
+            && Number.isFinite(chokepoint.transitSummary?.wowChangePct)
+            ? chokepoint.transitSummary.wowChangePct
+            : null,
+          previousScore: previous[chokepointId]?.lastScore ?? null,
+          scoresFetchedAt: scoresFetchedAt ?? null,
+        },
+      },
+    });
+  }
+}
+
+function planRiskSurgeRecord({ record, previous, next, ciiByCountry, now, triggeredAt, riskFetchedAt, makeId, deliveries }) {
+  const scope = Array.isArray(record.countries) && record.countries.length
+    ? new Set(record.countries)
+    : new Set(ciiByCountry.keys());
+  for (const countryCode of scope) {
+    const cii = ciiByCountry.get(countryCode);
+    if (!cii) continue;
+    const field = countryStateField(countryCode);
+    const { fire, state } = nextCountryState(previous[field], cii, now);
+    next[field] = state;
+    if (!fire) continue;
+    state.pending ??= { deliveryId: makeId(), triggeredAt };
+    const delta = Number(cii.dynamicScore);
+    const score = Number(cii.combinedScore);
+    deliveries.push({
+      record,
+      event: RISK_SURGE_EVENT,
+      stateField: field,
+      sources: {},
+      deliveryId: state.pending.deliveryId,
+      payload: {
+        subscriberId: record.subscriberId,
+        countryCode,
+        countryName: RISK_SURGE_COUNTRY_NAMES[countryCode] ?? countryCode,
+        score,
+        // The index about 24 h earlier, as the registry documents; the previous
+        // tick's score is 5 minutes old and would read as a 1-point movement.
+        previousScore: score - delta,
+        delta24h: delta,
+        trend: typeof cii.trend === 'string' ? cii.trend : 'TREND_DIRECTION_UNSPECIFIED',
+        advisoryLevel: typeof cii.advisoryLevel === 'string' ? cii.advisoryLevel : null,
+        triggeredAt: state.pending.triggeredAt,
+        reason: 'risk_surge',
+        details: {
+          riseThreshold: RISK_SURGE_RULE.rise,
+          floor: RISK_SURGE_RULE.floor,
+          staticBaseline: Number.isFinite(cii.staticBaseline) ? cii.staticBaseline : null,
+          components: cii.components && typeof cii.components === 'object' ? cii.components : {},
+          methodologyVersion: typeof cii.methodologyVersion === 'string' ? cii.methodologyVersion : '',
+          computedAt: Number.isFinite(cii.computedAt) ? cii.computedAt : null,
+          scoresFetchedAt: riskFetchedAt ?? null,
+        },
+      },
+    });
+  }
+}
+
 /**
  * Pure. `records` are active, parsed subscriber records; `states` maps
- * subscriberId to its stored per-chokepoint state.
+ * subscriberId to its stored per-entity state. `chokepoints` or `riskScores`
+ * may be null when that feed was unreadable this tick: records on that event
+ * are then left untouched (no state write, nothing fired) while records on
+ * the other event proceed.
  */
-export function planTick({ chokepoints, records, states, now, scoresFetchedAt, makeId = makeDeliveryId }) {
-  const byId = new Map(chokepoints
+export function planTick({ chokepoints, riskScores = null, records, states, now, scoresFetchedAt, riskFetchedAt = null, makeId = makeDeliveryId }) {
+  const byId = new Map((chokepoints ?? [])
     .filter((cp) => typeof cp?.id === 'string' && Number.isFinite(cp.disruptionScore))
     .map((cp) => [cp.id, cp]));
+  const ciiByCountry = new Map((riskScores?.ciiScores ?? [])
+    .filter((cii) => typeof cii?.region === 'string' && Number.isFinite(cii.combinedScore) && Number.isFinite(cii.dynamicScore))
+    .map((cii) => [cii.region, cii]));
   const triggeredAt = new Date(now).toISOString();
   const deliveries = [];
   const nextStates = new Map();
   for (const record of records) {
     const previous = states.get(record.subscriberId) ?? {};
     const next = {};
-    for (const chokepointId of new Set(record.chokepointIds)) {
-      const chokepoint = byId.get(chokepointId);
-      if (!chokepoint) continue;
-      const score = chokepoint.disruptionScore;
-      const sources = scoreSources(chokepoint);
-      const { fire, state } = nextChokepointState(previous[chokepointId], score, record.alertThreshold, sources);
-      next[chokepointId] = state;
-      if (!fire) continue;
-      state.pending ??= { deliveryId: makeId(), triggeredAt };
-      deliveries.push({
-        record,
-        chokepoint,
-        sources,
-        deliveryId: state.pending.deliveryId,
-        payload: {
-          subscriberId: record.subscriberId,
-          chokepointId,
-          score,
-          alertThreshold: record.alertThreshold,
-          triggeredAt: state.pending.triggeredAt,
-          reason: reasonFor(chokepoint),
-          details: {
-            name: chokepoint.name ?? chokepointId,
-            status: chokepoint.status ?? null,
-            activeWarnings: chokepoint.activeWarnings ?? 0,
-            aisDisruptions: chokepoint.aisDisruptions ?? 0,
-            congestionLevel: chokepoint.congestionLevel ?? null,
-            warRiskTier: chokepoint.warRiskTier ?? null,
-            wowChangePct: chokepoint.transitSummary?.todayCountsAvailable === true
-              && Number.isFinite(chokepoint.transitSummary?.wowChangePct)
-              ? chokepoint.transitSummary.wowChangePct
-              : null,
-            previousScore: previous[chokepointId]?.lastScore ?? null,
-            scoresFetchedAt: scoresFetchedAt ?? null,
-          },
-        },
-      });
+    const eventType = recordEventType(record);
+    if (eventType === CHOKEPOINT_EVENT) {
+      if (!chokepoints) continue;
+      planChokepointRecord({ record, previous, next, byId, now, triggeredAt, scoresFetchedAt, makeId, deliveries });
+    } else if (eventType === RISK_SURGE_EVENT) {
+      if (!riskScores) continue;
+      planRiskSurgeRecord({ record, previous, next, ciiByCountry, now, triggeredAt, riskFetchedAt, makeId, deliveries });
+    } else {
+      continue;
     }
     nextStates.set(record.subscriberId, next);
   }
@@ -249,11 +431,40 @@ function isChokepointResponse(value) {
     && Array.isArray(value.chokepoints) && value.chokepoints.length > 0;
 }
 
-function parseChokepointResponse(raw) {
+function isRiskScoresResponse(value) {
+  return Boolean(value) && typeof value === 'object'
+    && Array.isArray(value.ciiScores) && value.ciiScores.length > 0;
+}
+
+function parseFeed(raw, accept) {
   if (typeof raw !== 'string') return null;
   try {
     const parsed = JSON.parse(raw);
-    return isChokepointResponse(parsed) ? parsed : null;
+    return accept(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+const parseChokepointResponse = (raw) => parseFeed(raw, isChokepointResponse);
+const parseRiskScoresResponse = (raw) => parseFeed(raw, isRiskScoresResponse);
+
+async function fetchRpcFeed({ fetchImpl, env, url, accept }) {
+  if (!env.WORLDMONITOR_RELAY_KEY) return null;
+  try {
+    const response = await fetchImpl(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': CHROME_UA,
+        Origin: 'https://worldmonitor.app',
+        'X-WorldMonitor-Key': env.WORLDMONITOR_RELAY_KEY,
+      },
+      body: '{}',
+      signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    return parseFeed(await response.text(), accept);
   } catch {
     return null;
   }
@@ -268,25 +479,30 @@ export async function readChokepointStatus({ redis, fetchImpl, env }) {
   const [row] = await redis([['GET', CHOKEPOINT_STATUS_KEY]]);
   const cached = parseChokepointResponse(row?.result);
   if (cached) return { ...cached, source: 'redis' };
-  if (!env.WORLDMONITOR_RELAY_KEY) return null;
-  try {
-    const response = await fetchImpl(CHOKEPOINT_STATUS_RPC_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': CHROME_UA,
-        Origin: 'https://worldmonitor.app',
-        'X-WorldMonitor-Key': env.WORLDMONITOR_RELAY_KEY,
-      },
-      body: '{}',
-      signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
-    });
-    if (!response.ok) return null;
-    const fetched = parseChokepointResponse(await response.text());
-    return fetched ? { ...fetched, source: 'rpc' } : null;
-  } catch {
-    return null;
+  const fetched = await fetchRpcFeed({ fetchImpl, env, url: CHOKEPOINT_STATUS_RPC_URL, accept: isChokepointResponse });
+  return fetched ? { ...fetched, source: 'rpc' } : null;
+}
+
+/**
+ * The CII feed is cached live for 10 minutes and as a 1 h stale copy; the AIS
+ * relay warm-pings the RPC every 8 minutes. Read live, then stale, then the
+ * RPC. `fetchedAt` is derived from the newest computedAt the feed carries.
+ */
+export async function readRiskScores({ redis, fetchImpl, env }) {
+  const [live, stale] = await redis([['GET', RISK_SCORES_KEY], ['GET', RISK_SCORES_STALE_KEY]]);
+  let feed = parseRiskScoresResponse(live?.result);
+  let source = 'redis';
+  if (!feed) {
+    feed = parseRiskScoresResponse(stale?.result);
+    source = 'redis-stale';
   }
+  if (!feed) {
+    feed = await fetchRpcFeed({ fetchImpl, env, url: RISK_SCORES_RPC_URL, accept: isRiskScoresResponse });
+    source = 'rpc';
+  }
+  if (!feed) return null;
+  const computedAt = Math.max(0, ...feed.ciiScores.map((cii) => Number(cii?.computedAt) || 0));
+  return { ...feed, source, fetchedAt: computedAt > 0 ? new Date(computedAt).toISOString() : null };
 }
 
 function assertRows(rows, expected, label) {
@@ -351,9 +567,9 @@ async function deliverForRecord(group, deliver, now, beforeSend) {
   const outcomes = [];
   for (const delivery of group.deliveries) {
     if (record.active === false || !(await beforeSend(group))) break;
-    const outcome = await deliver(record, delivery.payload, delivery.deliveryId);
+    const outcome = await deliver(record, delivery.payload, delivery.deliveryId, delivery.event);
     const at = now();
-    outcomes.push({ chokepointId: delivery.payload.chokepointId, sources: delivery.sources, outcome, at });
+    outcomes.push({ stateField: delivery.stateField, sources: delivery.sources, outcome, at });
     record = settleRecord(record, outcome, at);
     if (!outcome.ok) break;
   }
@@ -395,11 +611,13 @@ async function writeWorkerStatus(redis, fence, summary, now) {
     fetchedAt,
     recordCount: summary.subscribers,
     sourceState: summary.sourceState,
+    riskSourceState: summary.riskSourceState,
     deliveries: summary.deliveries,
     failures: summary.failures,
     deactivated: summary.deactivated,
     pruned: summary.pruned,
     scoresFetchedAt: summary.scoresFetchedAt,
+    riskFetchedAt: summary.riskFetchedAt,
   };
   const status = {
     lastRunAt: fetchedAt,
@@ -407,6 +625,7 @@ async function writeWorkerStatus(redis, fence, summary, now) {
     deliveries: summary.deliveries,
     failures: summary.failures,
     scoresFetchedAt: summary.scoresFetchedAt,
+    riskFetchedAt: summary.riskFetchedAt,
   };
   const [written] = assertRows(await redis([[
     'EVAL', STATUS_WRITE_SCRIPT, '4', fence.key, WORKER_STATUS_KEY, WORKER_META_KEY, WORKER_ACTIVATION_KEY,
@@ -439,8 +658,10 @@ async function evaluate({ redis, lock, deliver, fetchImpl, env, now }) {
     return rows[1].result === group.raw;
   };
   const status = await readChokepointStatus({ redis, fetchImpl, env });
+  const riskScores = await readRiskScores({ redis, fetchImpl, env });
   const summary = {
     sourceState: 'ok',
+    riskSourceState: riskScores ? 'ok' : 'error',
     subscribers: 0,
     deliveries: 0,
     failures: 0,
@@ -448,10 +669,15 @@ async function evaluate({ redis, lock, deliver, fetchImpl, env, now }) {
     pruned: 0,
     backfilled: 0,
     scoresFetchedAt: status?.fetchedAt || null,
+    riskFetchedAt: riskScores?.fetchedAt || null,
     source: status?.source ?? null,
+    riskSource: riskScores?.source ?? null,
   };
-  if (!status) {
-    summary.sourceState = 'error';
+  // Each event is evaluated against its own feed: a chokepoint outage must not
+  // hold back a country.risk_surge that could settle before the feed returns.
+  // Only when neither feed is readable is there nothing to do this tick.
+  if (!status) summary.sourceState = 'error';
+  if (!status && !riskScores) {
     await writeWorkerStatus(redis, fence, summary, now);
     return summary;
   }
@@ -481,11 +707,13 @@ async function evaluate({ redis, lock, deliver, fetchImpl, env, now }) {
   const states = new Map(records.map((record, index) => [record.subscriberId, parseStateHash(stateRows[index])]));
 
   const { deliveries, nextStates } = planTick({
-    chokepoints: status.chokepoints,
+    chokepoints: status?.chokepoints ?? null,
+    riskScores,
     records,
     states,
     now: now(),
     scoresFetchedAt: summary.scoresFetchedAt,
+    riskFetchedAt: summary.riskFetchedAt,
   });
 
   // Persist each crossing's delivery id before sending, so a tick that dies
@@ -494,9 +722,9 @@ async function evaluate({ redis, lock, deliver, fetchImpl, env, now }) {
   const pendingStored = assertFenced(await runBatched(redis, groups, (group) => stateWrite(
     fence,
     group.record.subscriberId,
-    group.deliveries.flatMap(({ payload }) => [
-      payload.chokepointId,
-      JSON.stringify(nextStates.get(group.record.subscriberId)[payload.chokepointId]),
+    group.deliveries.flatMap(({ stateField }) => [
+      stateField,
+      JSON.stringify(nextStates.get(group.record.subscriberId)[stateField]),
     ]),
   ), 'pending write'));
 
@@ -513,11 +741,11 @@ async function evaluate({ redis, lock, deliver, fetchImpl, env, now }) {
     if (result.status !== 'fulfilled' || !result.value.outcomes.length) continue;
     const { record, outcomes } = result.value;
     const next = nextStates.get(record.subscriberId);
-    for (const { chokepointId, sources, outcome, at } of outcomes) {
+    for (const { stateField, sources, outcome, at } of outcomes) {
       summary.deliveries += 1;
       if (outcome.ok) {
-        const { pending: _pending, ...delivered } = next[chokepointId];
-        next[chokepointId] = { ...delivered, armed: false, lastDeliveredAt: new Date(at).toISOString(), sources };
+        const { pending: _pending, ...delivered } = next[stateField];
+        next[stateField] = { ...delivered, armed: false, lastDeliveredAt: new Date(at).toISOString(), sources };
       } else {
         summary.failures += 1;
       }
@@ -549,7 +777,7 @@ async function evaluate({ redis, lock, deliver, fetchImpl, env, now }) {
 export async function runTick({
   redis,
   lock,
-  deliver = (record, payload, deliveryId) => deliverShippingWebhook(record, payload, { deliveryId }),
+  deliver = (record, payload, deliveryId, event) => deliverShippingWebhook(record, payload, { deliveryId, event }),
   fetchImpl = globalThis.fetch,
   env = process.env,
   now = Date.now,

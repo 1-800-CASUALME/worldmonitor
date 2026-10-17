@@ -57,6 +57,30 @@ describe('shipping webhook delivery parity (TS sender vs Railway worker)', () =>
     assert.deepEqual(built.headers, ts.seen[0].headers);
   });
 
+  it('sends the same event header for a country.risk_surge delivery', async () => {
+    const riskPayload = {
+      subscriberId: record.subscriberId,
+      countryCode: 'IR',
+      countryName: 'Iran',
+      score: 84,
+      previousScore: 60,
+      delta24h: 24,
+      trend: 'TREND_DIRECTION_RISING',
+      advisoryLevel: 'do-not-travel',
+      triggeredAt: '2026-10-01T04:49:00.000Z',
+      reason: 'risk_surge',
+      details: { riseThreshold: 15, floor: 50 },
+    };
+    const ts = capture();
+    const mjs = capture();
+    await deliverShippingV2Webhook(record, riskPayload, { deliveryId: 'whd_parity2', event: 'country.risk_surge', fetchImpl: ts.fetchImpl, resolveHostname });
+    await deliverShippingWebhook(record, riskPayload, { deliveryId: 'whd_parity2', event: 'country.risk_surge', fetchImpl: mjs.fetchImpl, resolveHostname });
+    assert.deepEqual(mjs.seen, ts.seen);
+    assert.equal(ts.seen[0].headers['x-wm-event'], 'country.risk_surge');
+    // The default stays the chokepoint event for every caller that passes no event.
+    assert.equal(buildShippingWebhookDelivery({ record, payload, deliveryId: 'x' }).headers['x-wm-event'], 'chokepoint.disruption');
+  });
+
   it('generates delivery ids in the documented whd_<32 hex> shape', () => {
     assert.match(makeDeliveryId(), /^whd_[0-9a-f]{32}$/);
   });

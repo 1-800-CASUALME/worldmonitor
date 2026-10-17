@@ -52,6 +52,7 @@ describe('shipping webhook worker deployment registration', () => {
       'scripts/lib/main-module.mjs',
       'scripts/_seed-utils.mjs',
       'scripts/shared/compare-and-delete-script.cjs',
+      'scripts/shared/event-triggers.json',
       'scripts/nixpacks.toml',
       'scripts/package.json',
       'scripts/package-lock.json',
