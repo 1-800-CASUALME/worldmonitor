@@ -114,6 +114,9 @@ const PENDING_ENGLISH_REVIEW_KEYS = new Set([
   'livePreview.iframeTitle',
 ]);
 
+// Ceilings, not exact counts. Rewording an English value drops the count on its
+// own (the stale Persian copy stops matching the new English), so an exact count
+// would red every unrelated en.json copy edit. Lower the ceiling as fa improves.
 const TEMPORARY_LOCALE_EXEMPTIONS = {
   fa: 388,
 };
@@ -222,9 +225,9 @@ describe('pro locale freshness', () => {
         .sort();
       const exemption = TEMPORARY_LOCALE_EXEMPTIONS[locale];
       if (exemption !== undefined) {
-        if (unexplained.length !== exemption) {
+        if (unexplained.length > exemption) {
           violations.push(
-            locale + ' has ' + unexplained.length + ' unlisted English values, the frozen exemption is ' + exemption,
+            locale + ' has ' + unexplained.length + ' unlisted English values, above its ceiling of ' + exemption,
           );
         }
         continue;

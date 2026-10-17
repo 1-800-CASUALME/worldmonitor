@@ -261,7 +261,7 @@
     "fWebhook": "Webhook",
     "fSiemMcp": "+ SIEM/MCP",
     "fRestWebhook": "REST + webhook",
-    "fMcpBulk": "+ MCP + massa",
+    "fMcpBulk": "+ MCP + bulkexport",
     "fTensOfThousands": "+ tienduizenden",
     "fLiveTracking": "Live-tracking",
     "fPassAlerts": "Passage-alerts + analyse",
