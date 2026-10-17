@@ -104,6 +104,12 @@ export const PROVIDER_IDENTITY_GROUPS = Object.freeze({
     reason: 'The BGS OGC API supplies the observations and the BGS statistics page supplies the required public attribution link.',
     reviewReference: 'Issue #6449 commodity-vulnerability provenance review',
   }),
+  'al-jazeera': Object.freeze({
+    provider: 'Al Jazeera',
+    memberHosts: Object.freeze(['aljazeera.com', 'www.aljazeera.com']),
+    reason: 'The Al Jazeera feed host and its Google News site: search name one publisher.',
+    reviewReference: 'PR #9237 follow-up: 2026-10-17 /verify audit, Al Jazeera claim-pool depth',
+  }),
   bbc: Object.freeze({
     provider: 'BBC',
     memberHosts: Object.freeze(['feeds.bbci.co.uk', 'www.bbc.com']),
@@ -311,6 +317,9 @@ const PROVIDER_OVERRIDES = {
   'dhakatribune.com': publisherMetadataFeed('Dhaka Tribune'),
   // Major publishers after the 2026-10-16 Google News World audit; Google News site: feeds.
   'nytimes.com': publisherMetadataFeed('The New York Times'),
+  // Al Jazeera's claim-pool depth search (2026-10-17 /verify audit).
+  'aljazeera.com': { ...publisherMetadataFeed('Al Jazeera'), identityGroup: 'al-jazeera' },
+  'www.aljazeera.com': { provider: 'Al Jazeera', identityGroup: 'al-jazeera' },
   'washingtonpost.com': publisherMetadataFeed('The Washington Post'),
   'economist.com': publisherMetadataFeed('The Economist'),
   'independent.co.uk': publisherMetadataFeed('The Independent'),
@@ -961,13 +970,13 @@ const PROVIDER_OVERRIDES = {
 // a provider-bearing override a separate, explicit lifecycle event instead of
 // something `--write` can silently normalize into the manifest.
 export const PROVIDER_IDENTITY_REVIEW = Object.freeze({
-  sha256: '4a4f5416be777a6942a6a84063fbe0b8ee506dcbc0c6a4db687a5f684a60d371',
-  reason: 'Preserve reviewed provider identities, register the two official NASA FIRMS Area API hosts as one provider identity, name TradingView as the provider behind the S&P 500 breadth screener scan that replaced the WAF-blocked Barchart quote pages, exclude the Sentry error-tracking host that the resolve-pin audit reads, group the JODI publication catalog with its existing data host, and name the eight major publishers carried as Google News site: feeds after the 2026-10-16 Google News World audit.',
+  sha256: 'ace7a4f4bd03926ae24e52ea9bee002e6213c7d1b425b5cb2d0b92957eafdc0d',
+  reason: 'Preserve reviewed provider identities, register the two official NASA FIRMS Area API hosts as one provider identity, name TradingView as the provider behind the S&P 500 breadth screener scan that replaced the WAF-blocked Barchart quote pages, exclude the Sentry error-tracking host that the resolve-pin audit reads, group the JODI publication catalog with its existing data host, and name the eight major publishers carried as Google News site: feeds after the 2026-10-16 Google News World audit, and group the Al Jazeera feed host with the host of its Google News site: search as one Al Jazeera provider.',
   // A URL cited here is scanned like any other: this file sits inside
   // SOURCE_ROOTS, so citing a host that is not already a registered source
   // invents a provider row for it. The B.C. catalogue URLs above are safe
   // because that host is itself an observed source; parallel.ai is not.
-  reviewReference: 'Issue #6449 BGS provenance review; plus Issue #7371 country corpus identity review; plus Issue #7005 IMD cyclone/marine source-rights probe; plus Issues #7012, #7036, and #6682 Toronto safety sources; plus PR #7576 source migration review; plus Issue #7000 publisher-centric source catalog; plus Issue #7001, Issue #6437, Issue #6622, Issue #6659, PR #6447, the 2026-09-01 FAOSTAT transport identity review, the 2026-09-04 FIRMS partial-coverage incident, and the 2026-09-05 Barchart WAF outage that moved S&P 500 breadth to the TradingView screener scan; plus Issue #7838, which added the read-only Sentry resolve-pin audit; plus PR #8394 JODI publication catalog lineage.',
+  reviewReference: 'Issue #6449 BGS provenance review; plus Issue #7371 country corpus identity review; plus Issue #7005 IMD cyclone/marine source-rights probe; plus Issues #7012, #7036, and #6682 Toronto safety sources; plus PR #7576 source migration review; plus Issue #7000 publisher-centric source catalog; plus Issue #7001, Issue #6437, Issue #6622, Issue #6659, PR #6447, the 2026-09-01 FAOSTAT transport identity review, the 2026-09-04 FIRMS partial-coverage incident, and the 2026-09-05 Barchart WAF outage that moved S&P 500 breadth to the TradingView screener scan; plus Issue #7838, which added the read-only Sentry resolve-pin audit; plus PR #8394 JODI publication catalog lineage; plus the 2026-10-17 /verify audit that added the Al Jazeera claim-pool depth search.',
 });
 
 export function providerIdentityDigest(providerOverrides = PROVIDER_OVERRIDES) {
@@ -1227,7 +1236,8 @@ export function scanUpstreamHosts(rootDir = ROOT) {
       for (const match of source.matchAll(/\bgn(?:Locale)?\(\s*(["'`])([\s\S]*?)\1/g)) {
         const lineStart = source.lastIndexOf('\n', match.index ?? 0) + 1;
         const beforeMatch = source.slice(lineStart, match.index ?? 0);
-        if (beforeMatch.includes('//')) continue;
+        // A `//` after a colon is a URL scheme earlier on the line, not a comment.
+        if (/(?:^|[^:])\/\//.test(beforeMatch)) continue;
         for (const publisherHost of googleNewsPublisherHosts(match[2])) {
           recordHost(publisherHost, 'feed', relativePath);
         }

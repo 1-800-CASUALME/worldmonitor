@@ -412,6 +412,7 @@ const HOST_ORIGINS = Object.freeze({
   'www.africanews.com': null,
   'www.aajtak.in': 'IN',
   'www.alarabiya.net': 'SA',
+  'aljazeera.com': 'QA',
   'www.aljazeera.com': 'QA',
   'www.aljazeera.net': 'QA',
   'www.alphavantage.co': 'US',

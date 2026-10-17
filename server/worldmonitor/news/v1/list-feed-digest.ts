@@ -3032,6 +3032,19 @@ async function writeStoryTracking(
   }
 }
 
+/**
+ * A digest feed's own result. In the full variant a feed's depthUrl is
+ * fetched alongside it so its cache entry stays warm for claim search; its
+ * items never reach the digest, and its failure never fails the feed.
+ */
+async function fetchDigestFeed(feed: ServerFeed, variant: string, signal: AbortSignal): Promise<ParseResult> {
+  const depth = variant === 'full' && feed.depthUrl
+    ? fetchAndParseRss({ name: feed.name, url: feed.depthUrl, ...(feed.lang ? { lang: feed.lang } : {}) }, variant, signal).catch(() => null)
+    : null;
+  const [result] = await Promise.all([fetchAndParseRss(feed, variant, signal), depth]);
+  return result;
+}
+
 function buildDigestFeedBatches(variant: string, lang: string): {
   allEntries: DigestFeedEntry[];
   batches: DigestFeedEntry[][];
@@ -3111,7 +3124,7 @@ async function buildDigest(
       deadlineController.signal,
       async (entry) => {
         const { category, feed } = entry;
-        const result = await fetchAndParseRss(feed, variant, deadlineController.signal);
+        const result = await fetchDigestFeed(feed, variant, deadlineController.signal);
         const outcome = classifyFeedAttempt(true, result.attempt ?? {
           source: 'cache', failure: null, negativeCache: false,
         }, {
@@ -3585,6 +3598,7 @@ export const __testing__ = {
   recoverFailedAttempt,
   shouldStartDigestAttempt,
   buildDigestFeedBatches,
+  fetchDigestFeed,
   parseRssXml,
   isTrustedOriginAggregator,
   decodeXmlEntities,

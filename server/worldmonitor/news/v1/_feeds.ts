@@ -9,6 +9,12 @@ export interface ServerFeed {
    * default selection.
    */
   deadlinePriority?: number;
+  /**
+   * A deeper feed for the same publisher, fetched with this one in the full
+   * variant and cached under its own URL. Only claim search (/verify,
+   * verify_claim) reads it; the digest and panels never see its items.
+   */
+  depthUrl?: string;
 }
 
 export function isServerFeedReachableForLanguage(
@@ -217,7 +223,13 @@ export const VARIANT_FEEDS: Record<string, Record<string, ServerFeed[]>> = {
     ],
     middleeast: [
       { name: 'BBC Middle East', url: 'https://feeds.bbci.co.uk/news/world/middle_east/rss.xml' },
-      { name: 'Al Jazeera', url: 'https://www.aljazeera.com/xml/rss/all.xml' },
+      // The native feed holds 25 entries, about ten hours; the Google News
+      // search holds 100 over two days (2026-10-17 /verify audit).
+      {
+        name: 'Al Jazeera',
+        url: 'https://www.aljazeera.com/xml/rss/all.xml',
+        depthUrl: gn('site:aljazeera.com when:2d'),
+      },
       // Theater coverage preset (#5956) - English regional sources.
       { name: 'Al Arabiya', url: gn('site:english.alarabiya.net when:2d') },
       { name: 'Guardian ME', url: 'https://www.theguardian.com/world/middleeast/rss' },
