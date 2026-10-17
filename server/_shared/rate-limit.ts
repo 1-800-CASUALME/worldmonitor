@@ -606,6 +606,8 @@ export const ENDPOINT_RATE_POLICIES: Record<string, EndpointRatePolicy> = {
   // #9094 /verify fact-check lookup: public, and a cache miss spends the
   // Google Fact Check Tools API quota.
   '/api/news/v1/search-fact-checks': { limit: 20, window: '60 s' },
+  // /verify claim search: public; a cache miss reads every feed cache.
+  '/api/news/v1/search-claim-headlines': { limit: 30, window: '60 s' },
   '/api/aviation/v1/track-aircraft': { limit: 30, window: '60 s' },
   '/api/aviation/v1/list-aircraft-emergencies': { limit: 20, window: '60 s' },
   '/api/aviation/v1/search-google-flights': { limit: 30, window: '60 s' },
@@ -1011,6 +1013,9 @@ export const FAIL_CLOSED_ENDPOINT_RATE_POLICY_REQUIRED: Record<string, RateLimit
   },
   '/api/news/v1/search-fact-checks': {
     reason: 'Public fact-check lookup proxies the quota-limited Google Fact Check Tools API on cache misses (#9094).',
+  },
+  '/api/news/v1/search-claim-headlines': {
+    reason: 'Public claim search reads every full-variant RSS feed cache on a pool miss.',
   },
   '/api/leads/v1/submit-contact': {
     reason: 'Lead capture writes to Convex and sends email.',

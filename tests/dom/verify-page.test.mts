@@ -1,40 +1,51 @@
 /**
- * #9092: the /verify page. It reads the public digest once, builds the same
- * card the verify_claim MCP tool returns, and never calls a claim true or false.
+ * #9092: the /verify page. It searches the fresh headlines for the claim,
+ * builds the same card the verify_claim MCP tool returns, and never calls a
+ * claim true or false.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FACT_CHECK_LABEL, renderClaimCardHtml, renderFactChecksHtml } from '@/components/claim-card';
-import { checkClaim, claimDigestFromBody, FACT_CHECKS_URL, VERIFY_DIGEST_URL, type FactCheckResult } from '@/services/verify-claim';
+import { checkClaim, claimSearchFromBody, CLAIM_HEADLINES_URL, FACT_CHECKS_URL, type ClaimSearch, type FactCheckResult } from '@/services/verify-claim';
 import { FACT_CHECK_CAVEAT, FACT_CHECK_LABEL as SERVER_FACT_CHECK_LABEL } from '../../server/_shared/fact-checks';
-import { isPublicSharedRpcRequest } from '@/shared/public-rpc-cache';
-import { buildClaimCard } from '../../server/_shared/claim-match';
+import { buildClaimCard, claimCandidates } from '../../server/_shared/claim-match';
 
 const NOW = Date.parse('2026-10-09T21:00:00Z');
 const T0 = Date.parse('2026-10-09T18:00:00Z');
 
-function proto(source: string, title: string, link: string, publishedAt = T0) {
-  return { source, title, link, publishedAt, isAlert: false };
+function row(source: string, title: string, link: string, publishedAt = T0) {
+  return { source, title, link, publishedAt };
 }
 
-const BODY = {
-  generatedAt: '2026-10-09T20:55:00.000Z',
-  categories: {
-    world: {
-      items: [
-        proto('Reuters', 'Trump strikes diesel deal with Putin', 'https://n.test/1'),
-        proto('BBC World', 'Trump says Russia will supply diesel in deal with Putin', 'https://n.test/2', T0 + 3_600_000),
-        proto('Reuters World', 'Panama earthquake: 12 dead, toll expected to rise', 'https://n.test/3'),
-        proto('Reuters', 'Panama earthquake: 12 dead, toll expected to rise', 'https://n.test/4'),
-        proto('RT', 'Kremlin hails <b>diesel</b> deal with Trump as Putin win', 'javascript:alert(1)'),
-      ],
-    },
-    // The same story in a second category must count once.
-    europe: { items: [proto('Reuters', 'Trump strikes diesel deal with Putin', 'https://n.test/1')] },
-  },
-};
+// The fresh headlines the fake server searches.
+const POOL = [
+  row('Reuters', 'Trump strikes diesel deal with Putin', 'https://n.test/1'),
+  row('BBC World', 'Trump says Russia will supply diesel in deal with Putin', 'https://n.test/2', T0 + 3_600_000),
+  row('Reuters World', 'Panama earthquake: 12 dead, toll expected to rise', 'https://n.test/3'),
+  row('Reuters', 'Panama earthquake: 12 dead, toll expected to rise', 'https://n.test/4'),
+  row('RT', 'Kremlin hails <b>diesel</b> deal with Trump as Putin win', 'javascript:alert(1)'),
+  row('Al Jazeera', 'Floods close schools across Kerala', 'https://n.test/6'),
+];
+const POOL_CORE = POOL.map((item) => ({ ...item, pubDate: new Date(item.publishedAt), isAlert: false }));
+
+// What the server answers for a claim: its candidates, ranked by the real claimCandidates.
+function searchBody(claim: string) {
+  return {
+    headlines: claim ? claimCandidates(claim, POOL_CORE).map(({ source, title, link, publishedAt }) => ({ source, title, link, publishedAt })) : [],
+    searchedHeadlines: POOL.length,
+    searchedFeeds: 5,
+    feedTotal: 5,
+    feedCached: 5,
+    state: 'complete',
+    readAt: '2026-10-09T20:55:00.000Z',
+  };
+}
+
+function search(claim: string): ClaimSearch {
+  return claimSearchFromBody(searchBody(claim))!;
+}
 
 // The real page markup, parsed (not regex-stripped), without its entry script.
 function pageBody(): string {
@@ -44,24 +55,23 @@ function pageBody(): string {
 }
 
 describe('claim card on /verify', () => {
-  const digest = claimDigestFromBody(BODY);
-
-  it('reads the digest on its public, caller-invariant cache key', () => {
-    expect(isPublicSharedRpcRequest(new URL(VERIFY_DIGEST_URL, 'https://www.worldmonitor.app'))).toBe(true);
-  });
-
-  it('dedupes digest items across categories', () => {
-    expect(digest.items).toHaveLength(5);
-    expect(digest.generatedAt).toBe(BODY.generatedAt);
+  it('a search that did not run is no search, never an empty one', () => {
+    expect(claimSearchFromBody({ ...searchBody('x'), state: 'unavailable' })).toBeNull();
+    expect(claimSearchFromBody({ ...searchBody('x'), searchedHeadlines: 0 })).toBeNull();
+    expect(search('Trump strikes diesel deal with Putin')).toMatchObject({ searched: 6, feeds: 5, readAt: '2026-10-09T20:55:00.000Z' });
   });
 
   it('builds exactly the card the MCP tool builds', () => {
     const claim = 'Trump strikes diesel deal with Putin';
-    expect(checkClaim(`  ${claim}  `, digest)).toEqual(buildClaimCard(claim, digest.items));
+    const found = search(claim);
+    expect(found.items.map((item) => item.link)).not.toContain('https://n.test/6');
+    expect(checkClaim(`  ${claim}  `, found)).toEqual(buildClaimCard(claim, found.items, found.searched));
+    // The candidates give the same card as the whole pool.
+    expect(checkClaim(claim, found)).toEqual(buildClaimCard(claim, POOL_CORE));
   });
 
   it('corroborated: names the independent publishers, flags state media, and drops unsafe links', () => {
-    const html = renderClaimCardHtml(checkClaim('Trump strikes diesel deal with Putin', digest), NOW);
+    const html = renderClaimCardHtml(checkClaim('Trump strikes diesel deal with Putin', search('Trump strikes diesel deal with Putin')), NOW);
     const host = document.createElement('div');
     host.innerHTML = html;
     expect(host.querySelector('.vc-card')?.classList.contains('vc-corroborated')).toBe(true);
@@ -75,7 +85,7 @@ describe('claim card on /verify', () => {
 
   it('one publisher on two feeds is single-publisher, and an unstated figure is listed as not stated', () => {
     const host = document.createElement('div');
-    host.innerHTML = renderClaimCardHtml(checkClaim('Panama earthquake kills 200', digest), NOW);
+    host.innerHTML = renderClaimCardHtml(checkClaim('Panama earthquake kills 200', search('Panama earthquake kills 200')), NOW);
     expect(host.querySelector('.vc-card')?.classList.contains('vc-single')).toBe(true);
     expect(host.querySelector('.vc-verdict-title')?.textContent).toBe('Only one publisher is reporting this');
     expect(host.querySelector('.fig-ungrounded')?.textContent).toContain('200');
@@ -83,7 +93,7 @@ describe('claim card on /verify', () => {
   });
 
   it('a claim nobody carries is not found, and the page never says false or fake', () => {
-    const html = renderClaimCardHtml(checkClaim('Mars colony declares independence from Earth', digest), NOW);
+    const html = renderClaimCardHtml(checkClaim('Mars colony declares independence from Earth', search('Mars colony declares independence from Earth')), NOW);
     const host = document.createElement('div');
     host.innerHTML = html;
     expect(host.querySelector('.vc-verdict-title')?.textContent).toBe('Not in WorldMonitor\'s current sources');
@@ -154,10 +164,14 @@ describe('published fact-checks on /verify (#9094)', () => {
   });
 });
 
-// Digest reads get the digest, fact-check lookups get FACT_CHECKS.
+
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+const isSearch = (input: unknown) => String(input).startsWith(`${CLAIM_HEADLINES_URL}?`);
+const claimOf = (input: unknown) => new URL(String(input), 'https://www.worldmonitor.app').searchParams.get('claim') ?? '';
+
+// Claim searches get the fake server's answer, fact-check lookups get FACT_CHECKS.
 async function defaultFetch(input: unknown): Promise<Response> {
-  const body = String(input).startsWith(FACT_CHECKS_URL) ? FACT_CHECKS : BODY;
-  return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  return json(String(input).startsWith(FACT_CHECKS_URL) ? FACT_CHECKS : searchBody(claimOf(input)));
 }
 
 describe('/verify page bootstrap', () => {
@@ -176,18 +190,18 @@ describe('/verify page bootstrap', () => {
     document.body.innerHTML = '';
   });
 
-  const digestCalls = () => fetchMock.mock.calls.filter(([input]) => String(input) === VERIFY_DIGEST_URL);
+  const searchCalls = () => fetchMock.mock.calls.filter(([input]) => isSearch(input));
   const factCheckCalls = () => fetchMock.mock.calls.filter(([input]) => String(input).startsWith(FACT_CHECKS_URL));
 
-  it('checks the ?claim= link on load with one public digest read', async () => {
+  it('checks the ?claim= link on load with one public claim search', async () => {
     history.replaceState(null, '', '/verify?claim=Trump%20strikes%20diesel%20deal%20with%20Putin');
     await import('@/verify-main');
     await vi.waitFor(() => expect(document.querySelector('.vc-card')).not.toBeNull());
     expect((document.getElementById('claimInput') as HTMLTextAreaElement).value).toBe('Trump strikes diesel deal with Putin');
     expect(document.querySelector('.vc-card')?.classList.contains('vc-corroborated')).toBe(true);
-    expect(document.getElementById('digestStatus')?.textContent).toMatch(/^Searching 5 live headlines from 4 feeds/);
-    expect(digestCalls()).toHaveLength(1);
-    expect(digestCalls()[0]![1]).toMatchObject({ credentials: 'omit' });
+    expect(document.getElementById('digestStatus')?.textContent).toMatch(/^Searching 6 live headlines from 5 feeds/);
+    expect(searchCalls().map(([input]) => String(input))).toEqual([`${CLAIM_HEADLINES_URL}?claim=Trump%20strikes%20diesel%20deal%20with%20Putin`]);
+    expect(searchCalls()[0]![1]).toMatchObject({ credentials: 'omit' });
     // #9094: one fact-check lookup for the claim, rendered below the coverage card.
     expect(factCheckCalls().map(([input]) => String(input))).toEqual([`${FACT_CHECKS_URL}?claim=Trump%20strikes%20diesel%20deal%20with%20Putin`]);
     expect(factCheckCalls()[0]![1]).toMatchObject({ credentials: 'omit' });
@@ -196,26 +210,34 @@ describe('/verify page bootstrap', () => {
     expect(card.compareDocumentPosition(document.querySelector('.vc-factchecks')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('a submitted claim updates the shareable URL and reuses the loaded digest', async () => {
+  it('without a claim it shows the counts; a submitted claim searches for it and updates the shareable URL', async () => {
     history.replaceState(null, '', '/verify');
     await import('@/verify-main');
-    await vi.waitFor(() => expect(document.getElementById('digestStatus')?.textContent).toMatch(/^Searching/));
+    await vi.waitFor(() => expect(document.getElementById('digestStatus')?.textContent).toMatch(/^Searching 6 live headlines/));
+    expect(searchCalls().map(([input]) => claimOf(input))).toEqual(['']);
     (document.getElementById('claimInput') as HTMLTextAreaElement).value = 'Panama earthquake kills 200';
     (document.getElementById('verifyForm') as HTMLFormElement).requestSubmit();
     await vi.waitFor(() => expect(document.querySelector('.vc-card')).not.toBeNull());
     expect(new URLSearchParams(location.search).get('claim')).toBe('Panama earthquake kills 200');
     expect(document.querySelector('.vc-card')?.classList.contains('vc-single')).toBe(true);
-    expect(digestCalls()).toHaveLength(1);
+    expect(searchCalls().map(([input]) => claimOf(input))).toEqual(['', 'Panama earthquake kills 200']);
+  });
+
+  it('a claim the search finds nothing for is not found, not unknown', async () => {
+    history.replaceState(null, '', '/verify?claim=Mars%20colony%20declares%20independence');
+    await import('@/verify-main');
+    await vi.waitFor(() => expect(document.querySelector('.vc-verdict-title')).not.toBeNull());
+    expect(document.querySelector('.vc-verdict-title')?.textContent).toBe('Not in WorldMonitor\'s current sources');
   });
 
   it('navigating away from a pending check drops its result', async () => {
     let release!: () => void;
-    let holdDigest = true;
+    let hold = true;
     fetchMock.mockImplementation((input: unknown) => {
-      if (String(input) !== VERIFY_DIGEST_URL || !holdDigest) return defaultFetch(input);
-      holdDigest = false;
+      if (!isSearch(input) || !hold) return defaultFetch(input);
+      hold = false;
       return new Promise<Response>((resolve) => {
-        release = () => resolve(new Response(JSON.stringify(BODY), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        release = () => resolve(json(searchBody(claimOf(input))));
       });
     });
     history.replaceState(null, '', '/verify?claim=Trump%20strikes%20diesel%20deal%20with%20Putin');
@@ -230,6 +252,28 @@ describe('/verify page bootstrap', () => {
     expect((document.getElementById('verifySubmit') as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it('an older search that finishes after a newer one failed does not overwrite the status', async () => {
+    let release!: () => void;
+    fetchMock.mockImplementation((input: unknown) => {
+      if (!isSearch(input)) return defaultFetch(input);
+      const claim = claimOf(input);
+      if (claim === 'Trump strikes diesel deal with Putin') {
+        return new Promise<Response>((resolve) => { release = () => resolve(json(searchBody(claim))); });
+      }
+      return Promise.resolve(json({}, 503));
+    });
+    history.replaceState(null, '', '/verify?claim=Trump%20strikes%20diesel%20deal%20with%20Putin');
+    await import('@/verify-main');
+    (document.getElementById('claimInput') as HTMLTextAreaElement).value = 'Panama earthquake kills 200';
+    (document.getElementById('verifyForm') as HTMLFormElement).requestSubmit();
+    await vi.waitFor(() => expect(document.querySelector('.vc-error')).not.toBeNull());
+    expect(document.getElementById('digestStatus')?.textContent).toBe('The live headlines are unavailable right now.');
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(document.getElementById('digestStatus')?.textContent).toBe('The live headlines are unavailable right now.');
+    expect(document.querySelector('.vc-card')).toBeNull();
+  });
+
   it('shows the claim as it is checked: trimmed, then capped', async () => {
     const long = `   ${'diesel '.repeat(60)}`;
     history.replaceState(null, '', `/verify?claim=${encodeURIComponent(long)}`);
@@ -239,29 +283,28 @@ describe('/verify page bootstrap', () => {
     await vi.waitFor(() => expect(document.querySelector('.vc-claim')?.textContent).toBe(`“${value}”`));
   });
 
-  it('a failed digest read shows an error, not a verdict, and retries on the next check', async () => {
-    let failDigest = true;
-    fetchMock.mockImplementation(async (input: unknown) => {
-      if (String(input) === VERIFY_DIGEST_URL && failDigest) {
-        failDigest = false;
-        return new Response('{}', { status: 503 });
-      }
-      return defaultFetch(input);
-    });
+  it('a failed or unavailable search shows an error, not a verdict, and the next check searches again', async () => {
+    const failures = [json({}, 503), json({ ...searchBody(''), state: 'unavailable', searchedHeadlines: 0 })];
+    fetchMock.mockImplementation(async (input: unknown) => (isSearch(input) && failures.length ? failures.shift()! : defaultFetch(input)));
     history.replaceState(null, '', '/verify?claim=Trump%20strikes%20diesel%20deal');
     await import('@/verify-main');
     await vi.waitFor(() => expect(document.querySelector('.vc-error')).not.toBeNull());
     expect(document.querySelector('.vc-card')).toBeNull();
+    expect(document.getElementById('digestStatus')?.textContent).toBe('The live headlines are unavailable right now.');
+    (document.getElementById('verifyForm') as HTMLFormElement).requestSubmit();
+    await vi.waitFor(() => expect(searchCalls()).toHaveLength(2));
+    await vi.waitFor(() => expect(document.querySelector('.vc-error')).not.toBeNull());
+    expect(document.querySelector('.vc-verdict-title')).toBeNull();
     (document.getElementById('verifyForm') as HTMLFormElement).requestSubmit();
     await vi.waitFor(() => expect(document.querySelector('.vc-card')).not.toBeNull());
-    expect(digestCalls().length).toBeGreaterThanOrEqual(2);
+    expect(searchCalls()).toHaveLength(3);
   });
 
   it('the coverage card does not wait for fact-checks, and a failed lookup is shown as not checked', async () => {
     let release!: () => void;
     fetchMock.mockImplementation((input: unknown) => String(input).startsWith(FACT_CHECKS_URL)
       ? new Promise<Response>((resolve) => { release = () => resolve(new Response('{}', { status: 503 })); })
-      : Promise.resolve(new Response(JSON.stringify(BODY), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+      : defaultFetch(input));
     history.replaceState(null, '', '/verify?claim=Trump%20strikes%20diesel%20deal%20with%20Putin');
     await import('@/verify-main');
     await vi.waitFor(() => expect(document.querySelector('.vc-card')).not.toBeNull());

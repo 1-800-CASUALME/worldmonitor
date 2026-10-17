@@ -26016,6 +26016,90 @@ paths:
                                 oneOf:
                                     - $ref: '#/components/schemas/Error'
                                     - $ref: '#/components/schemas/GatewayError'
+    /api/news/v1/search-claim-headlines:
+        get:
+            tags:
+                - NewsService
+            summary: SearchClaimHeadlines
+            description: SearchClaimHeadlines returns the fresh headlines from every configured feed that share a claim's words, so the /verify page and verify_claim can build its coverage card.
+            operationId: SearchClaimHeadlines
+            security: []
+            parameters:
+                - name: claim
+                  in: query
+                  description: The claim or headline, up to 300 characters. Empty returns only the counts.
+                  required: false
+                  example: "example"
+                  schema:
+                    type: string
+                - name: jmespath
+                  in: query
+                  description: |-
+                    Optional JMESPath expression applied server-side to project or reduce the JSON response before it is returned (mirrors the MCP jmespath argument). Invalid expressions, expressions larger than 1024 UTF-8 bytes, or projections that exceed the 256 KB output cap return HTTP 400 with a {_jmespath_error, original_keys} envelope. Grammar and worked examples: https://www.worldmonitor.app/docs/mcp-jmespath.
+                  required: false
+                  example: "keys(@)"
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            example:
+                                "feedCached": 241
+                                "feedTotal": 241
+                                "headlines":
+                                    - "link": "https://example.com/news/synthetic-example"
+                                      "publishedAt": 1768478400000
+                                      "source": "Example Feed"
+                                      "title": "Synthetic example headline sharing the claim's words"
+                                "readAt": "2026-01-15T12:00:00.000Z"
+                                "searchedFeeds": 216
+                                "searchedHeadlines": 4140
+                                "state": "complete"
+                            schema:
+                                $ref: '#/components/schemas/worldmonitor_news_v1_SearchClaimHeadlinesResponse'
+                "400":
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/ValidationError'
+                                    - $ref: '#/components/schemas/JmespathProjectionError'
+                "429":
+                    description: Rate limit exceeded.
+                    headers:
+                        X-RateLimit-Limit:
+                            description: Maximum requests allowed in the active rate-limit window.
+                            schema:
+                                type: string
+                        X-RateLimit-Remaining:
+                            description: Requests remaining in the active rate-limit window.
+                            schema:
+                                type: string
+                        X-RateLimit-Reset:
+                            description: Unix epoch milliseconds when the active rate-limit window resets.
+                            schema:
+                                type: string
+                        Retry-After:
+                            description: Seconds to wait before retrying the request.
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/Error'
+                                    - $ref: '#/components/schemas/RateLimitError'
+                default:
+                    description: Gateway or handler error response.
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: '#/components/schemas/Error'
+                                    - $ref: '#/components/schemas/GatewayError'
     /api/positive-events/v1/list-positive-geo-events:
         get:
             tags:
@@ -54230,6 +54314,60 @@ components:
                     type: string
                     description: 'The claim the fact-checker rated: similar to the claim searched, not necessarily the same.'
             description: FactCheck is one rating an IFCN-verified fact-checker published about a similar claim, cited with attribution.
+        worldmonitor_news_v1_SearchClaimHeadlinesRequest:
+            type: object
+            properties:
+                claim:
+                    type: string
+                    maxLength: 300
+                    description: The claim or headline, up to 300 characters. Empty returns only the counts.
+            description: SearchClaimHeadlinesRequest names the claim to search fresh headlines for.
+        worldmonitor_news_v1_SearchClaimHeadlinesResponse:
+            type: object
+            properties:
+                headlines:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/worldmonitor_news_v1_ClaimHeadline'
+                searchedHeadlines:
+                    type: integer
+                    format: int32
+                    description: Fresh headlines searched.
+                searchedFeeds:
+                    type: integer
+                    format: int32
+                    description: Feeds those headlines came from.
+                feedTotal:
+                    type: integer
+                    format: int32
+                    description: Configured full-variant English feeds.
+                feedCached:
+                    type: integer
+                    format: int32
+                    description: Feeds whose parsed cache was available.
+                state:
+                    type: string
+                    description: complete | partial | unavailable. Unavailable searched nothing.
+                readAt:
+                    type: string
+                    description: When the feed caches were read, ISO 8601.
+            description: SearchClaimHeadlinesResponse holds the headlines that share the claim's words, for building its coverage card.
+        worldmonitor_news_v1_ClaimHeadline:
+            type: object
+            properties:
+                source:
+                    type: string
+                    description: Registered feed name.
+                title:
+                    type: string
+                link:
+                    type: string
+                    description: Article URL; empty when the ingest gate removed it.
+                publishedAt:
+                    type: integer
+                    format: int64
+                    description: 'Publication time in Unix epoch milliseconds.. Warning: Values > 2^53 may lose precision in JavaScript'
+            description: ClaimHeadline is one fresh headline from a configured feed.
         worldmonitor_positive_events_v1_ListPositiveGeoEventsRequest:
             type: object
         worldmonitor_positive_events_v1_ListPositiveGeoEventsResponse:
