@@ -23,8 +23,7 @@ beforeEach(() => {
   fetched = [];
   globalThis.fetch = (async (input, init) => {
     fetched.push(String(input));
-    const url = String(input);
-    if (url.startsWith('https://redis.example')) return redis.fetchImpl(input, init);
+    if (new URL(String(input)).host === 'redis.example') return redis.fetchImpl(input, init);
     return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
   }) as typeof fetch;
 });
