@@ -45,6 +45,12 @@ const { fetchUserPreferences, extractUserContext, formatUserProfile } = require(
 const { fetchFollowedCountries } = require('./lib/followed-countries-fetch.cjs');
 const { Resend } = require('resend');
 const { normalizeResendSender } = require('./lib/resend-from.cjs');
+const {
+  appendUnsubscribeText,
+  injectUnsubscribeFooterHtml,
+  listUnsubscribeHeaders,
+  unsubscribeUrlFor,
+} = require('./lib/email-unsubscribe.cjs');
 import { readRawJsonFromUpstash, redisPipeline } from '../api/_upstash-json.js';
 import { classifyFeelGood } from '../server/_shared/feelgood-classifier.js';
 import { classifyEphemeralLiveCoverage } from '../shared/ephemeral-live-classifier.js';
@@ -1180,6 +1186,7 @@ function formatDigestHtml(stories, nowMs) {
       <p style="font-size: 10px; color: #444; margin: 0; line-height: 1.5;">
         <a href="https://worldmonitor.app" style="color: #4ade80; text-decoration: none;">worldmonitor.app</a>
       </p>
+      <p style="font-size: 10px; color: #444; margin: 8px 0 0; line-height: 1.5;"><!--wm-unsubscribe-slot--></p>
     </div>
   </div>
 </div>`;
@@ -1409,11 +1416,18 @@ async function sendDiscord(userId, webhookEnvelope, text) {
   }
 }
 
-async function sendEmail(email, subject, text, html) {
+async function sendEmail(email, subject, text, html, channel = null) {
   if (!resend) { console.warn('[digest] Email: RESEND_API_KEY not set — skipping'); return false; }
   try {
-    const payload = { from: RESEND_FROM, to: email, subject, text };
-    if (html) payload.html = html;
+    // One-click unsubscribe (RFC 8058) header + visible footer link, from the
+    // pre-signed URL /relay/channels put on the email channel. Without one the
+    // footer falls back to the Settings page.
+    const unsubscribeUrl = unsubscribeUrlFor(channel, 'brief');
+    const label = 'Unsubscribe from the daily brief';
+    const payload = { from: RESEND_FROM, to: email, subject, text: appendUnsubscribeText(text, unsubscribeUrl, label) };
+    if (html) payload.html = injectUnsubscribeFooterHtml(html, unsubscribeUrl, label);
+    const headers = listUnsubscribeHeaders(unsubscribeUrl);
+    if (headers) payload.headers = headers;
     await resend.emails.send(payload);
     console.log(`[digest] Email delivered to ${email}`);
     return true;
@@ -2645,7 +2659,7 @@ async function main() {
       } else if (ch.channelType === 'discord' && ch.webhookEnvelope) {
         ok = await sendDiscord(rule.userId, ch.webhookEnvelope, discordText);
       } else if (ch.channelType === 'email' && ch.email) {
-        ok = await sendEmail(ch.email, subject, text, html);
+        ok = await sendEmail(ch.email, subject, text, html, ch);
       } else if (ch.channelType === 'webhook' && ch.webhookEnvelope) {
         // Webhook payload's `summary` field reads the canonical
         // briefLead — same string the email exec block + magazine

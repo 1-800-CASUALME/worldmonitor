@@ -11,12 +11,16 @@ import { internal } from "../_generated/api";
 import { PRODUCT_CATALOG } from "../config/productCatalog";
 import { buildCancellationConfirmEmail } from "./cancellationEmailCopy";
 import { signDunningPortalToken } from "../lib/identitySigning";
+import { buildUnsubscribeUrl, listUnsubscribeHeaders } from "../lib/emailUnsubscribe";
 import { billingDeletionForEvent, billingDeletionForUser, isCoveringAt } from "./subscriptionHelpers";
 
 export { formatAccessEndDate } from "./cancellationEmailCopy";
 
 const RESEND_URL = "https://api.resend.com/emails";
 const FROM = "World Monitor <noreply@worldmonitor.app>";
+// Marketing sender (audit check 4): winback is a marketing email, so it goes
+// from news@ like the launch broadcast, with a one-click unsubscribe.
+const MARKETING_FROM = "World Monitor <news@worldmonitor.app>";
 const ADMIN_EMAIL = "elie@worldmonitor.app";
 
 const PLAN_DISPLAY: Record<string, string> = {
@@ -49,13 +53,15 @@ async function sendEmail(
   subject: string,
   html: string,
   replyTo?: string,
+  extra?: { from?: string; headers?: Record<string, string> },
 ): Promise<void> {
   // FROM is a noreply address, so the welcome email's "Reply to this email"
   // support copy only routes correctly when we explicitly set reply_to on the
   // Resend payload. Admin notifications pass no replyTo so replies don't
   // self-loop back to ADMIN_EMAIL.
-  const payload: Record<string, unknown> = { from: FROM, to: [to], subject, html };
+  const payload: Record<string, unknown> = { from: extra?.from ?? FROM, to: [to], subject, html };
   if (replyTo) payload.reply_to = replyTo;
+  if (extra?.headers) payload.headers = extra.headers;
   const res = await fetch(RESEND_URL, {
     method: "POST",
     headers: {
@@ -730,7 +736,10 @@ export const recordDunningStepSent = internalMutation({
   },
 });
 
-function dunningEmailShell(headline: string, bodyHtml: string, ctaLabel: string, ctaHref: string, footerNote: string): string {
+function dunningEmailShell(headline: string, bodyHtml: string, ctaLabel: string, ctaHref: string, footerNote: string, unsubscribeUrl?: string | null): string {
+  const unsubscribeLine = unsubscribeUrl
+    ? `<a href="${escapeHtml(unsubscribeUrl)}" style="color: #666; text-decoration: underline;">Unsubscribe from World Monitor product emails</a><br />`
+    : "";
   return `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #e0e0e0;">
   <div style="background: #f59e0b; height: 4px;"></div>
@@ -757,7 +766,7 @@ function dunningEmailShell(headline: string, bodyHtml: string, ctaLabel: string,
   <div style="border-top: 1px solid #1a1a1a; padding: 24px 32px; text-align: center;">
     <p style="font-size: 11px; color: #444; margin: 0; line-height: 1.6;">
       ${footerNote}<br />
-      <a href="https://worldmonitor.app" style="color: #f59e0b; text-decoration: none;">worldmonitor.app</a>
+      ${unsubscribeLine}<a href="https://worldmonitor.app" style="color: #f59e0b; text-decoration: none;">worldmonitor.app</a>
     </p>
   </div>
 </div>`;
@@ -773,6 +782,7 @@ export function buildDunningEmail(
   ctaUrl: string,
   accessUntil?: number,
   paidUntil?: number,
+  unsubscribeUrl?: string | null,
 ): { subject: string; html: string } {
   const stillCovered = typeof accessUntil === "number" && accessUntil > Date.now();
   // Access can outlive the paid period (a comp grant), so the "ends with your
@@ -838,6 +848,7 @@ export function buildDunningEmail(
           "Rejoin World Monitor",
           ctaUrl,
           "This is a one-time note — we won't send more emails about this subscription.",
+          unsubscribeUrl,
         ),
       };
   }
@@ -1129,6 +1140,12 @@ export const sendDunningEmail = internalAction({
     }
 
     const planName = PLAN_DISPLAY[fresh.sub.planKey] ?? fresh.sub.planKey;
+    // Winback is marketing: one-click unsubscribe (RFC 8058) + footer link,
+    // sent from news@. Null when EMAIL_UNSUBSCRIBE_SECRET is unset.
+    const isWinback = args.step === "winback_day30";
+    const unsubscribeUrl = isWinback
+      ? await buildUnsubscribeUrl(fresh.sub.userId, "marketing")
+      : null;
     const { subject, html } = buildDunningEmail(
       args.step,
       planName,
@@ -1137,8 +1154,16 @@ export const sendDunningEmail = internalAction({
         ? fresh.sub.currentPeriodEnd
         : Math.max(fresh.sub.currentPeriodEnd, fresh.sub.entitlementCoveredUntil),
       fresh.sub.currentPeriodEnd,
+      unsubscribeUrl,
     );
-    await sendEmail(apiKey, fresh.sub.email, subject, html, ADMIN_EMAIL);
+    await sendEmail(
+      apiKey,
+      fresh.sub.email,
+      subject,
+      html,
+      ADMIN_EMAIL,
+      isWinback ? { from: MARKETING_FROM, headers: listUnsubscribeHeaders(unsubscribeUrl) } : undefined,
+    );
     // Ledger write AFTER the send: a Resend failure throws above, leaving no
     // row, so the next cron tick retries. The narrow crash window between
     // send and record risks one duplicate email — the right side to err on.
