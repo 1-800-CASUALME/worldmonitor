@@ -234,7 +234,7 @@ describe("winback", () => {
     await t.finishAllScheduledFunctions(vi.runAllTimers);
 
     const sends = fetchMock.mock.calls
-      .filter(([url]) => String(url).includes("api.resend.com"))
+      .filter(([url]) => String(url) === "https://api.resend.com/emails")
       .map(([, init]) => JSON.parse(String((init as RequestInit).body)));
     expect(sends).toHaveLength(1);
     const send = sends[0];
@@ -272,7 +272,7 @@ describe("winback", () => {
     await t.mutation(internal.payments.subscriptionEmails.runDunningScan, {});
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     const sends = fetchMock.mock.calls
-      .filter(([url]) => String(url).includes("api.resend.com"))
+      .filter(([url]) => String(url) === "https://api.resend.com/emails")
       .map(([, init]) => JSON.parse(String((init as RequestInit).body)));
     expect(sends.length).toBeGreaterThan(0);
     for (const send of sends) {
