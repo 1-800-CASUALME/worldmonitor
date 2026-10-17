@@ -1148,12 +1148,15 @@ describe("unserved-LLM marker on the remaining metered handlers", () => {
     return { ctx: { request } as never, request };
   }
 
-  test("country brief marks an invalid country code as unserved", async () => {
-    const { ctx, request } = handlerCtx("https://www.worldmonitor.app/api/intelligence/v1/get-country-intel-brief?country_code=ZZZ");
-    const res = await getCountryIntelBrief(ctx, { countryCode: "ZZZ" } as never);
-
-    expect(res.brief).toBe("");
-    expect(drainUnservedLlmResponse(request)).toBe(true);
+  // A 400 releases the reservation on status alone ("a handler 400 response
+  // releases the reservation"), so a rejected code needs no unserved marker.
+  test.each(["ZZZ", "ZZ"])("country brief rejects country code %s with a 400 before any read", async (code) => {
+    const { ctx } = handlerCtx(`https://www.worldmonitor.app/api/intelligence/v1/get-country-intel-brief?country_code=${code}`);
+    await expect(getCountryIntelBrief(ctx, { countryCode: code } as never)).rejects.toMatchObject({
+      name: "ValidationError",
+      violations: [{ field: "country_code" }],
+    });
+    expect(cachedFetchJson).not.toHaveBeenCalled();
   });
 
   test("country brief marks a failed LLM path as unserved", async () => {

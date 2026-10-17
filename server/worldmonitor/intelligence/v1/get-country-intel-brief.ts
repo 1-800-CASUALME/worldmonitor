@@ -5,7 +5,10 @@ import type {
   GetCountryIntelBriefRequest,
   GetCountryIntelBriefResponse,
 } from '../../../../src/generated/server/worldmonitor/intelligence/v1/service_server';
+import { ValidationError } from '../../../../src/generated/server/worldmonitor/intelligence/v1/service_server';
 
+import { isAssignedCountryCode } from '../../../../shared/country-code-resolve';
+import { countryDisplayName } from '../../../../shared/country-mention.js';
 import { cachedFetchJson, getCachedJson } from '../../../_shared/redis';
 import { displayNameForIso2 } from '../../../_shared/country-normalize';
 import { UPSTREAM_TIMEOUT_MS, TIER1_COUNTRIES, sha256Hex } from './_shared';
@@ -28,9 +31,8 @@ import {
 const INTEL_CACHE_TTL = 21600;
 
 // Anonymous cache keys are minted from caller-controlled inputs, so both
-// dimensions must be bounded: ISO-2 country code and a well-formed BCP-47-ish
-// lang tag. Anything else gets the empty response / the 'en' brief.
-const COUNTRY_CODE_RE = /^[A-Za-z]{2}$/;
+// dimensions must be bounded: an assigned ISO-2 country code and a
+// well-formed BCP-47-ish lang tag. Any other lang gets the 'en' brief.
 const LANG_RE = /^[a-z]{2}(-[a-z]{2})?$/;
 
 
@@ -338,7 +340,14 @@ export async function getCountryIntelBrief(
     return empty;
   };
 
-  if (!req.countryCode || !COUNTRY_CODE_RE.test(req.countryCode)) return unserved();
+  // The proto checks shape only. An unassigned code such as ZZ would otherwise
+  // read Redis, mint a cache key, and reach the LLM with the code as the name.
+  if (!isAssignedCountryCode(req.countryCode?.toUpperCase() ?? '')) {
+    throw new ValidationError([{
+      field: 'country_code',
+      description: 'country_code must be an assigned ISO 3166-1 alpha-2 code, e.g. "IQ".',
+    }]);
+  }
 
   const isPremium = await isCallerPremium(ctx.request);
 
@@ -416,7 +425,8 @@ export async function getCountryIntelBrief(
   const countryCode = req.countryCode.toUpperCase();
   const countryName = TIER1_COUNTRIES[countryCode]
     || displayNameForIso2(countryCode)
-    || req.countryCode;
+    || countryDisplayName(countryCode)
+    || countryCode;
   const dateStr = new Date().toISOString().split('T')[0];
 
   const fallbackSystemPrompt = `You are a senior intelligence analyst. Current date: ${dateStr}.
