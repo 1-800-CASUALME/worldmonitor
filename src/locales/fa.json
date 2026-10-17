@@ -303,7 +303,8 @@
       "trainedIndustrialWorkforce": "Combined industrial workforce",
       "manufacturingShare": "Manufacturing employment",
       "source": "Sources: {{sources}}.",
-      "retained": "{{stage}} data retained from the last successful refresh."
+      "retained": "{{stage}} data retained from the last successful refresh.",
+      "statusNotSupplied": "وضعیت برآورد و جایگذاری مقادیر گمشده ارائه نشده است"
     },
     "fiveFactorScorecard": {
       "title": "کارت امتیازدهی تاب‌آوری پنج‌عاملی",

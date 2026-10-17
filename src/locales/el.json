@@ -234,7 +234,8 @@
       "trainedIndustrialWorkforce": "Combined industrial workforce",
       "manufacturingShare": "Manufacturing employment",
       "source": "Sources: {{sources}}.",
-      "retained": "{{stage}} data retained from the last successful refresh."
+      "retained": "{{stage}} data retained from the last successful refresh.",
+      "statusNotSupplied": "Δεν παρέχεται κατάσταση εκτίμησης και συμπλήρωσης τιμών"
     },
     "fiveFactorScorecard": {
       "title": "Σκορκαρντ Ανθεκτικότητας Πέντε Παράγοντων",
