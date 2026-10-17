@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import ts from 'typescript';
 import { COUNTRY_RISK_APP_HTML } from '../api/mcp/ui/country-risk-app';
 import { buildPluginShell } from '../api/mcp/ui/_plugin-loader';
 
@@ -9,9 +10,10 @@ type HostCall = { name: string; arguments: Record<string, unknown> };
 type ViewReceipt = { applied?: boolean; view?: { renderer?: string; source?: string; map_layers?: string[] }; center: { lat: number; lon: number } | null; map: { zoom: number }; renderer?: { mode: string }; viewport?: { settled: boolean; interruptedBy?: string } };
 type NewsInteraction = { kind: string; link: string; title: string; source: string; displayLabel: string };
 type NewsContext = { applied?: boolean; reason?: string; latestInteraction?: NewsInteraction | null; view: Record<string, unknown>; categoryLabel?: string; center?: { lat: number; lon: number } | null; map?: { zoom: number } };
-async function installNewsHost(page: Page, deniedInitially = false, serverTools = true, fixture: boolean | string[] = false, modelContext = true, observeCamera = false, initialView: Record<string, unknown> = { map_layers: ['natural'] }, observeRenderer = false) {
+async function installNewsHost(page: Page, deniedInitially = false, serverTools = true, fixture: boolean | string[] | 'blank-search' | 'windowed-search' = false, modelContext = true, observeCamera = false, initialView: Record<string, unknown> = { map_layers: ['natural'] }, observeRenderer = false, admissionExpiresAt?: string, observeSearch = true) {
   const selectionFixture = fixture === true;
-  let categoryIds = Array.isArray(fixture) ? fixture : ['world'];
+  const blankSearch = fixture === 'blank-search' || fixture === 'windowed-search';
+  let categoryIds = Array.isArray(fixture) ? fixture : blankSearch ? ['world', 'financial'] : ['world'];
   const calls: HostCall[] = [];
   const contexts: NewsContext[] = [];
   const methods: string[] = [];
@@ -30,10 +32,44 @@ async function installNewsHost(page: Page, deniedInitially = false, serverTools 
   const successfulRefreshes = new Set<string>();
   const article = { title: 'Controlled earthquake report in Japan', source: 'Fixture publisher', link: 'https://example.com/news', publishedAt: Date.now(), location: { latitude: 35, longitude: 139 }, isAlert: true };
   let articles = selectionFixture ? [article, { ...article, source: 'Second publisher', link: 'https://example.com/second', location: { latitude: 35, longitude: 70 } }, { ...article, title: 'Tokyo earthquake controlled report', source: 'Approximate publisher', link: 'https://example.com/approximate', location: undefined }, { ...article, title: 'Alternate loaded headline in Brazil', source: 'Repeated URL publisher', link: 'https://example.com/second', location: { latitude: -15, longitude: -47 } }, { ...article, source: 'Same URL publisher', link: 'https://example.com/second', location: { latitude: 30, longitude: 31 } }] : [article];
+  if (blankSearch) articles = [{ ...article, title: 'Unlinked selection headline', source: 'First publisher', link: '', location: undefined }, { ...article, title: 'Unlinked selection headline', source: 'Second publisher', link: '', location: undefined }, { ...article, title: 'Linked control headline', location: undefined }];
+  if (fixture === 'windowed-search') articles = [...Array.from({ length: 23 }, (_, index) => ({ ...article, title: `Qzx${index} Vbn${index} Plo${index}`, source: `Window publisher ${index}`, link: `https://example.com/filler/${index}`, publishedAt: Date.now() + index * 1000, location: undefined })), ...articles.slice(0, 2)];
   await page.route('**/plugin/assets/**', async route => {
     const assetName = new URL(route.request().url()).pathname.split('/').at(-1)!;
     const path = join(process.cwd(), 'dist/plugin/assets', assetName);
     const headers = { 'Access-Control-Allow-Origin': '*' };
+    if (blankSearch && observeSearch && assetName.startsWith('plugin-') && assetName.endsWith('.js')) {
+      const source = await readFile(path, 'utf8');
+      const parsed = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+      const classes: Record<string, string> = {};
+      const visit = (node: ts.Node) => {
+        if (ts.isClassDeclaration(node) && node.name) {
+          for (const member of node.members) {
+            if (member.name && ts.isIdentifier(member.name)) classes[member.name.text] = node.name.text;
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(parsed);
+      for (const method of ['registerSource', 'renderNews', 'setNewsLocations']) expect(classes[method]).toBeTruthy();
+      const observation = `
+        const register = ${classes.registerSource}.prototype.registerSource;
+        ${classes.registerSource}.prototype.registerSource = function(...args) {
+          globalThis.__newsSearch = this;
+          return register.apply(this, args);
+        };
+        const render = ${classes.renderNews}.prototype.renderNews;
+        ${classes.renderNews}.prototype.renderNews = function(...args) {
+          (globalThis.__newsPanels ??= new Map()).set(this.panelId, this);
+          return render.apply(this, args);
+        };
+        const locations = ${classes.setNewsLocations}.prototype.setNewsLocations;
+        ${classes.setNewsLocations}.prototype.setNewsLocations = function(...args) {
+          globalThis.__newsMap = this;
+          return locations.apply(this, args);
+        };`;
+      return route.fulfill({ body: source + observation, contentType: 'text/javascript', headers });
+    }
     if (observeRenderer && assetName.startsWith('plugin-') && assetName.endsWith('.js')) {
       const source = await readFile(path, 'utf8');
       const binding = /([$\w]+)\.onCountryClicked\(([$\w]+)=>/;
@@ -86,7 +122,7 @@ async function installNewsHost(page: Page, deniedInitially = false, serverTools 
       const id = String(params.arguments.request_id ?? 'initial');
       if (!successfulRefreshes.has(id)) { units++; successfulRefreshes.add(id); }
       const { refresh: _refresh, request_id: _id, ...requestedView } = params.arguments;
-      snapshot = { categories: Object.fromEntries(categoryIds.map((category, index) => [category, { items: index === 0 ? articles : [] }])), coverage: { state: 'complete', servedStale: false }, requestedView, panelRequest: { panel: 'news', token: `news.controlled-${units}`, expiresAt: new Date(Date.now() + 300000).toISOString(), reused: false, usage: { used: units, limit: 50, remaining: 50 - units, resetsAt: '2026-10-03T00:00:00.000Z', unit: 'requests' } } };
+      snapshot = { categories: Object.fromEntries(categoryIds.map((category, index) => [category, { items: index === 0 ? articles : blankSearch ? [{ ...articles.find(item => item.source === 'Second publisher')! }, { ...article, title: 'Unrelated hidden headline', source: 'Hidden publisher', link: '', location: undefined }] : [] }])), coverage: { state: 'complete', servedStale: false }, requestedView, panelRequest: { panel: 'news', token: `news.controlled-${units}`, expiresAt: admissionExpiresAt ?? new Date(Date.now() + 300000).toISOString(), reused: false, usage: { used: units, limit: 50, remaining: 50 - units, resetsAt: '2026-10-03T00:00:00.000Z', unit: 'requests' } } };
       return { structuredContent: snapshot };
     }
     if (params.name === 'get_natural_disasters') {
@@ -142,6 +178,178 @@ async function useSvgNewsMap(page: Page) {
     } as typeof original;
   });
 }
+
+for (const expired of [false, true]) {
+  test(`Search reveals the exact second blank-link article with ${expired ? 'past' : 'future'} admission`, async ({ page }, info) => {
+    await useSvgNewsMap(page);
+    const host = await installNewsHost(page, false, true, 'blank-search', true, false, { map_layers: [] }, false, new Date(Date.now() + (expired ? -60_000 : 300_000)).toISOString());
+    const frame = page.frameLocator('iframe');
+    await expect(frame.getByRole('combobox', { name: 'News source' })).toBeVisible();
+    await frame.getByRole('combobox', { name: 'News category' }).selectOption('world');
+    await frame.locator('body').evaluate(() => {
+      const panels = (globalThis as unknown as { __newsPanels: Map<string, { clusteredMode: boolean }> }).__newsPanels;
+      for (const panel of panels.values()) panel.clusteredMode = false;
+    });
+    await frame.getByRole('combobox', { name: 'News source' }).selectOption('First publisher');
+    await frame.getByRole('combobox', { name: 'News source' }).selectOption('');
+    const calls = host.calls.length;
+    const navigations: string[] = [];
+    page.on('popup', popup => navigations.push(popup.url()));
+    const location = page.url();
+    await frame.getByRole('button', { name: 'Search news', exact: true }).click();
+    await frame.locator('.search-input').fill('Second publisher');
+    await expect(frame.locator('.search-result-item[data-index]')).toHaveCount(1);
+    await frame.locator('.search-result-item[data-index]').filter({ hasText: 'Second publisher' }).click();
+    const expected = { kind: 'news-article', link: '', title: 'Unlinked selection headline', source: 'Second publisher', displayLabel: 'Unlinked selection headline' };
+    await expect.poll(() => host.contexts.at(-1)?.latestInteraction).toEqual(expected);
+    const selected = frame.locator('.panel:not([hidden]) .item').filter({ has: frame.locator('.item-source', { hasText: 'Second publisher' }) });
+    await expect(selected).toHaveClass(/search-highlight/);
+    await expect(selected).toBeInViewport();
+    await expect(selected.locator('span.item-title')).toHaveText(expected.title);
+    await expect(selected.locator('.item-title')).not.toHaveAttribute('href');
+    await expect(frame.locator('.item').filter({ has: frame.locator('.item-source', { hasText: 'First publisher' }) })).not.toHaveClass(/search-highlight/);
+    await expect(frame.locator('.panel[hidden] .search-highlight')).toHaveCount(0);
+    const beforeBlankTool = JSON.parse(JSON.stringify(host.contexts));
+    expect((await newsAction(page, 'focus_news_article', { link: '' })).isError).toBe(true);
+    expect(host.contexts).toEqual(beforeBlankTool);
+    await frame.getByRole('button', { name: 'Search news', exact: true }).click();
+    await frame.locator('.search-input').fill('Linked control headline');
+    await frame.locator('.search-result-item[data-index]').click();
+    await expect.poll(() => host.contexts.at(-1)?.latestInteraction?.link).toBe('https://example.com/news');
+    expect(host.calls).toHaveLength(calls);
+    expect(host.calls.map(call => call.name)).toEqual(['open_news_dashboard']);
+    expect(host.methods).not.toContain('ui/message');
+    expect(page.url()).toBe(location);
+    expect(navigations).toEqual([]);
+    await writeFile(info.outputPath('blank-search-selection.json'), JSON.stringify({ contexts: host.contexts, calls: host.calls, expired, navigations }, null, 2));
+    await page.screenshot({ path: info.outputPath('blank-search-selected.png'), fullPage: true });
+  });
+}
+
+for (const width of [1280, 390]) {
+test(`Search reveals the secondary blank-link member at row 23 in a windowed panel at ${width}px`, async ({ page }, info) => {
+  await page.setViewportSize({ width, height: 1200 });
+  await useSvgNewsMap(page);
+  const host = await installNewsHost(page, false, true, 'windowed-search', true, false, { map_layers: [] });
+  const frame = page.frameLocator('iframe');
+  await expect(frame.getByRole('combobox', { name: 'News source' })).toBeVisible();
+  await frame.getByRole('combobox', { name: 'News category' }).selectOption('world');
+  await expect.poll(() => frame.locator('body').evaluate(() => {
+    const probe = globalThis as unknown as { __newsPanels: Map<string, { lastRawClusters: Array<{ allItems: Array<{ source: string }> }> | null }> };
+    return probe.__newsPanels.get('world')?.lastRawClusters?.length;
+  })).toBe(24);
+  const target = await frame.locator('body').evaluate(() => {
+    const probe = globalThis as unknown as { __newsPanels: Map<string, { lastRawClusters: Array<{ id: string; allItems: Array<{ source: string }> }> }> };
+    const clusters = probe.__newsPanels.get('world')!.lastRawClusters;
+    const index = clusters.findIndex(cluster => cluster.allItems.some(item => item.source === 'Second publisher'));
+    return { id: clusters[index]!.id, index };
+  });
+  expect(target.index).toBe(23);
+  const beforeCalls = host.calls.length;
+  await frame.getByRole('button', { name: 'Search news', exact: true }).click();
+  await frame.locator('.search-input').fill('Second publisher');
+  await frame.locator('.search-result-item[data-index]').click();
+  await expect.poll(() => host.contexts.at(-1)?.latestInteraction).toMatchObject({ link: '', title: 'Unlinked selection headline', source: 'Second publisher' });
+  const row = frame.locator('.panel:not([hidden]) .item.clustered').filter({ has: frame.locator('.item-title', { hasText: 'Unlinked selection headline' }) });
+  await expect(row).toHaveAttribute('data-cluster-id', target.id);
+  await expect(row).toHaveClass(/search-highlight/);
+  await expect(row).toBeInViewport();
+  await expect.poll(() => row.evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    const clip = element.closest('.panel-content')!.getBoundingClientRect();
+    return bounds.top >= clip.top && bounds.bottom <= clip.bottom;
+  })).toBe(true);
+  await expect(row.locator('..')).toHaveAttribute('data-chunk', '2');
+  await expect(frame.locator('.panel[hidden] .search-highlight')).toHaveCount(0);
+  expect(host.calls).toHaveLength(beforeCalls);
+  await page.screenshot({ path: info.outputPath('windowed-search-row-23.png'), fullPage: true });
+  await writeFile(info.outputPath('windowed-search-row-23.json'), JSON.stringify({ target, contexts: host.contexts, calls: host.calls }, null, 2));
+});
+}
+
+for (const guard of ['stale', 'not-visible', 'generation', 'settlement-failure'] as const) {
+  test(`Search retains the ${guard} selection guard for blank-link articles`, async ({ page }, info) => {
+    await useSvgNewsMap(page);
+    const host = await installNewsHost(page, false, true, 'blank-search', true, false, { map_layers: [] });
+    const frame = page.frameLocator('iframe');
+    await expect(frame.getByRole('combobox', { name: 'News source' })).toBeVisible();
+    const before = JSON.parse(JSON.stringify(host.contexts));
+    let newerRefusal: ReturnType<typeof newsAction> | undefined;
+    await frame.locator('body').evaluate((_, guard) => {
+      type Article = { link: string; title: string; source: string; lat?: number; lon?: number };
+      const probe = globalThis as unknown as {
+        __newsSearch: { sources: Array<{ type: string; items: Array<{ id: string; data: Article }> }>; onSelect: (result: { id: string; data: Article }) => void };
+        __newsMap: { whenViewportSettled: (...args: unknown[]) => Promise<unknown> };
+        __selectedArticle: Article; __searchAwaiting: boolean; __releaseSearch: () => void;
+      };
+      const result = probe.__newsSearch.sources.find(source => source.type === 'news')!.items.find(item => item.data.source === 'Second publisher')!;
+      if (guard === 'stale') { probe.__newsSearch.onSelect({ ...result, data: { ...result.data } }); return; }
+      probe.__selectedArticle = result.data;
+      result.data.lat = 0; result.data.lon = 0;
+      const original = probe.__newsMap.whenViewportSettled.bind(probe.__newsMap);
+      probe.__newsMap.whenViewportSettled = async (...args) => {
+        const settled = await original(...args);
+        probe.__searchAwaiting = true;
+        await new Promise<void>(resolve => { probe.__releaseSearch = resolve; });
+        if (guard === 'settlement-failure') throw new Error('Controlled map settlement failure');
+        return settled;
+      };
+    }, guard);
+    if (guard !== 'stale') {
+      await frame.getByRole('button', { name: 'Search news', exact: true }).click();
+      await frame.locator('.search-input').fill('Second publisher');
+      await frame.locator('.search-result-item[data-index]').click();
+      await expect.poll(() => frame.locator('body').evaluate(() => Boolean((globalThis as unknown as { __searchAwaiting: boolean }).__searchAwaiting))).toBe(true);
+      if (guard === 'generation') {
+        const replacement = { ...host.snapshot };
+        delete replacement.requestedView;
+        await page.evaluate(structuredContent => document.querySelector('iframe')!.contentWindow!.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent } }, '*'), replacement);
+        await expect.poll(() => host.contexts.length).toBeGreaterThan(before.length);
+        newerRefusal = newsAction(page, 'apply_news_view', { category: 'Not loaded' });
+      }
+      await frame.locator('body').evaluate((_, guard) => {
+        const probe = globalThis as unknown as { __selectedArticle: { source: string }; __releaseSearch: () => void };
+        if (guard === 'not-visible') probe.__selectedArticle.source = 'No longer visible';
+        probe.__releaseSearch();
+      }, guard);
+    }
+    await expect(frame.locator('#pluginStatus')).toHaveText('The article location could not be applied.');
+    if (newerRefusal) {
+      expect((await newerRefusal).structuredContent).toMatchObject({ applied: false, reason: 'unknown_category' });
+      expect(host.contexts.at(-1)?.reason).toBe('unknown_category');
+    }
+    expect(host.contexts.every(context => !context.latestInteraction)).toBe(true);
+    if (guard === 'stale') expect(host.contexts).toEqual(before);
+    const refused = await newsAction(page, 'apply_news_view', { category: 'Not loaded' });
+    expect(refused.structuredContent).toMatchObject({ applied: false, reason: 'unknown_category', latestInteraction: null });
+    expect(host.contexts.at(-1)?.reason).toBe('unknown_category');
+    expect(host.calls.map(call => call.name)).toEqual(['open_news_dashboard']);
+    await writeFile(info.outputPath(`blank-search-${guard}.json`), JSON.stringify({ contexts: host.contexts, calls: host.calls }, null, 2));
+  });
+}
+
+test('blank-link markers retain exact loaded and visible membership checks', async ({ page }, info) => {
+  await useSvgNewsMap(page);
+  const host = await installNewsHost(page, false, true, 'blank-search', true, false, { map_layers: [] });
+  const frame = page.frameLocator('iframe');
+  await expect(frame.getByRole('combobox', { name: 'News source' })).toBeVisible();
+  const replacement = JSON.parse(JSON.stringify(host.snapshot));
+  delete replacement.requestedView;
+  replacement.categories.world.items[1].location = { latitude: 10, longitude: 20 };
+  await page.evaluate(structuredContent => document.querySelector('iframe')!.contentWindow!.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent } }, '*'), replacement);
+  await frame.getByRole('combobox', { name: 'News source' }).selectOption('Second publisher');
+  await expect(frame.locator('.news-location-marker')).toHaveCount(1);
+  const beforeInvalid = host.contexts.length;
+  await frame.locator('body').evaluate(() => {
+    const probe = globalThis as unknown as { __newsMap: { cachedOnNewsClicked: (item: object) => void } };
+    probe.__newsMap.cachedOnNewsClicked({ title: 'Unlinked selection headline', article: { link: '', title: 'Unlinked selection headline', source: 'Not loaded' } });
+  });
+  expect(host.contexts).toHaveLength(beforeInvalid);
+  await frame.locator('.news-location-marker').click();
+  await expect.poll(() => host.contexts.at(-1)?.latestInteraction).toMatchObject({ link: '', title: 'Unlinked selection headline', source: 'Second publisher' });
+  expect(host.calls.map(call => call.name)).toEqual(['open_news_dashboard']);
+  await writeFile(info.outputPath('blank-marker-membership.json'), JSON.stringify({ contexts: host.contexts, calls: host.calls }, null, 2));
+});
 
 test('loaded marker and search interactions retain original identity without data calls or prompts', async ({ page }, info) => {
   await useSvgNewsMap(page);
@@ -895,6 +1103,48 @@ for (const mobile of [false, true]) {
   });
 }
 
+
+test('snapshot-supplied located blank article cannot overwrite a newer queued category refusal', async ({ page }, info) => {
+  await useSvgNewsMap(page);
+  const host = await installNewsHost(page, false, true, 'blank-search', true, false, { map_layers: [] });
+  const frame = page.frameLocator('iframe');
+  await expect(frame.getByRole('combobox', { name: 'News source' })).toBeVisible();
+  const count = host.contexts.length;
+  const replacement = JSON.parse(JSON.stringify(host.snapshot));
+  delete replacement.requestedView;
+  replacement.categories.world.items[1].location = { latitude: 0, longitude: 0 };
+  await page.evaluate(structuredContent => document.querySelector('iframe')!.contentWindow!.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent } }, '*'), replacement);
+  await expect.poll(() => host.contexts.length).toBeGreaterThan(count);
+  const before = host.contexts.length;
+  await frame.locator('body').evaluate(() => {
+    const probe = globalThis as any;
+    const original = probe.__newsMap.whenViewportSettled.bind(probe.__newsMap);
+    probe.__newsMap.whenViewportSettled = async (...args: unknown[]) => {
+      const result = await original(...args);
+      probe.__sAwaiting = true;
+      await new Promise<void>(resolve => { probe.__sRelease = resolve; });
+      return result;
+    };
+    window.addEventListener('message', event => {
+      if (event.data?.method === 'tools/call' && event.data?.params?.name === 'apply_news_view' && event.data?.params?.arguments?.category === 'Not loaded') probe.__sRefusalQueued = true;
+    });
+  });
+  await frame.getByRole('button', { name: 'Search news', exact: true }).click();
+  await frame.locator('.search-input').fill('Second publisher');
+  await frame.locator('.search-result-item[data-index]').click();
+  await expect.poll(() => frame.locator('body').evaluate(() => Boolean((globalThis as any).__sAwaiting))).toBe(true);
+  const refused = newsAction(page, 'apply_news_view', { category: 'Not loaded' });
+  await expect.poll(() => frame.locator('body').evaluate(() => Boolean((globalThis as any).__sRefusalQueued))).toBe(true);
+  await frame.locator('body').evaluate(() => (globalThis as any).__sRelease());
+  const receipt = await refused;
+  await expect.poll(() => host.contexts.length).toBeGreaterThan(before);
+  await frame.locator('body').evaluate(() => new Promise<void>(resolve => setTimeout(resolve, 50)));
+  await writeFile(info.outputPath('snapshot-located-queued-refusal.json'), JSON.stringify({ receipt, before, contexts: host.contexts, calls: host.calls, status: await frame.locator('#pluginStatus').textContent() }, null, 2));
+  expect(receipt.structuredContent).toMatchObject({ applied: false, reason: 'unknown_category' });
+  expect(host.calls.map(call => call.name)).toEqual(['open_news_dashboard']);
+  expect(host.contexts.at(-1)?.reason).toBe('unknown_category');
+});
+
 type RendererProbeMap = {
   switchToFlat(): Promise<unknown>;
   whenRendererReady(): Promise<void>;
@@ -1598,4 +1848,34 @@ test('a newer category refusal supersedes an older pending human camera observat
   expect(host.calls).toHaveLength(callsBefore);
   await expect(frame.locator('#pluginCategoryNotice')).toContainText('missing');
   await expect(frame.getByRole('combobox', { name: 'News source' })).toHaveValue('');
+});
+
+
+test('aged default clustered Search keeps the exact selected row highlighted after its queued commit', async ({ page }, info) => {
+  await useSvgNewsMap(page);
+  const host = await installNewsHost(page, false, true, 'blank-search', true, false, { map_layers: [] }, false, undefined, false);
+  const frame = page.frameLocator('iframe');
+  await frame.getByRole('combobox', { name: 'News category' }).selectOption('world');
+  await expect(frame.locator('.panel:not([hidden]) .item.clustered')).toHaveCount(2);
+  await frame.getByRole('button', { name: 'Search news', exact: true }).click();
+  await frame.locator('.search-input').fill('Second publisher');
+  await expect(frame.locator('.search-result-item[data-index]')).toHaveCount(1);
+  await page.waitForTimeout(2200);
+  const started = Date.now();
+  await frame.locator('.search-result-item[data-index]').click();
+  await expect.poll(() => host.contexts.at(-1)?.latestInteraction).toMatchObject({ link: '', title: 'Unlinked selection headline', source: 'Second publisher' });
+  await page.waitForTimeout(500);
+  const row = frame.locator('.panel:not([hidden]) .item.clustered').filter({ has: frame.locator('.item-title', { hasText: 'Unlinked selection headline' }) });
+  await expect(row).toHaveClass(/search-highlight/);
+  await expect(row.locator('.item-title')).not.toHaveAttribute('href');
+  await expect(frame.locator('.panel[hidden] .search-highlight')).toHaveCount(0);
+  expect(host.calls.map(call => call.name)).toEqual(['open_news_dashboard']);
+  const geometry = await row.evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    const clip = element.closest('.panel-content')!.getBoundingClientRect();
+    return { row: bounds.toJSON(), clip: clip.toJSON(), inside: bounds.top >= clip.top && bounds.bottom <= clip.bottom };
+  });
+  expect(geometry.inside).toBe(true);
+  await writeFile(info.outputPath('aged-default-search.json'), JSON.stringify({ elapsed: Date.now() - started, geometry, contexts: host.contexts, calls: host.calls, assetsRewritten: false }, null, 2));
+  await page.screenshot({ path: info.outputPath('aged-default-search.png'), fullPage: true });
 });
