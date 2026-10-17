@@ -26,6 +26,7 @@ import {
   AGENT_TEXT_FILES,
   AGENT_USER_AGENTS,
   CORPUS_HOST,
+  DOCS_MARKDOWN_USER_AGENT_TOKENS,
   EDGE_CACHED_FAMILIES,
   ENTRY_DOCUMENTS,
   FAMILY_EXCLUSIONS,
@@ -148,7 +149,8 @@ function ruleClaims(expression) {
   for (const set of expression.matchAll(/http\.request\.uri\.path in \{([^}]*)\}/g)) {
     for (const literal of set[1].match(/"[^"]+"/g) ?? []) {
       const name = literal.slice(2, -1);
-      (name.includes('.') ? claims.files : claims.bare).add(name);
+      if (ENTRY_DOCUMENTS.includes(`/${name}`)) claims.documents.add(`/${name}`);
+      else (name.includes('.') ? claims.files : claims.bare).add(name);
     }
   }
   let current = null;
@@ -435,7 +437,7 @@ describe('cloudflare corpus cache rule', () => {
     );
     const lines = rule.expression.split('\n').map((line) => line.trim());
     const pathDisjunction = lines.lastIndexOf('and (');
-    const dashboard = lines.indexOf('or http.request.uri.path eq "/dashboard"');
+    const dashboard = lines.findIndex((line) => /or http\.request\.uri\.path in \{[^}]*"\/dashboard"/.test(line));
     const home = lines.indexOf('or (http.request.uri.path eq "/"');
     assert.ok(dashboard > pathDisjunction, '/dashboard must be claimed inside the path disjunction, behind the representation guard');
     assert.ok(home > pathDisjunction, '/ must be claimed inside the path disjunction, behind the representation guard');
@@ -468,25 +470,64 @@ describe('cloudflare corpus cache rule', () => {
     }
     assert.equal(
       (rule.expression.match(/http\.user_agent/g) ?? []).length,
-      AGENT_USER_AGENTS.length,
-      'the User-Agent carve-out belongs to the homepage claim alone: corpus, docs and blog answer one body per UA',
+      AGENT_USER_AGENTS.length + DOCS_MARKDOWN_USER_AGENT_TOKENS.length,
+      'User-Agent carve-outs belong to the homepage and the docs claims alone: corpus and blog answer one body per UA',
     );
     assert.ok(
-      lines.some((line) => line.trim() === 'or http.request.uri.path eq "/dashboard"'),
+      lines.some((line) => /or http\.request\.uri\.path in \{[^}]*"\/dashboard"/.test(line)),
       '/dashboard is UA-invariant and needs no carve-out',
     );
     for (const path of INDEXABLE_LANDING_ENTRY_PATHS) {
       assert.ok(
-        lines.some((line) => line.trim() === `or http.request.uri.path eq "${path}"`),
+        lines.some((line) => line.trim().startsWith('or http.request.uri.path in {') && line.includes(`"${path}"`)),
         `${path} is UA-invariant (middleware markdown rewrite is / only) and needs no carve-out`,
       );
     }
 
     // Nobody to carve out is a plain claim, never an empty `and not ( )` group,
     // which Cloudflare would reject at --apply time.
-    const nobody = buildCorpusCacheRule({ agents: [] }).expression;
-    assert.ok(nobody.includes('    or http.request.uri.path eq "/"\n'), 'an empty agent list claims the homepage unguarded');
+    const nobody = buildCorpusCacheRule({ agents: [], userAgentRoutedFamilies: {} }).expression;
+    assert.ok(nobody.includes('    or http.request.uri.path in {"/" '), 'an empty agent list claims the homepage unguarded');
     assert.ok(!nobody.includes('and not ('), 'no empty carve-out group');
+    assert.ok(
+      !buildCorpusCacheRule({ userAgentRoutedFamilies: { docs: [] } }).expression.includes('and not (\n      )'),
+      'an empty docs token list emits no empty group either',
+    );
+  });
+
+  it('keeps the agents Mintlify answers with noindex markdown off the docs claim', () => {
+    // Mintlify answers /docs/* with a markdown rendering carrying
+    // `x-robots-tag: noindex` when the User-Agent is one of its AI agents, even
+    // for `Accept: */*`. Measured 2026-10-16 with cache-busted URLs: ChatGPT-User,
+    // OAI-SearchBot, Claude-User, PerplexityBot, Perplexity-User, DuckAssistBot and
+    // MistralAI-User got text/markdown; Googlebot, bingbot, GPTBot, ClaudeBot and
+    // Claude-SearchBot got HTML. The Accept guard cannot see that, so one agent
+    // fetch stored the noindex markdown under the bare URL and Cloudflare served it
+    // to Googlebot and browsers for the TTL (bare /docs/sdks, /docs/api-reference,
+    // /docs/data-sources and /docs/api-notifications all observed so).
+    for (const token of ['chatgpt-user', 'oai-searchbot', 'claude-user', 'perplexity', 'duckassistbot', 'mistralai-user']) {
+      assert.ok(DOCS_MARKDOWN_USER_AGENT_TOKENS.includes(token), `${token} must be carved out of the docs claim`);
+    }
+    for (const indexer of ['googlebot', 'bingbot', 'gptbot', 'claudebot']) {
+      assert.ok(
+        !DOCS_MARKDOWN_USER_AGENT_TOKENS.some((token) => indexer.includes(token)),
+        `${indexer} gets HTML from Mintlify and must keep its docs cache hits`,
+      );
+    }
+
+    const lines = rule.expression.split('\n');
+    const docs = lines.findIndex((line) => line.trim() === 'or (starts_with(http.request.uri.path, "/docs/")');
+    assert.ok(docs > 0, 'the docs family must be claimed as its own guarded group');
+    let close = docs + 1;
+    while (close < lines.length && lines[close] !== '    )') close += 1;
+    const clause = lines.slice(docs, close + 1).join('\n');
+    assert.ok(clause.includes('and not ('), 'the docs claim must carve the markdown agents out');
+    for (const token of DOCS_MARKDOWN_USER_AGENT_TOKENS) {
+      assert.ok(clause.includes(`lower(http.user_agent) contains "${token}"`), `${token} carve-out must sit inside the docs group`);
+    }
+    for (const prefix of FAMILY_EXCLUSIONS.docs.prefixes) {
+      assert.ok(clause.includes(`not starts_with(http.request.uri.path, "/docs/${prefix}")`), `existing docs carve-out ${prefix} is kept`);
+    }
   });
 
   it('adopts a rule whose ref is Cloudflare\'s default — its own id', () => {

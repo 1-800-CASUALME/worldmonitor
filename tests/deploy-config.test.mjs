@@ -110,6 +110,7 @@ const GLOBAL_CSP_INLINE_SCRIPT_HTML_FILES = [
   'settings.html',
   'live-channels.html',
   'mcp-grant.html',
+  'verify.html',
   'public/offline.html',
   'public/pro/index.html',
   'public/pro/welcome.html',
@@ -119,6 +120,7 @@ const GLOBAL_CSP_EXTERNAL_SCRIPT_HTML_FILES = [
   'settings.html',
   'live-channels.html',
   'mcp-grant.html',
+  'verify.html',
   'public/pro/index.html',
   'public/pro/welcome.html',
 ];
@@ -389,6 +391,11 @@ const KNOWN_FRAME_WILDCARDS = [
   'https://*.custom.hs.dodopayments.com',
 ];
 const OPEN_CSP_SOURCES = ['*', 'https:', 'http:', 'data:', 'blob:'];
+const findOpenDesktopScriptSources = (tokens) => tokens.filter((token) =>
+  token === "'unsafe-inline'" || token === "'unsafe-eval'" ||
+  OPEN_CSP_SOURCES.includes(token) ||
+  (token.includes('*') && token !== 'https://*.clerk.accounts.dev')
+);
 // Exported-by-hoisting so the guard's own negative test can drive it directly
 // rather than asserting through the real config, which cannot show a widening.
 const findOpenFrameSources = (tokens) => tokens.filter((token) => {
@@ -660,6 +667,7 @@ describe('crawlable content corpus deployment contracts', () => {
       'docs/docs.json',
       'scripts/build-comparison-pages.mjs',
       'scripts/comparison-page-narratives.mjs',
+      'scripts/comparison-shortlist.mjs',
       'scripts/unranked-country-inventory.mjs',
       'scripts/build-use-cases.mjs',
       'scripts/build-accuracy-page.mjs',
@@ -669,6 +677,9 @@ describe('crawlable content corpus deployment contracts', () => {
       'scripts/generate-inventory-facts.mjs',
       'scripts/docs-stats.mjs',
       'scripts/source-attribution.mjs',
+      'scripts/country-related-links.mjs',
+      'scripts/data/country-centroids.json',
+      'scripts/related-reading.mjs',
     ]) {
       assert.equal(vercelIgnoreSource.split(`'${path}'`).length - 1, 2, `${path} must trigger main and preview builds`);
     }
@@ -694,6 +705,7 @@ describe('crawlable content corpus deployment contracts', () => {
         'docs/docs.json',
         'scripts/build-comparison-pages.mjs',
       'scripts/comparison-page-narratives.mjs',
+      'scripts/comparison-shortlist.mjs',
         'scripts/unranked-country-inventory.mjs',
         'scripts/build-use-cases.mjs',
         'scripts/build-accuracy-page.mjs',
@@ -703,6 +715,9 @@ describe('crawlable content corpus deployment contracts', () => {
         'scripts/generate-inventory-facts.mjs',
         'scripts/docs-stats.mjs',
         'scripts/source-attribution.mjs',
+        'scripts/country-related-links.mjs',
+        'scripts/data/country-centroids.json',
+        'scripts/related-reading.mjs',
       ]) {
         const previous = git('rev-parse', 'HEAD').trim();
         mkdirSync(dirname(join(fixture, path)), { recursive: true });
@@ -2524,7 +2539,7 @@ describe('security header guardrails', () => {
       const location = locationBlock.match(/^ {4}location ([^{]+)\{/)?.[1].trim() ?? '<unknown>';
       assert.match(
         locationBlock,
-        /include \/etc\/nginx\/(?:embed_)?security_headers\.conf;/,
+        /include \/etc\/nginx\/(?:embed_|oauth_authorize_|youtube_embed_)?security_headers\.conf;/,
         `docker/nginx.conf.template ${location} must include an origin-keying header set`,
       );
     }
@@ -2716,6 +2731,49 @@ describe('security header guardrails', () => {
       assert.ok(mediaSrc.includes(origin), `Tauri CSP media-src must allow ${origin} for sidecar media`);
     }
     assert.ok(mediaSrc.includes('https:'), 'Tauri CSP media-src must allow https: for direct HLS CDN streams');
+  });
+
+  it('desktop (Tauri) CSP admits the production Clerk Frontend API and Turnstile (#9134)', () => {
+    // loadClerkUmd() derives the script host from the publishable key, so a
+    // pk_live build loads clerk.browser.js and ui.browser.js from
+    // clerk.worldmonitor.app, not *.clerk.accounts.dev. Sign-up then loads
+    // Turnstile from challenges.cloudflare.com as a script and a frame.
+    const tauriConfig = JSON.parse(readFileSync(resolve(__dirname, '../src-tauri/tauri.conf.json'), 'utf-8'));
+    const tauriCsp = tauriConfig.app.security.csp;
+    const scriptSrc = getCspDirectiveTokens(tauriCsp, 'script-src');
+    const frameSrc = getCspDirectiveTokens(tauriCsp, 'frame-src');
+    for (const origin of ['https://clerk.worldmonitor.app', 'https://challenges.cloudflare.com']) {
+      assert.ok(scriptSrc.includes(origin), `Tauri CSP script-src must allow ${origin}`);
+      assert.ok(frameSrc.includes(origin), `Tauri CSP frame-src must allow ${origin}`);
+    }
+    assert.deepEqual(findOpenDesktopScriptSources(scriptSrc), [],
+      'Tauri CSP script-src must stay an exact-origin allowlist except for the known Clerk dev wildcard');
+  });
+
+  it('the desktop script-src guard rejects unsafe keywords and unapproved open sources', () => {
+    for (const widened of [
+      "'unsafe-inline'",
+      "'unsafe-eval'",
+      'https://*.example.com',
+      'http://*.example.com',
+      'https://*',
+      '*.example.com',
+      '*',
+      'https:',
+      'http:',
+      'data:',
+      'blob:',
+    ]) {
+      assert.deepEqual(findOpenDesktopScriptSources([widened]), [widened],
+        `guard must reject ${widened} in desktop script-src`);
+    }
+    assert.deepEqual(findOpenDesktopScriptSources([
+      "'self'",
+      "'wasm-unsafe-eval'",
+      'https://*.clerk.accounts.dev',
+      'https://clerk.worldmonitor.app',
+      'https://challenges.cloudflare.com',
+    ]), []);
   });
 
   it('CSP connect-src does not contain localhost in production', () => {

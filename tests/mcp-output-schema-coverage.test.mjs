@@ -660,16 +660,6 @@ describe('api/mcp.ts — per-tool outputSchema coverage (v1.7.0)', () => {
       names: ['deduction', 'confidence', 'signals', 'framework', 'generatedAt'],
       types: [],
     }],
-    ['search_flights', {
-      why: 'SearchGoogleFlightsResponse carries degraded/error/flights',
-      names: ['search_metadata', 'flights[].currency', 'flights[].airline', 'flights[].total_duration', 'flights[].segments'],
-      types: [],
-    }],
-    ['search_flight_prices_by_date', {
-      why: 'SearchGoogleDatesResponse carries dates/degraded/error',
-      names: ['prices', 'search_metadata'],
-      types: [],
-    }],
   ]);
 
   function loadOpenApiOperations() {
