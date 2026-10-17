@@ -20,6 +20,8 @@ const DISPATCH_LOCK_KEY = 'webhook:dispatch:lock:v1';
 const LAST_RUN_KEY = 'shipping:webhook-delivery:last-run';
 const LAST_RUN_META_KEY = 'seed-meta:shipping:webhook-delivery:last-run';
 const LAST_RUN_TTL_SECONDS = 7 * 24 * 60 * 60;
+// No TTL: ends /api/health's on-demand softening for the heartbeat for good.
+const ACTIVATION_KEY = 'seed-activated:shipping:webhook-delivery';
 const STATE_TTL_SECONDS = 30 * 24 * 60 * 60;
 // The lock outlives the send budget, so a tick that is still delivering is
 // never joined by a second dispatcher; both stay under the 30-min cadence.
@@ -474,10 +476,12 @@ function lastRunWrites(run) {
   return [
     ['SET', LAST_RUN_KEY, value, 'EX', String(LAST_RUN_TTL_SECONDS)],
     ['SET', LAST_RUN_META_KEY, value, 'EX', String(LAST_RUN_TTL_SECONDS)],
+    ['SET', ACTIVATION_KEY, '1'],
   ];
 }
 
 module.exports = {
+  ACTIVATION_KEY,
   BACKFILL_MARKER_KEY,
   CHOKEPOINT_STATUS_KEY,
   DISPATCH_LOCK_KEY,

@@ -654,13 +654,15 @@ describe('health heartbeat', () => {
   it('writes recordCount 1 to the keys api/health.js reads', () => {
     const health = readFileSync(new URL('../api/health.js', import.meta.url), 'utf8');
     assert.ok(new RegExp(`shippingWebhookDelivery:\\s+'${LAST_RUN_KEY}'`).test(health), 'STANDALONE_KEYS entry');
-    assert.ok(new RegExp(`shippingWebhookDelivery:\\s+\\{ key: '${LAST_RUN_META_KEY}', maxStaleMin: 90 \\}`).test(health), 'SEED_META entry');
+    assert.ok(new RegExp(`shippingWebhookDelivery: \\{\\s+key: '${LAST_RUN_META_KEY}',\\s+maxStaleMin: 90,\\s+activationKey: '${dispatch.ACTIVATION_KEY}'`).test(health), 'SEED_META entry');
+    assert.ok(health.includes('shippingWebhookDelivery: SEED_META.shippingWebhookDelivery.activationKey'), 'ACTIVATION_MARKERS entry');
     const run = buildLastRun({ subscribers: 0 }, NOW);
     assert.equal(run.recordCount, 1);
     assert.equal(run.status, 'ok');
     const failed = buildLastRun(null, NOW, new Error('dispatch read: Redis pipeline failed'));
     assert.equal(failed.status, 'error');
     assert.match(failed.errorReason, /Redis pipeline failed/);
-    assert.deepEqual(lastRunWrites(run).map((command) => command[1]), [LAST_RUN_KEY, LAST_RUN_META_KEY]);
+    assert.deepEqual(lastRunWrites(run).map((command) => command[1]), [LAST_RUN_KEY, LAST_RUN_META_KEY, dispatch.ACTIVATION_KEY]);
+    assert.deepEqual(lastRunWrites(run)[2], ['SET', dispatch.ACTIVATION_KEY, '1'], 'marker has no TTL');
   });
 });

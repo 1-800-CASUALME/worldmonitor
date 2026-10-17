@@ -1222,7 +1222,21 @@ const SEED_META = {
   telegramFeed:     { key: 'seed-meta:intelligence:telegram-feed:v1', maxStaleMin: 10 }, // 60s poll interval; 10min grace catches poll failures before they go stale in the panel
   xFeed:            { key: 'seed-meta:intelligence:x-feed:v1', maxStaleMin: 45 }, // Fixed 15min List slots; 45min = 3 missed slots. Freshness advances only after an accepted page is published.
   digestNotifications: { key: 'seed-meta:digest:last-run',          maxStaleMin: 90 }, // Railway digest-notifications cron runs every 30min; 90 = 3x cadence and detects a dead cron before daily digests are missed.
-  shippingWebhookDelivery: { key: 'seed-meta:shipping:webhook-delivery:last-run', maxStaleMin: 90 }, // AIS relay dispatches shipping v2 chokepoint webhooks after each 30-min chokepoint warm-ping (#9217); 90 = 3x cadence.
+  // AIS relay dispatches shipping v2 chokepoint webhooks after each 30-min
+  // chokepoint warm-ping (#9217); 90 = 3x cadence. Vercel ships this probe
+  // before the relay redeploys, so it stays on-demand until the first tick
+  // writes the activation marker, then reads strict.
+  shippingWebhookDelivery: {
+    key: 'seed-meta:shipping:webhook-delivery:last-run',
+    maxStaleMin: 90,
+    activationKey: 'seed-activated:shipping:webhook-delivery',
+    cutover: {
+      mode: 'activation-marker',
+      fromKey: null,
+      issue: 9217,
+      activationKey: 'seed-activated:shipping:webhook-delivery',
+    },
+  },
   forecasts:        { key: 'seed-meta:forecast:predictions',       maxStaleMin: 90 },
   forecastsBootstrap: { key: 'seed-meta:forecast:predictions-bootstrap', maxStaleMin: 90 }, // Same cron. Monitored separately: the fast tier now hydrates from the dashboard list, and a transform/write failure there must not hide behind a healthy canonical key (#5300).
   forecastResolutions: { key: 'seed-meta:forecast:resolutions',     maxStaleMin: 2160 }, // daily Bet-2 resolver; 36h catches a missed cron without flapping on normal daily jitter
@@ -2168,6 +2182,9 @@ const ON_DEMAND_KEYS = new Set([
   // is pending, not CRIT. GTA Update is not registered: writer disabled.
   'tpsMci',
   'tpsCallsAttended',
+  // #9217 deployment-order bridge: on-demand only until the relay's first
+  // dispatch tick writes the activation marker.
+  'shippingWebhookDelivery',
 ]);
 
 // Legacy broad empty-data exemptions. classifyKey uses this set in both the
@@ -2197,6 +2214,8 @@ const ACTIVATION_MARKERS = {
   statcanWds: 'seed-activated:economic:statcan-wds',
   // Written by scripts/seed-live-video-resolved.mjs in runSeed's afterPublish hook.
   liveVideoResolved: SEED_META.liveVideoResolved.activationKey,
+  // Written with the heartbeat by scripts/lib/shipping-webhook-dispatch.cjs.
+  shippingWebhookDelivery: SEED_META.shippingWebhookDelivery.activationKey,
   usCpiMonthly: SEED_META.usCpiMonthly.activationKey,
   usTreasuryParYield: SEED_META.usTreasuryParYield.activationKey,
   usInterestRates: SEED_META.usInterestRates.activationKey,
