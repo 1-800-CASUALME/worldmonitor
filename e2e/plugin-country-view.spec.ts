@@ -1196,7 +1196,12 @@ test('controlled whole-empty Timeline survives partial failure and recovery', as
   await expect(timeline.locator('circle')).toHaveCount(0);
   for (let attempt = 0; attempt < 3; attempt++) {
     recovery.coverage = 'unavailable';
+    const previousNotice = attempt > 0 ? await timeline.locator('.cdp-refresh-failure').elementHandle() : null;
     await frame.getByRole('button', { name: 'Refresh country', exact: true }).click();
+    if (previousNotice) {
+      await expect.poll(() => previousNotice.evaluate(node => node.isConnected)).toBe(false);
+      await previousNotice.dispose();
+    }
     await expect(timeline).toContainText('Country timeline sources are unavailable.');
     await expect(timeline).toContainText('events: empty');
     await expect(timeline.locator('.cdp-refresh-failure')).toHaveCount(1);
@@ -1238,26 +1243,34 @@ test('controlled shortages distinguish empty, unavailable, retained, denial and 
   const frame = page.frameLocator('iframe');
   await frame.getByRole('button', { name: 'Resources & infrastructure', exact: true }).click();
   const energy = frame.locator('[data-brief-section=energy]');
+  const refresh = async () => {
+    const previousPipeline = await energy.getByText('Controlled US Pipeline', { exact: true }).elementHandle();
+    expect(previousPipeline).not.toBeNull();
+    await frame.getByRole('button', { name: 'Refresh country', exact: true }).click();
+    await expect.poll(() => previousPipeline!.evaluate(node => node.isConnected)).toBe(false);
+    await previousPipeline!.dispose();
+    await expect(energy).toContainText('Controlled US Pipeline');
+  };
   await expect(energy).toContainText('No active fuel shortages in US in the loaded registry.');
   await expect(energy).toContainText('Controlled US Pipeline');
   recovery.shortages = 'upstream-unavailable';
-  await frame.getByRole('button', { name: 'Refresh country', exact: true }).click();
+  await refresh();
   await expect(energy).toContainText('Fuel shortage Atlas data unavailable. Previously loaded Atlas observations remain visible.');
   await expect(energy).toContainText('No active fuel shortages in US in the loaded registry.');
   recovery.shortages = 'populated';
-  await frame.getByRole('button', { name: 'Refresh country', exact: true }).click();
+  await refresh();
   await expect(energy).toContainText('Controlled active shortage');
   await expect(energy).not.toContainText('No active fuel shortages');
   for (let attempt = 0; attempt < 3; attempt++) {
     recovery.shortages = 'unavailable';
-    await frame.getByRole('button', { name: 'Refresh country', exact: true }).click();
+    await refresh();
     await expect(energy).toContainText('Fuel shortage Atlas data unavailable. Previously loaded Atlas observations remain visible.');
     await expect(energy).toContainText('Controlled active shortage');
     await expect(energy).toContainText('Controlled US Pipeline');
     await expect(energy.getByText('Fuel shortage Atlas data unavailable. Previously loaded Atlas observations remain visible.', { exact: true })).toHaveCount(1);
   }
   recovery.shortages = 'locked';
-  await frame.getByRole('button', { name: 'Refresh country', exact: true }).click();
+  await refresh();
   await expect(energy).toContainText('Fuel shortage Atlas data is not authorized');
   await expect.poll(() => host.contexts.at(-1)?.sections.find(section => section.section === 'energy')?.renderedText).toContain('Fuel shortage Atlas data is not authorized');
   expect(host.contexts.at(-1)?.sections.find(section => section.section === 'energy')?.renderedText).not.toContain('Controlled active shortage');
@@ -1265,17 +1278,17 @@ test('controlled shortages distinguish empty, unavailable, retained, denial and 
   await expect(energy).not.toContainText('No active fuel shortages');
   await expect(energy).toContainText('Controlled US Pipeline');
   recovery.shortages = 'unavailable';
-  await frame.getByRole('button', { name: 'Refresh country', exact: true }).click();
+  await refresh();
   await expect(energy).toContainText('Fuel shortage Atlas data unavailable. Other loaded observations remain visible.');
   await expect(energy).not.toContainText('Controlled active shortage');
   await expect(energy).not.toContainText('No active fuel shortages');
   await energy.screenshot({ path: info.outputPath('shortage-unavailable-after-denial.png') });
   recovery.shortages = 'upstream-unavailable';
-  await frame.getByRole('button', { name: 'Refresh country', exact: true }).click();
+  await refresh();
   await expect(energy).toContainText('Fuel shortage Atlas data unavailable. Other loaded observations remain visible.');
   await expect(energy).not.toContainText('No active fuel shortages');
   recovery.shortages = 'empty-registry';
-  await frame.getByRole('button', { name: 'Refresh country', exact: true }).click();
+  await refresh();
   await expect(energy).toContainText('No active fuel shortages in US in the loaded registry.');
   await expect(energy).not.toContainText('Atlas data unavailable');
   for (const width of [1280, 390]) {
