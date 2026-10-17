@@ -6,10 +6,10 @@ import { buildPluginShell } from '../api/mcp/ui/_plugin-loader';
 
 test.use({ serviceWorkers: 'block' });
 type HostCall = { name: string; arguments: Record<string, unknown> };
-type ViewReceipt = { applied?: boolean; view?: { renderer?: string; source?: string; map_layers?: string[] }; center: { lat: number; lon: number } | null; map: { zoom: number }; renderer?: { mode: string }; viewport?: { settled: boolean; interruptedBy: string } };
+type ViewReceipt = { applied?: boolean; view?: { renderer?: string; source?: string; map_layers?: string[] }; center: { lat: number; lon: number } | null; map: { zoom: number }; renderer?: { mode: string }; viewport?: { settled: boolean; interruptedBy?: string } };
 type NewsInteraction = { kind: string; link: string; title: string; source: string; displayLabel: string };
 type NewsContext = { applied?: boolean; reason?: string; latestInteraction?: NewsInteraction | null; view: Record<string, unknown>; categoryLabel?: string; center?: { lat: number; lon: number } | null; map?: { zoom: number } };
-async function installNewsHost(page: Page, deniedInitially = false, serverTools = true, fixture: boolean | string[] = false, modelContext = true, observeCamera = false, initialView: Record<string, unknown> = { map_layers: ['natural'] }) {
+async function installNewsHost(page: Page, deniedInitially = false, serverTools = true, fixture: boolean | string[] = false, modelContext = true, observeCamera = false, initialView: Record<string, unknown> = { map_layers: ['natural'] }, observeRenderer = false) {
   const selectionFixture = fixture === true;
   let categoryIds = Array.isArray(fixture) ? fixture : ['world'];
   const calls: HostCall[] = [];
@@ -34,6 +34,12 @@ async function installNewsHost(page: Page, deniedInitially = false, serverTools 
     const assetName = new URL(route.request().url()).pathname.split('/').at(-1)!;
     const path = join(process.cwd(), 'dist/plugin/assets', assetName);
     const headers = { 'Access-Control-Allow-Origin': '*' };
+    if (observeRenderer && assetName.startsWith('plugin-') && assetName.endsWith('.js')) {
+      const source = await readFile(path, 'utf8');
+      const binding = /([$\w]+)\.onCountryClicked\(([$\w]+)=>/;
+      expect(source.match(binding)).toBeTruthy();
+      return route.fulfill({ body: source.replace(binding, '(globalThis.__newsMap=$1).onCountryClicked($2=>'), contentType: 'text/javascript', headers });
+    }
     if (!observeCamera || !assetName.startsWith('GlobeMap-')) return route.fulfill({ path, headers });
     const source = await readFile(path, 'utf8');
     const exportedClass = source.match(/export\s*\{\s*([$\w]+)\s+as\s+GlobeMap/)?.[1];
@@ -888,3 +894,263 @@ for (const mobile of [false, true]) {
     });
   });
 }
+
+type RendererProbeMap = {
+  switchToFlat(): Promise<unknown>;
+  whenRendererReady(): Promise<void>;
+  whenViewportSettled(token?: number): Promise<void>;
+  getViewportAuthorityToken(): number;
+  getCenter(): { lat: number; lon: number };
+  getState(): { zoom: number };
+  deckGLMap: { whenViewportSettled(): Promise<boolean> };
+};
+type RendererProbeWindow = Window & {
+  __newsMap: RendererProbeMap;
+  __releaseNewsSettlement?: () => void;
+  __newsSettlementReason?: string;
+  __newsAuthority?: number;
+};
+
+for (const failure of ['human', 'nonhuman', 'button', 'readiness'] as const) {
+  test(`renderer recovery reconciles ${failure} failure without applying pending filters`, async ({ page }, info) => {
+    await page.route(/^https:\/\/(tiles\.openfreemap\.org\/styles\/|basemaps\.cartocdn\.com\/gl\/)/, route => route.fulfill({
+      json: { version: 8, sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#111111' } }] },
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    }));
+    await page.addInitScript(() => {
+      const original = WebGL2RenderingContext.prototype.getExtension;
+      WebGL2RenderingContext.prototype.getExtension = function (name) {
+        return name === 'WEBGL_debug_renderer_info' ? null : Reflect.apply(original, this, [name]);
+      };
+    });
+    const host = await installNewsHost(page, false, true, false, true, false, { map_layers: ['natural'] }, true);
+    const frame = page.frameLocator('iframe');
+    await expect(frame.locator('#panelsGrid')).toContainText('Controlled earthquake report in Japan');
+    expect((await newsAction(page, 'apply_news_view', { renderer: 'globe' })).isError).not.toBe(true);
+    expect((await newsAction(page, 'focus_news_article', { link: 'https://example.com/news' })).isError).not.toBe(true);
+    const latestInteraction = host.contexts.at(-1)?.latestInteraction;
+    const previousContext = host.contexts.at(-1);
+    const before = host.calls.length;
+    await frame.locator('body').evaluate((_, failure) => {
+      const probe = window as RendererProbeWindow;
+      const map = probe.__newsMap;
+      const switchToFlat = map.switchToFlat.bind(map);
+      const settle = map.whenViewportSettled.bind(map);
+      map.whenViewportSettled = async token => {
+        try { await settle(token); }
+        catch (error) {
+          probe.__newsSettlementReason = (error as { reason?: string }).reason;
+          throw error;
+        }
+      };
+      map.switchToFlat = async () => {
+        const result = await switchToFlat();
+        probe.__newsAuthority = map.getViewportAuthorityToken();
+        if (failure === 'readiness') {
+          map.whenRendererReady = () => Promise.reject(new Error('Controlled renderer readiness failure'));
+          throw new Error('Controlled renderer readiness failure');
+        }
+        const concrete = map.deckGLMap;
+        const original = concrete.whenViewportSettled.bind(concrete);
+        const held = new Promise<boolean>(resolve => {
+          probe.__releaseNewsSettlement = () => {
+            concrete.whenViewportSettled = original;
+            resolve(false);
+          };
+        });
+        concrete.whenViewportSettled = () => held;
+        return result;
+      };
+    }, failure);
+    const pending = failure === 'button'
+      ? frame.locator('#mapDimensionToggle [data-mode="flat"]').click().then(() => undefined)
+      : newsAction(page, 'apply_news_view', { renderer: 'flat', source: 'Unapplied publisher', map_latitude: -20, map_longitude: 50, map_zoom: 8, map_layers: [] });
+    if (failure !== 'readiness') {
+      await expect.poll(() => frame.locator('body').evaluate(() => Boolean((window as RendererProbeWindow).__releaseNewsSettlement))).toBe(true);
+      if (failure === 'human') {
+        await frame.locator('.zoom-in').click();
+        await frame.locator('.zoom-reset').click();
+      }
+      await frame.locator('body').evaluate(() => (window as RendererProbeWindow).__releaseNewsSettlement!());
+    }
+    const result = await pending;
+    if (failure === 'button') await expect.poll(() => frame.locator('body').evaluate(() => (window as RendererProbeWindow).__newsSettlementReason)).toBe('viewport_interrupted');
+    const trace = await frame.locator('body').evaluate(() => {
+      const probe = window as RendererProbeWindow;
+      return { reason: probe.__newsSettlementReason, authorityBefore: probe.__newsAuthority, authorityAfter: probe.__newsMap.getViewportAuthorityToken() };
+    });
+    await writeFile(info.outputPath('renderer-failure-trace.json'), JSON.stringify({ failure, trace, result, contexts: host.contexts }, null, 2));
+    if (failure === 'button') {
+      await expect(frame.locator('#pluginStatus')).toHaveText('The map is available, but the requested view did not finish.');
+      await expect(frame.locator('#mapDimensionToggle [data-mode="flat"]')).toHaveClass(/active/);
+      await expect.poll(() => host.contexts.at(-1)?.view.renderer).toBe('flat');
+      expect(host.contexts.at(-1)?.applied).toBe(false);
+    } else if (failure === 'readiness') {
+      expect(result!.isError).toBe(true);
+      expect(host.contexts.at(-1)).toEqual(previousContext);
+    } else {
+      expect(trace.reason).toBe('viewport_interrupted');
+      expect(trace.authorityAfter > trace.authorityBefore!).toBe(failure === 'human');
+      expect(result!.isError).not.toBe(true);
+      expect(result!.structuredContent).toMatchObject({ applied: false, view: { renderer: 'flat', map_layers: ['natural'] }, viewport: { settled: false } });
+      if (failure === 'human') expect(result!.structuredContent).toMatchObject({ viewport: { interruptedBy: 'human' } });
+      await expect(frame.locator('#mapDimensionToggle [data-mode="flat"]')).toHaveClass(/active/);
+      expect(host.contexts.at(-1)?.view.renderer).toBe('flat');
+      expect(host.contexts.at(-1)?.latestInteraction).toEqual(latestInteraction);
+    }
+    await expect(frame.getByRole('combobox', { name: 'News source' })).toHaveValue('');
+    await expect(frame.locator('#pluginMapLayers input[value="natural"]')).toBeChecked();
+    expect(host.calls).toHaveLength(before);
+    await writeFile(info.outputPath('renderer-failure-trace.json'), JSON.stringify({ failure, trace, result, contexts: host.contexts, status: await frame.locator('#pluginStatus').textContent(), activeMode: await frame.locator('#mapDimensionToggle .active').getAttribute('data-mode'), calls: host.calls }, null, 2));
+    if (failure === 'button') await page.screenshot({ path: info.outputPath('ready-flat-incomplete-view.png'), fullPage: true });
+  });
+}
+
+test('direct news Zoom and Reset publish the settled camera without another view command', async ({ page }, info) => {
+  await page.route(/^https:\/\/(tiles\.openfreemap\.org\/styles\/|basemaps\.cartocdn\.com\/gl\/)/, route => route.fulfill({
+    json: { version: 8, sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#111111' } }] },
+    headers: { 'Access-Control-Allow-Origin': '*' },
+  }));
+  await page.addInitScript(() => {
+    const original = WebGL2RenderingContext.prototype.getExtension;
+    WebGL2RenderingContext.prototype.getExtension = function (name) {
+      return name === 'WEBGL_debug_renderer_info' ? null : Reflect.apply(original, this, [name]);
+    };
+  });
+  const host = await installNewsHost(page, false, true, false, true, false, { map_layers: [] }, true);
+  const frame = page.frameLocator('iframe');
+  await expect(frame.locator('#panelsGrid')).toContainText('Controlled earthquake report in Japan');
+  expect((await newsAction(page, 'focus_news_article', { link: 'https://example.com/news' })).isError).not.toBe(true);
+  const latestInteraction = host.contexts.at(-1)?.latestInteraction;
+  const before = host.calls.length;
+  await frame.locator('.zoom-in').click();
+  await frame.locator('.zoom-reset').click();
+  const settled = await frame.locator('body').evaluate(async () => {
+    const map = (window as RendererProbeWindow).__newsMap;
+    await map.whenViewportSettled();
+    return { center: map.getCenter(), map: map.getState() };
+  });
+  await writeFile(info.outputPath('direct-controls-before-assertion.json'), JSON.stringify({ settled, context: host.contexts.at(-1) }, null, 2));
+  await expect.poll(() => host.contexts.at(-1)?.center?.lat, { timeout: 3000 }).toBeCloseTo(settled.center.lat, 4);
+  await expect.poll(() => host.contexts.at(-1)?.center?.lon).toBeCloseTo(settled.center.lon, 4);
+  await expect.poll(() => host.contexts.at(-1)?.map?.zoom).toBeCloseTo(settled.map.zoom, 4);
+  expect(host.contexts.at(-1)?.latestInteraction).toEqual(latestInteraction);
+  expect(host.calls).toHaveLength(before);
+  await writeFile(info.outputPath('direct-controls-receipt.json'), JSON.stringify({ settled, context: host.contexts.at(-1), calls: host.calls }, null, 2));
+});
+
+test('host resize preserves a newer category refusal after a superseded human observation', async ({ page }, info) => {
+  await useSvgNewsMap(page);
+  const host = await installNewsHost(page, false, true, false, true, false, {}, true);
+  const frame = page.frameLocator('iframe');
+  await expect(frame.locator('#panelsGrid')).toContainText('Controlled earthquake report in Japan');
+  expect((await newsAction(page, 'focus_news_article', { link: 'https://example.com/news' })).isError).not.toBe(true);
+  const selected = host.contexts.at(-1)?.latestInteraction;
+  const callsBefore = host.calls.length;
+  await frame.locator('body').evaluate(() => {
+    const probe = window as RendererProbeWindow & { __observerEntered?: boolean; __observerFinished?: Promise<void> };
+    const map = probe.__newsMap;
+    const original = map.whenViewportSettled.bind(map);
+    const gate = new Promise<void>(resolve => { probe.__releaseNewsSettlement = resolve; });
+    let finish: () => void;
+    probe.__observerFinished = new Promise<void>(resolve => { finish = resolve; });
+    map.whenViewportSettled = async token => {
+      probe.__observerEntered = true;
+      await gate;
+      try { await original(token); }
+      finally { finish(); }
+    };
+  });
+  await frame.locator('[data-action="zoom-in"]').click();
+  await expect.poll(() => frame.locator('body').evaluate(() => Boolean((window as RendererProbeWindow & { __observerEntered?: boolean }).__observerEntered))).toBe(true);
+  const refusal = await newsAction(page, 'apply_news_view', { category: 'missing', source: 'Unapplied publisher' });
+  const expected = { applied: false, reason: 'unknown_category', requestedCategory: 'missing', latestInteraction: selected };
+  expect(refusal.structuredContent).toMatchObject(expected);
+  await expect.poll(() => host.contexts.at(-1)).toMatchObject(expected);
+  const atRefusal = host.contexts.length;
+  await frame.locator('body').evaluate(async () => {
+    const probe = window as RendererProbeWindow & { __observerFinished?: Promise<void> };
+    probe.__releaseNewsSettlement!();
+    await probe.__observerFinished;
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+  });
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+  expect(host.contexts.at(-1)).toMatchObject(expected);
+  expect(host.contexts).toHaveLength(atRefusal);
+  const authorityBefore = await frame.locator('body').evaluate(() => (window as RendererProbeWindow).__newsMap.getViewportAuthorityToken());
+  const widthBefore = await frame.locator('body').evaluate(() => innerWidth);
+  const contextBeforeResize = host.contexts.at(-1);
+  const beforeResize = host.contexts.length;
+  expect(contextBeforeResize).toMatchObject(expected);
+  await page.setViewportSize({ width: 1111, height: 820 });
+  const widthAfter = await frame.locator('body').evaluate(async () => {
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    return innerWidth;
+  });
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+  const authorityAfter = await frame.locator('body').evaluate(() => (window as RendererProbeWindow).__newsMap.getViewportAuthorityToken());
+  await writeFile(info.outputPath('host-resize-checkpoint.json'), JSON.stringify({ refusal, contextBeforeResize, latest: host.contexts.at(-1), afterResize: host.contexts.slice(beforeResize), authorityBefore, authorityAfter, widthBefore, widthAfter, calls: host.calls }, null, 2));
+  expect(widthAfter).not.toBe(widthBefore);
+  expect(authorityAfter).toBe(authorityBefore);
+  expect(host.contexts.at(-1)).toMatchObject(expected);
+  expect(host.contexts).toHaveLength(atRefusal);
+  expect(host.calls).toHaveLength(callsBefore);
+  await expect(frame.locator('#pluginCategoryNotice')).toContainText('missing');
+  await expect(frame.getByRole('combobox', { name: 'News source' })).toHaveValue('');
+  await frame.locator('[data-action="reset"]').click();
+  const reset = await frame.locator('body').evaluate(async () => {
+    const map = (window as RendererProbeWindow).__newsMap;
+    await map.whenViewportSettled();
+    return { authority: map.getViewportAuthorityToken(), center: map.getCenter(), map: map.getState() };
+  });
+  expect(reset.authority).toBeGreaterThan(authorityAfter);
+  await expect.poll(() => host.contexts.length).toBeGreaterThan(atRefusal);
+  await expect.poll(() => host.contexts.at(-1)).toMatchObject({ center: reset.center, map: { zoom: reset.map.zoom }, viewport: { settled: true }, latestInteraction: selected });
+  expect(host.calls).toHaveLength(callsBefore);
+  await expect(frame.getByRole('combobox', { name: 'News source' })).toHaveValue('');
+  await writeFile(info.outputPath('human-reset-after-preserved-refusal.json'), JSON.stringify({ reset, latest: host.contexts.at(-1), selected, calls: host.calls }, null, 2));
+});
+
+test('a newer category refusal supersedes an older pending human camera observation', async ({ page }, info) => {
+  await useSvgNewsMap(page);
+  const host = await installNewsHost(page, false, true, false, true, false, {}, true);
+  const frame = page.frameLocator('iframe');
+  await expect(frame.locator('#panelsGrid')).toContainText('Controlled earthquake report in Japan');
+  expect((await newsAction(page, 'focus_news_article', { link: 'https://example.com/news' })).isError).not.toBe(true);
+  const selected = host.contexts.at(-1)?.latestInteraction;
+  const callsBefore = host.calls.length;
+  await frame.locator('body').evaluate(() => {
+    const probe = window as RendererProbeWindow & { __observerEntered?: boolean; __observerFinished?: Promise<void> };
+    const map = probe.__newsMap;
+    const original = map.whenViewportSettled.bind(map);
+    const gate = new Promise<void>(resolve => { probe.__releaseNewsSettlement = resolve; });
+    let finish: () => void;
+    probe.__observerFinished = new Promise<void>(resolve => { finish = resolve; });
+    map.whenViewportSettled = async token => {
+      probe.__observerEntered = true;
+      await gate;
+      try { await original(token); }
+      finally { finish(); }
+    };
+  });
+  await frame.locator('[data-action="zoom-in"]').click();
+  await expect.poll(() => frame.locator('body').evaluate(() => Boolean((window as RendererProbeWindow & { __observerEntered?: boolean }).__observerEntered))).toBe(true);
+  const refusal = await newsAction(page, 'apply_news_view', { category: 'missing', source: 'Unapplied publisher' });
+  const expected = { applied: false, reason: 'unknown_category', requestedCategory: 'missing', latestInteraction: selected };
+  expect(refusal.structuredContent).toMatchObject(expected);
+  await expect.poll(() => host.contexts.at(-1)).toMatchObject(expected);
+  const atRefusal = host.contexts.length;
+  await frame.locator('body').evaluate(async () => {
+    const probe = window as RendererProbeWindow & { __observerFinished?: Promise<void> };
+    probe.__releaseNewsSettlement!();
+    await probe.__observerFinished;
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+  });
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+  await writeFile(info.outputPath('pending-observer-refusal.json'), JSON.stringify({ refusal, contextAtRefusal: host.contexts[atRefusal - 1], latest: host.contexts.at(-1), laterContexts: host.contexts.slice(atRefusal), calls: host.calls }, null, 2));
+  expect(host.contexts.at(-1)).toMatchObject(expected);
+  expect(host.contexts).toHaveLength(atRefusal);
+  expect(host.calls).toHaveLength(callsBefore);
+  await expect(frame.locator('#pluginCategoryNotice')).toContainText('missing');
+  await expect(frame.getByRole('combobox', { name: 'News source' })).toHaveValue('');
+});
