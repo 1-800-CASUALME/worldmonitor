@@ -24,7 +24,7 @@ These are version 1 of the definitions (`definitionsVersion: 1` in the API).
 | Term | Definition |
 |---|---|
 | **Label** | The coverage label the full English digest gives a story: corroborated, single publisher, tier 4 only, or not enough evidence. See [News Credibility Score](/methodology/news-credibility) and the [trust page](https://www.worldmonitor.app/trust/). |
-| **First label** | The label a story carries in the first digest cycle that creates its story record. Only stories whose first label is single publisher or corroborated are counted. A story first labelled tier 4 only or not enough evidence is not in the table. |
+| **First label** | The label a story carries in the first digest cycle that creates its story record. If a story's first label is logged more than once, the earliest counts and later ones count as changes. Only stories whose first label is single publisher or corroborated are counted. A story first labelled tier 4 only or not enough evidence is not in the table. |
 | **Cohort day** | The UTC day of a story's first label. A story belongs to exactly one cohort day. |
 | **Checkpoint** | First label time plus 24 hours, and plus 7 days. |
 | **Label at a checkpoint** | The last label the digest recorded for the story at or before the checkpoint. A story that has left the digest keeps the last label it had. |
