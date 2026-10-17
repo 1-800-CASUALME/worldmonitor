@@ -34,7 +34,7 @@ The normal deployment architecture is intentionally small:
 |---|---|---|
 | Merge safety | GitHub protected `main` | Require a PR, current-base checks with `strict=true`, administrator enforcement, zero required human approvals, and no bypass actors. |
 | Service selection | Railway's native watch paths, backed by `scripts/railway-services.json`, its closure audit, and the exact identity roster in `scripts/railway-native-autodeploy-fleet.json` | A source migration may change `source.checkSuites` only. It must not change watch paths, fleet identity, or another service field. |
-| Desired configuration sync | Main-only `Railway Registry Sync` workflow | Apply registry-managed watch paths, Dockerfile paths, and cron schedules from the exact merged checkout. Verify through the separate Viewer identity. |
+| Desired configuration sync | Main-only `Railway Registry Sync` workflow | Apply registry-managed watch paths, Dockerfile paths, and cron schedules from the current `main` revision. Verify through the separate Viewer identity. |
 | Deployment creation | Railway's native GitHub integration on explicit branch `main` | No GitHub Actions workflow dispatches, retries, leases, or repairs a normal deployment. |
 | Drift detection | One six-hourly, read-only Railway workflow after the monitor migration | Missing, detached, replaced, unexpected, unknown, failed, skipped, overdue, or contradictory state is red. The monitor has no mutation token, dispatch permission, retry, reviewer, or acceptance baseline. |
 | Recovery | Operator diagnosis followed by an explicit Railway action or batch rollback | Recovery is never automatic and never turns missing evidence green. Seed/ingestion freshness remains a separate acceptance surface. |
@@ -277,10 +277,13 @@ list and can answer a matching commit with `No changes to watched files`.
 The `Railway Registry Sync` workflow
 (`.github/workflows/railway-registry-sync.yml`) owns this transition. It runs
 after a push to `main` changes the registry, fleet identity, audit, a shared
-Railway helper, the runner, or the workflow. The apply step uses the dedicated
-mutation token only after the checkout SHA is confirmed as the current `main`
-revision. This rejects a stale re-run before it can restore an older registry.
-The apply changes only registry-managed fields. The final step starts a fresh
+Railway helper, the runner, or the workflow. The job resolves the current `main`
+revision before checkout and applies that, not the pushed SHA. A run that main
+outpaced, or a re-run of an older attempt, therefore applies the newest
+registry: it can neither restore an older one nor skip a change when the next
+`main` commit leaves these paths alone (#9274). A re-run keeps its original
+workflow file, so an attempt created before #9274 still refuses a stale
+checkout; dispatch a new run for those. The apply changes only registry-managed fields. The final step starts a fresh
 read budget, uses the separate Viewer identity, and fails unless live Railway
 matches the repository. That read also reports `source.branch` and
 `source.checkSuites` drift, which the apply step never writes: a run that stays
