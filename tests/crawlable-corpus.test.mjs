@@ -5196,7 +5196,7 @@ describe('crawlable corpus generator', () => {
       assert.ok(compareHub.includes('<h2>Master comparison matrix</h2>'));
       assert.ok(compareHub.includes('<th>Product</th>'));
       assert.ok(compareHub.includes('<th>Price</th>'));
-      for (const vendor of ['Liveuamap', 'ACLED (myACLED)', 'GDELT Cloud', 'Dataminr', 'Recorded Future', 'IMF PortWatch']) {
+      for (const vendor of ['Liveuamap', 'ACLED (myACLED)', 'GDELT Project', 'Dataminr', 'Recorded Future', 'IMF PortWatch']) {
         assert.match(compareHub, new RegExp('<td>' + vendor.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&') + '</td>'));
       }
       // First data row must carry both a product cell and a real price cell.
