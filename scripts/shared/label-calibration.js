@@ -155,21 +155,34 @@ export function buildCohortDay(day, events, { incomplete = false } = {}) {
 
   const first = new Map();
   const changes = new Map();
+  const addChange = (event, index) => {
+    const list = changes.get(event.storyId) ?? [];
+    list.push({ at: event.at, state: event.state, index });
+    changes.set(event.storyId, list);
+  };
   events.forEach((event, index) => {
     if (!event) return;
-    if (event.kind === 'f') {
-      const seen = first.get(event.storyId);
-      if (!seen || event.at < seen.at) first.set(event.storyId, event);
+    if (event.kind !== 'f') {
+      addChange(event, index);
+      return;
+    }
+    // The earliest first label starts the cohort. A later one (logged again
+    // when the story's track row was not written) is the story's label at
+    // that time, so it is replayed as a change, never dropped.
+    const seen = first.get(event.storyId);
+    if (!seen) {
+      first.set(event.storyId, { event, index });
+    } else if (event.at < seen.event.at) {
+      addChange(seen.event, seen.index);
+      first.set(event.storyId, { event, index });
     } else {
-      const list = changes.get(event.storyId) ?? [];
-      list.push({ at: event.at, state: event.state, index });
-      changes.set(event.storyId, list);
+      addChange(event, index);
     }
   });
 
   const start = dayStartMs(day);
   const end = start + DAY_MS;
-  for (const [storyId, firstEvent] of first) {
+  for (const [storyId, { event: firstEvent }] of first) {
     if (firstEvent.at < start || firstEvent.at >= end) continue;
     const cohort = record.cohorts[firstEvent.state];
     cohort.n += 1;

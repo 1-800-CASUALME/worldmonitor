@@ -105,12 +105,13 @@ export const STORY_LABEL_FIELD = 'corrState';
  */
 export const UNTRACKED_LABEL = 'untracked';
 /**
- * #9097: written after a calibration write whose outcome is unknown (an error
- * or a lost reply may still have appended the event). The next cycle then logs
- * the story's current state whatever it is, so the event log ends on the
- * label the story really has, and a move that returned never freezes as moved.
+ * #9097: prefixed to the new label after a calibration write whose outcome is
+ * unknown (an error or a lost reply may still have appended the event). The
+ * next cycle then logs the story's current state whatever it is, so the event
+ * log ends on the label the story really has. The label itself is kept after
+ * the prefix, so the public change log still compares against it.
  */
-export const UNCONFIRMED_LABEL = 'unconfirmed';
+export const UNCONFIRMED_PREFIX = 'unconfirmed:';
 
 export interface StoryLabel {
   readonly state: Corroboration['state'];
@@ -190,7 +191,8 @@ export function encodeStoryLabel(label: StoryLabel): string {
 
 export function decodeStoryLabel(raw: unknown): { state: LabelHistoryState; publishers: number } | null {
   if (typeof raw !== 'string') return null;
-  const [state, count] = raw.split('|');
+  const label = raw.startsWith(UNCONFIRMED_PREFIX) ? raw.slice(UNCONFIRMED_PREFIX.length) : raw;
+  const [state, count] = label.split('|');
   const publishers = Number(count);
   if (!isLabelHistoryState(state) || !Number.isInteger(publishers) || publishers < 1) return null;
   return { state, publishers };
@@ -245,10 +247,6 @@ export function labelChangeCommands(change: LabelChange): RedisPipelineCommand[]
     ['LTRIM', LABEL_CHANGES_KEY, 0, LABEL_CHANGES_MAX - 1],
     ['EXPIRE', LABEL_CHANGES_KEY, RETENTION_S],
   ];
-  // #9097 calibration: the same change, in the day's calibration event log.
-  if (change.field === 'corroboration' && change.trigger === 'digest' && isLabelHistoryState(change.next)) {
-    commands.push(...calibrationEventCommands([{ kind: 's', storyId: change.storyId, state: change.next, at: change.at }]));
-  }
   if (change.storyId) {
     const storyKey = STORY_LABEL_HISTORY_KEY(change.storyId);
     commands.push(
@@ -283,11 +281,11 @@ export function calibrationEventCommands(events: readonly CalibrationEvent[]): R
 }
 
 /**
- * #9097: the calibration event this cycle's label adds, beyond the public
- * change log: the first label of a new story (no track row yet), or a move
- * into or out of tier4-only/unknown. A move between the two tracked states is
- * logged with its change entry (labelChangeCommands), and a track row with no
- * recorded label (written before labels were recorded) starts nothing.
+ * #9097: the calibration event this cycle's label adds: the first label the
+ * full English digest gives a story (no track row, or a row without a label
+ * because another variant created it), or any later change of its label,
+ * tracked or not. These are logged apart from the guarded public change log,
+ * so a move that log suppresses still reaches the calibration log on time.
  */
 export function calibrationEventFor(
   storyId: string,
@@ -296,12 +294,13 @@ export function calibrationEventFor(
   at: number,
 ): CalibrationEvent | null {
   const tracked = isLabelHistoryState(current.state) && current.publishers !== null;
-  if (!track) return tracked ? { kind: 'f', storyId, state: current.state as LabelHistoryState, at } : null;
+  // No row, or a row another variant created (only full/en records labels):
+  // this is the first label the full English digest gives the story.
+  if (!track || track.label === undefined) return tracked ? { kind: 'f', storyId, state: current.state as LabelHistoryState, at } : null;
   const next = tracked ? (current.state as LabelHistoryState) : CALIBRATION_OTHER;
-  if (track.label === UNCONFIRMED_LABEL) return { kind: 's', storyId, state: next, at };
+  if (track.label.startsWith(UNCONFIRMED_PREFIX)) return { kind: 's', storyId, state: next, at };
   const previous = calibrationStateOf(track.label, UNTRACKED_LABEL);
   if (previous === null || previous === next) return null;
-  if (previous !== CALIBRATION_OTHER && next !== CALIBRATION_OTHER) return null;
   return { kind: 's', storyId, state: next, at };
 }
 
@@ -323,16 +322,19 @@ export async function recordCalibrationEvents(events: readonly CalibrationEvent[
 }
 
 /**
- * After a calibration write that was not confirmed, mark every story whose
- * move may or may not have been logged as UNCONFIRMED_LABEL, so the next cycle
- * logs its current state again. A repeated event is harmless; a missing one
+ * After a calibration write that was not confirmed, prefix the new label of
+ * every story whose move may or may not have been logged with
+ * UNCONFIRMED_PREFIX, so the next cycle logs its current state again. A repeated event is harmless; a missing one
  * would freeze a wrong outcome. A lost first label is not retried: the story
  * is then missing from its cohort, which undercounts n but never misstates an
  * outcome.
  */
 export function keepUnloggedMoves(labelByHash: Map<string, string>, events: readonly CalibrationEvent[]): void {
   for (const event of events) {
-    if (event.kind === 's') labelByHash.set(event.storyId, UNCONFIRMED_LABEL);
+    if (event.kind !== 's') continue;
+    const label = labelByHash.get(event.storyId);
+    // Absent: the public log write failed too, so the old label stays and the move is seen again.
+    if (label !== undefined) labelByHash.set(event.storyId, `${UNCONFIRMED_PREFIX}${label}`);
   }
 }
 

@@ -26,7 +26,7 @@ import {
   type CalibrationEvent,
 } from '../shared/label-calibration.js';
 import {
-  UNCONFIRMED_LABEL,
+  UNCONFIRMED_PREFIX,
   UNTRACKED_LABEL,
   calibrationEventCommands,
   calibrationEventFor,
@@ -106,11 +106,22 @@ describe('cohort day', () => {
 
   it('is a pure function of the logged events: order of lists does not matter, duplicates do not count twice', () => {
     const shuffled = [...events].reverse();
-    const duplicated = [...events, f(1, 'single-publisher', T0 + 2 * HOUR), s(1, 'corroborated', T0 + 3 * HOUR)];
+    const duplicated = [...events, ...events];
     const expected = buildCohortDay(DAY_1, events);
     assert.deepEqual(buildCohortDay(DAY_1, shuffled), expected);
     assert.deepEqual(buildCohortDay(DAY_1, duplicated), expected);
     assert.deepEqual(buildCohortDay(DAY_1, [...events, null]), expected, 'an unparsable list entry is skipped');
+  });
+
+  it('replays a later first label as the story\'s label at that time, never drops it', () => {
+    // The track row was not written after the first cycle, so the next cycle
+    // logged a first label again, by then in a different state.
+    const record = buildCohortDay(DAY_1, [f(9, 'single-publisher', T0 + HOUR), f(9, 'corroborated', T0 + 2 * HOUR)]);
+    assert.equal(record.cohorts['single-publisher'].n, 1);
+    assert.equal(record.cohorts.corroborated.n, 0, 'one story, one cohort');
+    assert.deepEqual(record.cohorts['single-publisher']['24h'], { same: 0, changed: 1, other: 0 });
+    // The same two events in the other order (lists are read day by day).
+    assert.deepEqual(buildCohortDay(DAY_1, [f(9, 'corroborated', T0 + 2 * HOUR), f(9, 'single-publisher', T0 + HOUR)]), record);
   });
 
   it('a story first logged on the day before stays in that cohort', () => {
@@ -217,17 +228,19 @@ describe('digest wiring', () => {
   it('logs a first label only for a new story in a tracked state', () => {
     assert.deepEqual(calibrationEventFor(id(1), undefined, single, T0), f(1, 'single-publisher', T0));
     assert.equal(calibrationEventFor(id(1), undefined, tier4, T0), null);
-    assert.equal(calibrationEventFor(id(1), { label: undefined }, single, T0), null, 'a row from before labels were recorded');
+    assert.deepEqual(calibrationEventFor(id(1), { label: undefined }, single, T0), f(1, 'single-publisher', T0), 'a row another variant created has no label: full/en has not labelled the story yet');
+    assert.equal(calibrationEventFor(id(1), { label: undefined }, tier4, T0), null);
   });
 
-  it('logs moves into and out of the untracked states; tracked moves ride the change log', () => {
+  it('logs every later move itself, apart from the guarded public change log', () => {
     assert.deepEqual(calibrationEventFor(id(1), { label: 'corroborated|2' }, tier4, T0), s(1, 'other', T0));
     assert.deepEqual(calibrationEventFor(id(1), { label: UNTRACKED_LABEL }, single, T0), s(1, 'single-publisher', T0));
     assert.equal(calibrationEventFor(id(1), { label: UNTRACKED_LABEL }, tier4, T0), null);
-    assert.equal(calibrationEventFor(id(1), { label: 'single-publisher|1' }, corroborated, T0), null);
+    assert.deepEqual(calibrationEventFor(id(1), { label: 'single-publisher|1' }, corroborated, T0), s(1, 'corroborated', T0));
+    assert.equal(calibrationEventFor(id(1), { label: 'single-publisher|1' }, single, T0), null);
+    // The public log's guard may suppress a quick flip-back; the calibration log must not depend on it.
     const change = labelChangeFor(id(1), 'single-publisher|1', corroborated, { at: T0, title: 't', link: '' })!;
-    const commands = labelChangeCommands(change);
-    assert.deepEqual(commands.find((command) => command[0] === 'RPUSH'), ['RPUSH', calibrationEventsKey(DAY_1), `s|${id(1)}|corroborated|${T0}`]);
+    assert.equal(labelChangeCommands(change).some((command) => command[0] === 'RPUSH'), false);
   });
 
   it('appends to the UTC day list, capped and expiring', () => {
@@ -243,14 +256,20 @@ describe('digest wiring', () => {
   });
 
   it('a move whose write was not confirmed is logged again from the current state next cycle', () => {
-    const labels = new Map([[id(1), UNTRACKED_LABEL], [id(2), 'single-publisher|1']]);
-    keepUnloggedMoves(labels, [s(1, 'other', T0), f(2, 'single-publisher', T0)]);
-    assert.equal(labels.get(id(1)), UNCONFIRMED_LABEL);
+    const labels = new Map([[id(1), UNTRACKED_LABEL], [id(2), 'single-publisher|1'], [id(3), 'single-publisher|1']]);
+    keepUnloggedMoves(labels, [s(1, 'other', T0), f(2, 'single-publisher', T0), s(3, 'single-publisher', T0), s(4, 'corroborated', T0)]);
+    assert.equal(labels.get(id(1)), `${UNCONFIRMED_PREFIX}${UNTRACKED_LABEL}`);
     assert.equal(labels.get(id(2)), 'single-publisher|1', 'a first label is persisted regardless');
+    assert.equal(labels.has(id(4)), false, 'a label the public log kept back stays unwritten');
     // The append may have landed with its reply lost, and the story may be
     // back where it started: the next cycle still logs where it is now.
-    assert.deepEqual(calibrationEventFor(id(1), { label: UNCONFIRMED_LABEL }, single, T0 + HOUR), s(1, 'single-publisher', T0 + HOUR));
-    assert.deepEqual(calibrationEventFor(id(1), { label: UNCONFIRMED_LABEL }, tier4, T0 + HOUR), s(1, 'other', T0 + HOUR));
+    const unconfirmed = `${UNCONFIRMED_PREFIX}${UNTRACKED_LABEL}`;
+    assert.deepEqual(calibrationEventFor(id(1), { label: unconfirmed }, single, T0 + HOUR), s(1, 'single-publisher', T0 + HOUR));
+    assert.deepEqual(calibrationEventFor(id(1), { label: unconfirmed }, tier4, T0 + HOUR), s(1, 'other', T0 + HOUR));
+    // The public change log still compares against the label behind the prefix.
+    const kept = labels.get(id(3))!;
+    assert.equal(kept, `${UNCONFIRMED_PREFIX}single-publisher|1`);
+    assert.ok(labelChangeFor(id(3), kept, corroborated, { at: T0 + HOUR, title: 't', link: '' }), 'single-publisher → corroborated is still logged publicly');
     const day = buildCohortDay(DAY_1, [f(1, 'single-publisher', T0), s(1, 'other', T0 + 1), s(1, 'single-publisher', T0 + HOUR)]);
     assert.equal(day.cohorts['single-publisher']['24h'].same, 1, 'the returned label is the outcome, not the lost-reply move');
   });
