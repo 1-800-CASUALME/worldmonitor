@@ -35411,14 +35411,15 @@ webhooks:
             summary: Chokepoint disruption alert (outbound, signed)
             description: |-
                 WorldMonitor POSTs this event to the `callbackUrl` you register via
-                RegisterWebhook when a subscribed chokepoint's disruption score rises
-                to or above your `alertThreshold`, and again only after it has fallen
-                below it. A failed delivery is retried every 5 minutes with the same
-                `X-WM-Delivery-Id` while the score stays at or above the threshold;
-                if the score falls below it first, that delivery is dropped. After 5
-                consecutive failed attempts the webhook is set to `active: false` and
-                delivery stops until you call `reactivate`. Every delivery is signed
-                so you can confirm it genuinely came from WorldMonitor.
+                RegisterWebhook when a subscribed chokepoint's disruption score is at or
+                above your `alertThreshold`: once per crossing, including one already
+                in progress at first evaluation. It re-arms below the threshold unless a
+                score input missing since the last delivery could explain the drop.
+                Failures retry every 5 minutes with the same `X-WM-Delivery-Id` while
+                the score holds; 5 failed ticks set `active: false`. Rules:
+                https://www.worldmonitor.app/docs/api-shipping-v2#delivery-worker.
+                Every delivery is signed so you can confirm it genuinely came from
+                WorldMonitor.
 
                 Verification: the `X-WM-Signature` header is
                 `sha256=<hex>`, where `<hex>` is the lowercase hex HMAC-SHA256 of the
@@ -35505,7 +35506,7 @@ webhooks:
                                         - navigational_warning
                                         - transit_drop
                                         - score_threshold
-                                    description: Strongest signal behind the score; `score_threshold` when no live signal applies.
+                                    description: First matching rule, checked in order - AIS disruptions, then navigational warnings, then a transit drop; `score_threshold` when none matches.
                                 details:
                                     type: object
                                     additionalProperties: true
