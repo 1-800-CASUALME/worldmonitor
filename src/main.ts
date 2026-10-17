@@ -13,6 +13,8 @@ import { initVercelAnalytics, stripSensitiveParamsFromUrl } from '@/bootstrap/se
 import { loadVariantThemeStylesheet } from '@/bootstrap/variant-theme';
 import { installUtmInterceptor } from './utils/utm';
 import { captureContentAttributionFromUrl } from '../shared/content-attribution';
+import { captureAgentRefFromSearch } from '../shared/agent-client-source';
+import { agentRefStorage } from '@/services/agent-ref';
 
 if (SITE_VARIANT === 'happy') {
   // Keeps happy-theme.css off other variants' eager CSS graph. On happy, the
@@ -555,6 +557,12 @@ import { installSwUpdateHandler, readServiceWorkerContainer } from '@/bootstrap/
 
 // Auto-reload on stale chunk 404s after deployment (Vite fires this for modulepreload failures).
 const chunkReloadStorageKey = installChunkReloadGuard(__BUILD_HASH__);
+
+// First-touch agent link (`?ref=agent-claude`). Read before App.ts referral
+// capture strips `ref` from the URL; recorded as the sign-up source on the
+// Convex user row (users.ensureRecord), which new API keys inherit.
+// Best-effort: blocked cookies mean "no attribution".
+captureAgentRefFromSearch(window.location.search, agentRefStorage());
 
 // Product analytics are secondary startup work; RUM starts once the trusted
 // dashboard entry executes so it can observe page-load vitals.
