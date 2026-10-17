@@ -131,6 +131,132 @@ describe('NewsPanel corroboration pill (#6419)', () => {
     panel.destroy();
   });
 
+  it.each(['flat', 'clustered'] as const)('retains the exact %s selection across a queued commit without extending its lifetime', (mode) => {
+    vi.useFakeTimers();
+    const { panel, renderable } = mountPanel();
+    const first = { ...newsItem('First publisher', 'Shared headline'), link: '' };
+    const selected = { ...first, source: 'Second publisher' };
+    const render = (items: NewsItem[]) => mode === 'flat'
+      ? renderable.renderFlat(items) : renderable.renderClusters(clusterNews(items));
+    render([first, selected]);
+    vi.advanceTimersByTime(150);
+    render([first, selected, newsItem('Control publisher', 'Distinct control report')]);
+    vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
+    panel.scrollToNewsItem('', selected);
+    const oldRow = panel.getElement().querySelector('.search-highlight');
+    expect(oldRow).not.toBeNull();
+    vi.advanceTimersByTime(150);
+    const row = panel.getElement().querySelector('.search-highlight');
+    expect(row).not.toBeNull();
+    expect(row).not.toBe(oldRow);
+    expect(row?.querySelector('.item-title')?.textContent).toBe(selected.title);
+    expect(row?.querySelector('.item-source')?.textContent).toContain(mode === 'flat' ? selected.source : first.source);
+    expect(oldRow?.isConnected).toBe(false);
+    vi.advanceTimersByTime(2949);
+    expect(row?.classList.contains('search-highlight')).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(panel.getElement().querySelector('.search-highlight')).toBeNull();
+    render([first, selected, newsItem('Later control', 'Another distinct report')]);
+    vi.advanceTimersByTime(150);
+    expect(panel.getElement().querySelector('.search-highlight')).toBeNull();
+    panel.destroy();
+  });
+
+  it('expires the selection before an inline equal-HTML callback even if timer cleanup has not run', () => {
+    vi.useFakeTimers();
+    const { panel, renderable } = mountPanel();
+    const selected = { ...newsItem('Selected publisher', 'Selected headline'), link: '' };
+    renderable.renderFlat([selected]);
+    vi.advanceTimersByTime(150);
+    vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
+    panel.scrollToNewsItem('', selected);
+    vi.setSystemTime(Date.now() + 3101);
+    renderable.renderFlat([selected]);
+    expect(panel.getElement().querySelector('.search-highlight')).toBeNull();
+    panel.destroy();
+  });
+
+  it('keeps only the newer exact selection when a queued flat commit finishes', () => {
+    vi.useFakeTimers();
+    const { panel, renderable } = mountPanel();
+    const first = { ...newsItem('First publisher', 'Same headline'), link: '' };
+    const second = { ...first, source: 'Second publisher' };
+    renderable.renderFlat([first, second]);
+    vi.advanceTimersByTime(150);
+    renderable.renderFlat([first, second, newsItem('Control', 'Distinct report')]);
+    vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
+    panel.scrollToNewsItem('', first);
+    vi.advanceTimersByTime(100);
+    panel.scrollToNewsItem('', second);
+    vi.advanceTimersByTime(150);
+    const rows = panel.getElement().querySelectorAll('.search-highlight');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.querySelector('.item-source')?.textContent).toContain(second.source);
+    vi.advanceTimersByTime(2850);
+    expect(rows[0]?.classList.contains('search-highlight')).toBe(true);
+    vi.advanceTimersByTime(100);
+    expect(panel.getElement().querySelector('.search-highlight')).toBeNull();
+    panel.destroy();
+  });
+
+  it('does not let older enrichment replace a newer flat render and selection', async () => {
+    vi.useFakeTimers();
+    const panel = new NewsPanel('render-owner-test', 'Render ownership', undefined, { clusterNews: async items => clusterNews(items) });
+    document.body.appendChild(panel.getElement());
+    panel.renderNews([newsItem('Old publisher', 'Old cluster headline')]);
+    await Promise.resolve();
+    (panel as unknown as { clusteredMode: boolean }).clusteredMode = false;
+    const current = { ...newsItem('Current publisher', 'Current flat headline'), link: '' };
+    panel.renderNews([current]);
+    vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
+    panel.scrollToNewsItem('', current);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(150);
+    expect(panel.getElement().querySelector('.item-title')?.textContent).toBe(current.title);
+    expect(panel.getElement().querySelectorAll('.item.clustered')).toHaveLength(0);
+    expect(panel.getElement().querySelector('.search-highlight')?.querySelector('.item-source')?.textContent).toContain(current.source);
+    panel.destroy();
+  });
+
+  it('ignores a superseded windowed reveal callback', () => {
+    vi.useFakeTimers();
+    const { panel, renderable } = mountPanel();
+    const items = Array.from({ length: 24 }, (_, index) => newsItem(`Publisher ${index}`, `Qzx${index} Vbn${index} Plo${index}`));
+    renderable.renderClusters(clusterNews(items));
+    vi.advanceTimersByTime(150);
+    vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
+    panel.scrollToNewsItem(items[23]!.link, items[23]);
+    vi.advanceTimersByTime(100);
+    panel.scrollToNewsItem(items[0]!.link, items[0]);
+    vi.advanceTimersByTime(250);
+    expect(panel.getElement().querySelector('.search-highlight')).toBeNull();
+    vi.advanceTimersByTime(100);
+    const rows = panel.getElement().querySelectorAll('.search-highlight');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.getAttribute('data-news-id')).toBe(items[0]!.link);
+    panel.destroy();
+  });
+
+  it.each(['new-render', 'empty', 'filtered', 'destroy'] as const)('invalidates a pending reveal on %s', (action) => {
+    vi.useFakeTimers();
+    const { panel, renderable } = mountPanel();
+    const selected = { ...newsItem('Selected publisher', 'Selected headline'), link: '' };
+    renderable.renderFlat([selected]);
+    vi.advanceTimersByTime(150);
+    renderable.renderFlat([selected, newsItem('Control', 'Distinct report')]);
+    vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
+    panel.scrollToNewsItem('', selected);
+    if (action === 'new-render') {
+      (panel as unknown as { clusteredMode: boolean }).clusteredMode = false;
+      panel.renderNews([selected]);
+    } else if (action === 'empty') panel.renderNews([]);
+    else if (action === 'filtered') panel.renderFilteredEmpty('No matching news');
+    else panel.destroy();
+    vi.advanceTimersByTime(150);
+    expect(panel.getElement().querySelector('.search-highlight')).toBeNull();
+    if (action !== 'destroy') panel.destroy();
+  });
+
   it('keeps windowed clusters after a pending flat write reaches its deadline', async () => {
     vi.useFakeTimers();
     const { panel, renderable } = mountPanel();

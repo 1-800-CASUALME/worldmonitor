@@ -65,6 +65,8 @@ export class NewsPanel extends Panel {
   private windowedList: WindowedList<PreparedCluster> | null = null;
   private useVirtualScroll = true;
   private renderRequestId = 0;
+  private searchReveal: { link: string; identity?: NewsIdentity; renderRequestId: number; expiresAt: number } | null = null;
+  private searchRevealTimer: ReturnType<typeof setTimeout> | null = null;
   private boundScrollHandler: (() => void) | null = null;
   private boundClickHandler: (() => void) | null = null;
 
@@ -494,8 +496,9 @@ export class NewsPanel extends Panel {
   }
 
   public renderNews(items: NewsItem[]): void {
+    this.clearSearchReveal();
+    this.renderRequestId += 1;
     if (items.length === 0) {
-      this.renderRequestId += 1; // Cancel in-flight clustering from previous renders.
       this.renderedBadgeState = 'unavailable';
       this.setDataBadge('unavailable');
       this.showError(t('common.noNewsAvailable'));
@@ -514,6 +517,7 @@ export class NewsPanel extends Panel {
   }
 
   public renderFilteredEmpty(message: string): void {
+    this.clearSearchReveal();
     this.renderRequestId += 1; // Cancel in-flight clustering from previous renders.
     this.lastRawClusters = null;
     this.lastRawItems = null;
@@ -527,12 +531,13 @@ export class NewsPanel extends Panel {
   }
 
   private async renderClustersAsync(items: NewsItem[]): Promise<void> {
-    const requestId = ++this.renderRequestId;
+    const requestId = this.renderRequestId;
 
     try {
       const clusters = await this.newsServices.clusterNews(items);
       if (requestId !== this.renderRequestId) return;
       const enriched = await enrichWithVelocityML(clusters);
+      if (requestId !== this.renderRequestId) return;
       this.renderClusters(enriched);
     } catch (error) {
       if (requestId !== this.renderRequestId) return;
@@ -598,7 +603,7 @@ export class NewsPanel extends Panel {
       })
       .join('');
 
-    this.setSafeContent(unsafeRawHtml(html, 'legacy Panel.setContent() migration'));
+    this.setSafeContent(unsafeRawHtml(html, 'legacy Panel.setContent() migration'), () => this.revealSearchItem());
   }
 
   private renderClusters(clusters: ClusteredEvent[]): void {
@@ -679,12 +684,13 @@ export class NewsPanel extends Panel {
       this.setContentNodes();
       if (this.isLocked) return;
       this.windowedList.setItems(prepared);
+      this.revealSearchItem();
     } else {
       // Direct render for small lists
       const html = prepared
         .map(p => this.renderClusterHtmlSafely(p.cluster, p.isNew, p.shouldHighlight, p.showNewTag))
         .join('');
-      this.setSafeContent(unsafeRawHtml(html, 'legacy Panel.setContent() migration'));
+      this.setSafeContent(unsafeRawHtml(html, 'legacy Panel.setContent() migration'), () => this.revealSearchItem());
     }
     this.refreshRelatedAssetsAfterLazyTables(sorted);
   }
@@ -936,6 +942,28 @@ export class NewsPanel extends Panel {
    * For virtual-scrolled panels, renders the containing chunk first.
    */
   public scrollToNewsItem(link: string, identity?: NewsIdentity): void {
+    this.clearSearchReveal();
+    if (!this.hasNewsItem(link, identity)) return;
+    this.searchReveal = { link, identity, renderRequestId: this.renderRequestId, expiresAt: Date.now() + 3100 };
+    this.searchRevealTimer = setTimeout(() => this.clearSearchReveal(), 3100);
+    this.revealSearchItem();
+  }
+
+  private clearSearchReveal(): void {
+    if (this.searchRevealTimer !== null) clearTimeout(this.searchRevealTimer);
+    this.searchRevealTimer = null;
+    this.searchReveal = null;
+    this.content.querySelectorAll('.search-highlight').forEach(el => el.classList.remove('search-highlight'));
+  }
+
+  private revealSearchItem(): void {
+    const selection = this.searchReveal;
+    if (!selection || selection.renderRequestId !== this.renderRequestId || this.isLocked) return;
+    if (Date.now() >= selection.expiresAt) {
+      this.clearSearchReveal();
+      return;
+    }
+    const { link, identity } = selection;
     if (!this.hasNewsItem(link, identity)) return;
     const cluster = this.lastRawClusters?.find(c =>
       (!identity && c.primaryLink === link) || c.allItems.some(item => matchesNewsItem(item, link, identity)));
@@ -943,6 +971,7 @@ export class NewsPanel extends Panel {
       ? `.item.clustered[data-cluster-id="${CSS.escape(cluster.id)}"]`
       : `.item[data-news-id="${CSS.escape(link)}"]`;
     const reveal = () => {
+      if (this.searchReveal !== selection || selection.renderRequestId !== this.renderRequestId || Date.now() >= selection.expiresAt) return;
       const el = identity && !cluster
         ? [...this.content.querySelectorAll<HTMLElement>(selector)].find(row => row.dataset.newsTitle === identity.title && row.dataset.newsSource === identity.source)
         : this.content.querySelector(selector);
@@ -962,13 +991,14 @@ export class NewsPanel extends Panel {
     el.classList.remove('search-highlight');
     void (el as HTMLElement).offsetWidth;
     el.classList.add('search-highlight');
-    setTimeout(() => el.classList.remove('search-highlight'), 3100);
   }
 
   /**
    * Clean up resources
    */
   public destroy(): void {
+    this.clearSearchReveal();
+    this.renderRequestId += 1;
     // Clean up windowed list
     this.windowedList?.destroy();
     this.windowedList = null;

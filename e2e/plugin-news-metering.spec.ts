@@ -10,7 +10,7 @@ type HostCall = { name: string; arguments: Record<string, unknown> };
 type ViewReceipt = { applied?: boolean; view?: { renderer?: string; source?: string; map_layers?: string[] }; center: { lat: number; lon: number } | null; map: { zoom: number }; renderer?: { mode: string }; viewport?: { settled: boolean; interruptedBy?: string } };
 type NewsInteraction = { kind: string; link: string; title: string; source: string; displayLabel: string };
 type NewsContext = { applied?: boolean; reason?: string; latestInteraction?: NewsInteraction | null; view: Record<string, unknown>; categoryLabel?: string; center?: { lat: number; lon: number } | null; map?: { zoom: number } };
-async function installNewsHost(page: Page, deniedInitially = false, serverTools = true, fixture: boolean | string[] | 'blank-search' | 'windowed-search' = false, modelContext = true, observeCamera = false, initialView: Record<string, unknown> = { map_layers: ['natural'] }, observeRenderer = false, admissionExpiresAt?: string) {
+async function installNewsHost(page: Page, deniedInitially = false, serverTools = true, fixture: boolean | string[] | 'blank-search' | 'windowed-search' = false, modelContext = true, observeCamera = false, initialView: Record<string, unknown> = { map_layers: ['natural'] }, observeRenderer = false, admissionExpiresAt?: string, observeSearch = true) {
   const selectionFixture = fixture === true;
   const blankSearch = fixture === 'blank-search' || fixture === 'windowed-search';
   let categoryIds = Array.isArray(fixture) ? fixture : blankSearch ? ['world', 'financial'] : ['world'];
@@ -38,7 +38,7 @@ async function installNewsHost(page: Page, deniedInitially = false, serverTools 
     const assetName = new URL(route.request().url()).pathname.split('/').at(-1)!;
     const path = join(process.cwd(), 'dist/plugin/assets', assetName);
     const headers = { 'Access-Control-Allow-Origin': '*' };
-    if (blankSearch && assetName.startsWith('plugin-') && assetName.endsWith('.js')) {
+    if (blankSearch && observeSearch && assetName.startsWith('plugin-') && assetName.endsWith('.js')) {
       const source = await readFile(path, 'utf8');
       const parsed = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
       const classes: Record<string, string> = {};
@@ -1848,4 +1848,34 @@ test('a newer category refusal supersedes an older pending human camera observat
   expect(host.calls).toHaveLength(callsBefore);
   await expect(frame.locator('#pluginCategoryNotice')).toContainText('missing');
   await expect(frame.getByRole('combobox', { name: 'News source' })).toHaveValue('');
+});
+
+
+test('aged default clustered Search keeps the exact selected row highlighted after its queued commit', async ({ page }, info) => {
+  await useSvgNewsMap(page);
+  const host = await installNewsHost(page, false, true, 'blank-search', true, false, { map_layers: [] }, false, undefined, false);
+  const frame = page.frameLocator('iframe');
+  await frame.getByRole('combobox', { name: 'News category' }).selectOption('world');
+  await expect(frame.locator('.panel:not([hidden]) .item.clustered')).toHaveCount(2);
+  await frame.getByRole('button', { name: 'Search news', exact: true }).click();
+  await frame.locator('.search-input').fill('Second publisher');
+  await expect(frame.locator('.search-result-item[data-index]')).toHaveCount(1);
+  await page.waitForTimeout(2200);
+  const started = Date.now();
+  await frame.locator('.search-result-item[data-index]').click();
+  await expect.poll(() => host.contexts.at(-1)?.latestInteraction).toMatchObject({ link: '', title: 'Unlinked selection headline', source: 'Second publisher' });
+  await page.waitForTimeout(500);
+  const row = frame.locator('.panel:not([hidden]) .item.clustered').filter({ has: frame.locator('.item-title', { hasText: 'Unlinked selection headline' }) });
+  await expect(row).toHaveClass(/search-highlight/);
+  await expect(row.locator('.item-title')).not.toHaveAttribute('href');
+  await expect(frame.locator('.panel[hidden] .search-highlight')).toHaveCount(0);
+  expect(host.calls.map(call => call.name)).toEqual(['open_news_dashboard']);
+  const geometry = await row.evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    const clip = element.closest('.panel-content')!.getBoundingClientRect();
+    return { row: bounds.toJSON(), clip: clip.toJSON(), inside: bounds.top >= clip.top && bounds.bottom <= clip.bottom };
+  });
+  expect(geometry.inside).toBe(true);
+  await writeFile(info.outputPath('aged-default-search.json'), JSON.stringify({ elapsed: Date.now() - started, geometry, contexts: host.contexts, calls: host.calls, assetsRewritten: false }, null, 2));
+  await page.screenshot({ path: info.outputPath('aged-default-search.png'), fullPage: true });
 });
