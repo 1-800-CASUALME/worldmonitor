@@ -78,18 +78,77 @@ describe('NewsPanel corroboration pill (#6419)', () => {
     expect(panel.getElement().querySelector('a[href=""]')).toBeNull();
   });
 
-  it('search selection reveals an unlinked flat headline', () => {
+  it.each(['flat', 'clustered', 'windowed', 'secondary'] as const)('%s reveal targets the exact second blank-link identity', (mode) => {
     vi.useFakeTimers();
     const { panel, renderable } = mountPanel();
-    renderable.renderFlat([{ ...newsItem('Ars Technica', 'Headline without destination'), link: '' }]);
+    const first = { ...newsItem('First publisher', 'Same <headline> "quoted"'), link: '' };
+    const selected = { ...first, source: 'Second & publisher' };
+    const clusters = [first, selected].map((item, index) => ({ ...clusterNews([item])[0]!, id: `selected-${index}` }));
+    if (mode === 'secondary') {
+      const primary = newsItem('Primary publisher', 'Different primary headline');
+      clusters[1] = { ...clusterNews([primary])[0]!, id: 'selected-1', allItems: [primary, selected] };
+    }
+    if (mode === 'windowed') {
+      clusters.unshift(...Array.from({ length: 22 }, (_, index) => ({ ...clusterNews([newsItem(`Filler ${index}`, `Unrelated story ${index}`)])[0]!, id: `filler-${index}` })));
+    }
+    if (mode === 'flat') renderable.renderFlat([first, selected]);
+    else renderable.renderClusters(clusters);
     vi.runAllTimers();
-    const row = panel.getElement().querySelector('.item') as HTMLElement;
-    const scroll = vi.fn();
-    row.scrollIntoView = scroll;
-    panel.scrollToNewsItem('');
-    expect(scroll).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' });
-    expect(row.classList.contains('search-highlight')).toBe(true);
-    expect(row.querySelector('a')).toBeNull();
+    const legacy = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
+    expect(panel.hasNewsItem('', selected)).toBe(true);
+    expect(panel.hasNewsItem('', { ...selected, source: 'Not loaded' })).toBe(false);
+    panel.scrollToNewsItem('', { ...selected, source: 'Not loaded' });
+    vi.advanceTimersByTime(350);
+    expect(panel.getElement().querySelector('.search-highlight')).toBeNull();
+    panel.scrollToNewsItem('', selected);
+    vi.advanceTimersByTime(350);
+    const highlighted = panel.getElement().querySelector('.search-highlight');
+    expect(highlighted).not.toBeNull();
+    if (mode === 'flat') {
+      expect(highlighted?.querySelector('.item-source')?.textContent).toContain(selected.source);
+      expect(highlighted?.querySelector('.item-title')?.tagName).toBe('SPAN');
+      expect(highlighted?.querySelector('.item-title')?.hasAttribute('href')).toBe(false);
+      expect(legacy).toHaveBeenCalled();
+    } else expect(highlighted?.getAttribute('data-cluster-id')).toBe('selected-1');
+    expect(legacy.mock.contexts).toContain(highlighted);
+    if (mode === 'windowed') expect(highlighted?.closest('.windowed-chunk')?.getAttribute('data-chunk')).toBe('2');
+    expect(panel.getElement().querySelectorAll('.search-highlight')).toHaveLength(1);
+    expect(panel.getElement().querySelector('a[href=""]')).toBeNull();
+    panel.destroy();
+  });
+
+  it('legacy nonempty-link reveal finds a secondary cluster member', () => {
+    vi.useFakeTimers();
+    const { panel, renderable } = mountPanel();
+    const primary = newsItem('Primary', 'Shared report');
+    const secondary = newsItem('Secondary', 'Shared report');
+    renderable.renderClusters([{ ...clusterNews([primary])[0]!, allItems: [primary, secondary] }]);
+    vi.runAllTimers();
+    vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
+    expect(panel.hasNewsItem(secondary.link)).toBe(true);
+    panel.scrollToNewsItem(secondary.link);
+    expect(panel.getElement().querySelector('.search-highlight')?.getAttribute('data-news-id')).toBe(primary.link);
+    panel.destroy();
+  });
+
+  it('keeps windowed clusters after a pending flat write reaches its deadline', async () => {
+    vi.useFakeTimers();
+    const { panel, renderable } = mountPanel();
+    const items = Array.from({ length: 24 }, (_, i) => newsItem(`Publisher ${i}`, `Qzx${i} Vbn${i} Plo${i}`));
+    const clusters = clusterNews(items);
+    expect(clusters).toHaveLength(24);
+    renderable.renderFlat(items);
+    await vi.advanceTimersByTimeAsync(150);
+    expect(panel.getElement().querySelectorAll('.item:not(.clustered)')).toHaveLength(24);
+    renderable.renderFlat([...items, newsItem('New publisher', 'New distinct headline')]);
+    renderable.renderClusters(clusters);
+    expect(panel.getElement().querySelectorAll('[data-chunk]')).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(149);
+    expect(panel.getElement().querySelectorAll('[data-chunk]')).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(panel.getElement().querySelectorAll('[data-chunk]')).toHaveLength(3);
+    expect(panel.getElement().querySelectorAll('.item:not(.clustered)')).toHaveLength(0);
+    panel.destroy();
   });
 
   it('flat cards flag one publisher and stay silent otherwise', () => {

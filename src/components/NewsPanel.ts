@@ -24,6 +24,11 @@ import {
 
 
 type SortMode = 'relevance' | 'newest';
+type NewsIdentity = Pick<NewsItem, 'link' | 'title' | 'source'>;
+
+function matchesNewsItem(item: NewsIdentity, link: string, identity?: NewsIdentity): boolean {
+  return item.link === link && (!identity || (identity.link === link && item.title === identity.title && item.source === identity.source));
+}
 
 /** Threshold for enabling virtual scrolling */
 const VIRTUAL_SCROLL_THRESHOLD = 15;
@@ -538,6 +543,7 @@ export class NewsPanel extends Panel {
 
   private renderFlat(items: NewsItem[]): void {
     this.lastRawItems = items;
+    this.lastRawClusters = null;
 
     let sorted: NewsItem[];
     if (this.sortMode === 'newest') {
@@ -568,7 +574,7 @@ export class NewsPanel extends Panel {
         const provenance = renderPrimarySourceProvenance(item.source);
         const titleLink = sanitizeUrl(item.link);
         return `
-      <div class="item ${item.isAlert ? 'alert' : ''}" data-news-id="${escapeHtml(item.link)}" ${item.monitorColor ? `style="border-inline-start-color: ${escapeHtml(item.monitorColor)}"` : ''}>
+      <div class="item ${item.isAlert ? 'alert' : ''}" data-news-id="${escapeHtml(item.link)}" data-news-title="${escapeHtml(item.title)}" data-news-source="${escapeHtml(item.source)}" ${item.monitorColor ? `style="border-inline-start-color: ${escapeHtml(item.monitorColor)}"` : ''}>
         <div class="item-source">
           ${escapeHtml(item.source)}
           ${renderCredibilityBadge(item.source, item)}
@@ -670,6 +676,8 @@ export class NewsPanel extends Panel {
 
     // Use windowed rendering for large lists, direct render for small
     if (this.useVirtualScroll && sorted.length > VIRTUAL_SCROLL_THRESHOLD && this.windowedList) {
+      this.setContentNodes();
+      if (this.isLocked) return;
       this.windowedList.setItems(prepared);
     } else {
       // Direct render for small lists
@@ -911,14 +919,14 @@ export class NewsPanel extends Panel {
    * Returns true if this panel contains a news item with the given link
    * (either as a cluster primary or secondary article).
    */
-  public hasNewsItem(link: string): boolean {
+  public hasNewsItem(link: string, identity?: NewsIdentity): boolean {
     if (this.lastRawClusters) {
       return this.lastRawClusters.some(
-        c => c.primaryLink === link || c.allItems.some(i => i.link === link)
+        c => (!identity && c.primaryLink === link) || c.allItems.some(item => matchesNewsItem(item, link, identity))
       );
     }
     if (this.lastRawItems) {
-      return this.lastRawItems.some(i => i.link === link);
+      return this.lastRawItems.some(item => matchesNewsItem(item, link, identity));
     }
     return false;
   }
@@ -927,29 +935,27 @@ export class NewsPanel extends Panel {
    * Scroll the panel to the item with the given link and flash-highlight it.
    * For virtual-scrolled panels, renders the containing chunk first.
    */
-  public scrollToNewsItem(link: string): void {
-    // In clustered mode, scroll via windowedList so off-screen chunks are rendered first
-    if (this.lastRawClusters && this.windowedList) {
-      const found = this.windowedList.scrollToItem(
-        (p: { cluster: ClusteredEvent }) =>
-          p.cluster.primaryLink === link || p.cluster.allItems.some((i: { link: string }) => i.link === link)
-      );
-      if (found) {
-        setTimeout(() => {
-          const el = this.content.querySelector(`[data-news-id="${CSS.escape(link)}"]`)
-            ?? this.content.querySelector(`a[href="${CSS.escape(link)}"]`);
-          if (el) this.flashHighlight(el);
-        }, 350);
-        return;
+  public scrollToNewsItem(link: string, identity?: NewsIdentity): void {
+    if (!this.hasNewsItem(link, identity)) return;
+    const cluster = this.lastRawClusters?.find(c =>
+      (!identity && c.primaryLink === link) || c.allItems.some(item => matchesNewsItem(item, link, identity)));
+    const selector = cluster
+      ? `.item.clustered[data-cluster-id="${CSS.escape(cluster.id)}"]`
+      : `.item[data-news-id="${CSS.escape(link)}"]`;
+    const reveal = () => {
+      const el = identity && !cluster
+        ? [...this.content.querySelectorAll<HTMLElement>(selector)].find(row => row.dataset.newsTitle === identity.title && row.dataset.newsSource === identity.source)
+        : this.content.querySelector(selector);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        this.flashHighlight(el);
       }
+    };
+    if (cluster && this.useVirtualScroll && this.lastRawClusters && this.lastRawClusters.length > VIRTUAL_SCROLL_THRESHOLD && this.windowedList) {
+      if (this.windowedList.scrollToItem(prepared => prepared.cluster.id === cluster.id)) setTimeout(reveal, 350);
+      return;
     }
-    // Flat mode or small lists rendered directly in DOM
-    const el = this.content.querySelector(`[data-news-id="${CSS.escape(link)}"]`)
-      ?? this.content.querySelector(`a[href="${CSS.escape(link)}"]`);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      this.flashHighlight(el);
-    }
+    reveal();
   }
 
   private flashHighlight(el: Element): void {

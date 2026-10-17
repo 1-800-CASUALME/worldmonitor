@@ -368,21 +368,26 @@ function mountPlugin(): void {
 
   function recordNewsInteraction(article: Pick<NewsItem, 'link' | 'title' | 'source'>, displayLabel: string): boolean {
     const item = visibleNews.find(item => item.link === article.link && item.title === article.title && item.source === article.source);
-    if (!item || !item.link) return false;
+    if (!item) return false;
     latestInteraction = { kind: 'news-article', link: item.link, title: item.title, source: item.source, displayLabel };
     return true;
   }
 
   async function focusNews(link: string, selectedItem?: NewsItem): Promise<object> {
+    if (!link && !selectedItem) throw new Error('Select an article from the loaded news search results.');
     const generation = renderGeneration;
     const item = news.find(item => item.link === link && (!selectedItem || item === selectedItem));
     if (!item || !digest) throw new Error('This article is not in the current news snapshot.');
     const category = Object.entries(digest.categories).find(([, bucket]) => bucket.items.some(candidate => candidate.link === link && candidate.title === item.title && candidate.source === item.source))?.[0];
     const mapFocused = Number.isFinite(item.lat) && Number.isFinite(item.lon);
-    await applyView({ category, time_range: 'all', ...(mapFocused ? { map_latitude: item.lat, map_longitude: item.lon, map_zoom: 4 } : {}) }, { reset: true });
+    const operation = applyView({ category, time_range: 'all', ...(mapFocused ? { map_latitude: item.lat, map_longitude: item.lon, map_zoom: 4 } : {}) }, { reset: true });
+    const selectionQueue = viewQueue;
+    await operation;
     if (generation !== renderGeneration) throw new Error('The news snapshot changed. Select the article again.');
+    if (selectionQueue !== viewQueue) return { applied: false, superseded: true };
     if (!recordNewsInteraction(item, item.title)) throw new Error('This article is no longer in the current news view.');
-    for (const panel of panels.values()) if (panel.hasNewsItem(item.link)) panel.scrollToNewsItem(item.link);
+    const panel = category ? panels.get(category) : undefined;
+    if (panel && !panel.getElement().hidden && panel.hasNewsItem(item.link, item)) panel.scrollToNewsItem(item.link, item);
     const receipt = { applied: true, link, title: item.title, source: item.source, mapFocused, center: map.getCenter(), view, categoryLabel: visibleCategoryLabel(), latestInteraction };
     publishContext(receipt);
     return receipt;
