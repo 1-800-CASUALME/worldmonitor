@@ -802,11 +802,13 @@ describe('runTick', () => {
       sourceState: 'ok',
       riskSourceState: 'error',
       fanoutState: 'ok',
+      hazardSourceState: 'error',
       deliveries: 1,
       failures: 0,
       deactivated: 0,
       pruned: 0,
       occurrences: { drained: 0, unreadable: 0, duplicates: 0, matched: 0, suppressed: 0, deferred: 0, expired: 0, pruned: 0 },
+      hazards: { feedIds: 0, new: 0, bootstrapped: 0, stale: 0, closed: 0, crossSource: 0 },
       scoresFetchedAt: '2026-10-17T11:58:00.000Z',
       riskFetchedAt: null,
     });

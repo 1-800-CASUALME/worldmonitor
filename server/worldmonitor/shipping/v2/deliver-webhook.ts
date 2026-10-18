@@ -85,6 +85,31 @@ export interface MarketMoveWebhookPayload {
   reason: string;
 }
 
+// `natural.hazard` delivery body (X-WM-Event: natural.hazard), built by the
+// worker from a new row of seismology:earthquakes:v1 or natural:events:v1;
+// same pinning as above.
+export interface NaturalHazardWebhookPayload {
+  subscriberId: string;
+  eventId: string;
+  hazardType: string;
+  title: string;
+  source: string;
+  sourceUrl: string | null;
+  lat: number;
+  lon: number;
+  countryCodes: string[];
+  occurredAt: string;
+  magnitude: number | null;
+  depthKm: number | null;
+  nearTestSite: boolean | null;
+  alertLevel: string | null;
+  stormName: string | null;
+  stormCategory: number | null;
+  windKt: number | null;
+  triggeredAt: string;
+  reason: string;
+}
+
 export interface WebhookDeliveryOptions {
   event?: string;
   deliveryId?: string;

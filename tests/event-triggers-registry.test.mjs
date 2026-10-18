@@ -16,7 +16,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const canonicalRaw = readFileSync(resolve(root, 'shared/event-triggers.json'), 'utf8');
 const registry = JSON.parse(canonicalRaw);
 const { marketEventId, rssEventId } = require('../scripts/lib/occurrence-events.cjs');
-const { normalizeTeeMessage, planTick } = await import('../scripts/shipping-webhook-worker.mjs');
+const { diffHazards, normalizeTeeMessage, parseHazardSeen, planTick } = await import('../scripts/shipping-webhook-worker.mjs');
 
 const events = Object.entries(registry.events);
 const occurrenceEvents = events.filter(([, event]) => event.kind === 'occurrence');
@@ -160,5 +160,37 @@ describe('occurrence events', () => {
     assert.equal(event.inputSchema.properties.direction.default, 'any');
     assert.ok(Math.abs(sample.changePct) >= event.inputSchema.properties.minAbsPct.default, 'the sample itself clears the default floor');
     assert.deepEqual(propertyNames(event.inputSchema).sort(), ['assetClasses', 'direction', 'minAbsPct', 'symbols']);
+  });
+
+  it('natural.hazard: scope keys, defaults and the sample eventId the worker derives from the earthquake feed', () => {
+    const event = registry.events['natural.hazard'];
+    const { sample } = event;
+    assert.deepEqual(propertyNames(event.inputSchema).sort(), ['countries', 'hazardTypes', 'minAlertLevel', 'minMagnitude']);
+    assert.equal(event.inputSchema.properties.minMagnitude.default, 5.5);
+    assert.equal(event.inputSchema.properties.minAlertLevel.default, 'Orange');
+    assert.deepEqual(event.inputSchema.properties.minAlertLevel.enum, ['Orange', 'Red']);
+    assert.ok(event.inputSchema.properties.hazardTypes.items.enum.includes(sample.hazardType));
+    assert.deepEqual([event.volume.maxDeliveriesPerHour, event.volume.maxDeliveriesPerDay], [30, 150]);
+    assert.ok(event.dedupe.seenWindowSeconds > event.dedupe.newWithinSeconds.other, 'an id must stay seen longer than it can count as new');
+    assert.deepEqual(event.source.redisKeys, ['seismology:earthquakes:v1', 'natural:events:v1']);
+    assert.ok(sample.magnitude >= event.inputSchema.properties.minMagnitude.default, 'the sample itself clears the default floor');
+
+    const now = Date.parse(sample.triggeredAt);
+    const quake = {
+      id: sample.eventId.slice('eq:'.length), place: '76 km NE of Ozernovskiy, Russia', magnitude: sample.magnitude, depthKm: sample.depthKm,
+      location: { latitude: sample.lat, longitude: sample.lon }, occurredAt: Date.parse(sample.occurredAt), sourceUrl: sample.sourceUrl, source: 'usgs',
+    };
+    const seen = parseHazardSeen(['eq:us0000seed', 'nat:EONET_1']);
+    const { occurrences } = diffHazards({ earthquakes: [quake], naturalEvents: [] }, seen, now);
+    assert.equal(occurrences.length, 1);
+    const record = {
+      subscriberId: 'wh_041fef6d0657b56b75fb62cb', ownerTag: 'o', callbackUrl: 'https://hooks.example.com/wm', chokepointIds: [], alertThreshold: 50,
+      createdAt: '2026-10-01T00:00:00.000Z', active: true, secret: 'a'.repeat(64), eventType: 'natural.hazard',
+      scope: { hazardTypes: [], minMagnitude: 5.5, minAlertLevel: 'Orange', countries: [] },
+    };
+    const { deliveries } = planTick({ chokepoints: null, hazards: occurrences, records: [record], states: new Map(), now, scoresFetchedAt: null, makeId: () => 'whd_fixed' });
+    assert.equal(deliveries.length, 1);
+    assert.deepEqual(Object.keys(deliveries[0].payload).sort(), Object.keys(sample).sort(), 'worker payload keys drifted from the registry sample');
+    assert.deepEqual(deliveries[0].payload, sample, 'the worker builds the sample from its earthquake row');
   });
 });

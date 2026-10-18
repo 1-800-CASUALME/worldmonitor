@@ -12,6 +12,7 @@ const chokepointDisruption = require('./triggers/chokepoint-disruption');
 const countryRiskSurge = require('./triggers/country-risk-surge');
 const newsBreaking = require('./triggers/news-breaking');
 const marketMove = require('./triggers/market-move');
+const naturalHazard = require('./triggers/natural-hazard');
 const findNews = require('./searches/find-news');
 const strategicRiskOverview = require('./searches/strategic-risk-overview');
 
@@ -34,6 +35,7 @@ module.exports = {
     [countryRiskSurge.key]: countryRiskSurge,
     [newsBreaking.key]: newsBreaking,
     [marketMove.key]: marketMove,
+    [naturalHazard.key]: naturalHazard,
     [newDiseaseOutbreak.key]: newDiseaseOutbreak,
     [chokepointList.key]: chokepointList,
     [countryList.key]: countryList,

@@ -443,6 +443,20 @@ describe('ShippingV2Service handlers', () => {
       assert.equal('scope' in JSON.parse(threshold[0][0][2]), false, 'a threshold record carries no scope');
     });
 
+    it('natural.hazard stores its scope with the registry defaults (magnitude 5.5, alert level Orange)', async () => {
+      const calls = stubRedisOk();
+      await registerWebhook(proCtx(), {
+        callbackUrl: 'https://93.184.216.34/wm',
+        chokepointIds: [],
+        countries: [],
+        eventType: 'natural.hazard',
+        scope: { hazardTypes: ['earthquakes', 'severeStorms'], countries: ['jp'], minAlertLevel: '', keywords: [] },
+      });
+      const record = JSON.parse(calls[0][0][2]);
+      assert.equal(record.eventType, 'natural.hazard');
+      assert.deepEqual(record.scope, { hazardTypes: ['earthquakes', 'severeStorms'], countries: ['JP'], minMagnitude: 5.5, minAlertLevel: 'Orange' });
+    });
+
     it('rejects a scope key the event does not define, and any set scope on a threshold event', async () => {
       stubRedisOk();
       await assert.rejects(

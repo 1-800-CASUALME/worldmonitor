@@ -15,6 +15,8 @@ const PATHS = {
   marketQuotes: '/api/market/v1/list-market-quotes',
   commodityQuotes: '/api/market/v1/list-commodity-quotes',
   cryptoQuotes: '/api/market/v1/list-crypto-quotes',
+  earthquakes: '/api/seismology/v1/list-earthquakes',
+  naturalEvents: '/api/natural/v1/list-natural-events',
 };
 
 // Surface-neutral event registry (shared/event-triggers.json at the repo

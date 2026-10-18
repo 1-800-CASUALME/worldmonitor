@@ -86,6 +86,7 @@ The events, their thresholds, cooldowns, payload schemas and id rules are define
 | `country.risk_surge` | threshold | A monitored country's Country Instability Index rises 15 or more points within 24 hours into the high band (70 or more), once per surge per country with a 24-hour cooldown | `countries` |
 | `news.breaking` | occurrence | WorldMonitor's news relay classifies a headline as critical or high and it clears the subscription's importance floor, severity floor, keywords, categories and countries; once per story link | `scope.keywords`, `scope.categories`, `scope.countries`, `scope.importanceFloor`, `scope.severityFloor` |
 | `market.move` | occurrence | A tracked equity, commodity or crypto quote moves at least `minAbsPct` percent on the day; once per symbol, direction and severity band per UTC day | `scope.assetClasses`, `scope.symbols`, `scope.minAbsPct`, `scope.direction` |
+| `natural.hazard` | occurrence | WorldMonitor first sees an earthquake (USGS, Earthquakes Canada) or a storm, wildfire, flood, volcano or other natural event (NASA EONET, GDACS, National Hurricane Center, western-Pacific cyclones) that clears the subscription's hazard types, magnitude, alert level and countries; once per hazard | `scope.hazardTypes`, `scope.minMagnitude`, `scope.minAlertLevel`, `scope.countries` |
 
 Threshold events re-evaluate a condition every 5 minutes and deliver one crossing once. Occurrence events are fire-once: each event carries an `eventId`, and a subscription gets one `X-WM-Delivery-Id` per `eventId`; delivery is still at-least-once, so a retry can repeat it. See [Occurrence events](#occurrence-events).
 
@@ -137,6 +138,20 @@ Threshold events re-evaluate a condition every 5 minutes and deliver one crossin
 }
 ```
 
+**Request** (natural hazards):
+```json
+{
+  "callbackUrl": "https://hooks.example.com/hazards",
+  "eventType": "natural.hazard",
+  "scope": {
+    "hazardTypes": ["earthquakes", "severeStorms"],
+    "minMagnitude": 6,
+    "minAlertLevel": "Orange",
+    "countries": ["JP", "PH", "TW"]
+  }
+}
+```
+
 - `callbackUrl` — required, HTTPS only, must not resolve to a private/loopback address (SSRF guard at registration).
 - `eventType` — optional. `chokepoint.disruption` when omitted, so every body written before event types existed keeps its meaning. Unknown values return `400`.
 - `chokepointIds` — optional. Omitting or passing an empty array subscribes to **all** registered chokepoints. Unknown IDs return `400`.
@@ -146,6 +161,7 @@ Threshold events re-evaluate a condition every 5 minutes and deliver one crossin
 - `scope` — occurrence events only; every key is optional and the defaults below are stored on the record at registration. A key the event does not define (`symbols` on `news.breaking`), any `scope` on a threshold event, an unknown enum value or an out-of-range number returns `400` naming the field as `scope.<key>`.
   - `news.breaking`: `keywords` (1-20 terms, 2-64 characters, matched as whole words, case-insensitive, any-of; stored lower-cased), `categories` (any of `conflict`, `protest`, `disaster`, `diplomatic`, `economic`, `terrorism`, `cyber`, `health`, `environmental`, `military`, `crime`, `infrastructure`, `tech`, `general`), `countries` (ISO 3166-1 alpha-2, any country; a headline the relay could not attribute to a country never matches a country scope), `importanceFloor` (0-100, default `69`), `severityFloor` (`critical` or `high`, default `high`, which is every headline the relay queues).
   - `market.move`: `assetClasses` (any of `equity`, `commodity`, `crypto`), `symbols` (1-50, stored upper-cased, as WorldMonitor lists them), `minAbsPct` (5-100, default `10`; the relay only publishes moves of 5 percent or more, 10 for crypto, so lower values change nothing), `direction` (`up`, `down` or `any`, default `any`).
+  - `natural.hazard`: `hazardTypes` (any of `earthquakes`, `severeStorms`, `floods`, `volcanoes`, `wildfires`, `drought`, `landslides`, `dustHaze`, `snow`, `tempExtremes`, `seaLakeIce`, `waterColor`, `manmade`; empty accepts every type), `minMagnitude` (4.5-9.5, default `5.5`; earthquakes only), `minAlertLevel` (`Orange` or `Red`, default `Orange`; GDACS events only, see [Occurrence events](#occurrence-events)), `countries` (ISO 3166-1 alpha-2, any country; a hazard placed in no country, such as a mid-ocean quake, never matches a country scope).
 
 **Response (`200`)**:
 ```json
@@ -277,11 +293,13 @@ The `reason` field names the strongest signal behind the score. The first matchi
 
 ### Occurrence events
 
-`news.breaking` and `market.move` are not conditions the worker re-checks; they are things that happened once. The same worker drains, every 5 minutes, a copy of the news relay's `rss_alert` and `market_alert` messages (the relay tees them onto a second list as it queues them for in-app alerts) and matches each against every subscription's stored `scope`.
+`news.breaking`, `market.move` and `natural.hazard` are not conditions the worker re-checks; they are things that happened once. The same worker drains, every 5 minutes, a copy of the news relay's `rss_alert` and `market_alert` messages (the relay tees them onto a second list as it queues them for in-app alerts), reads the earthquake and natural-event feeds (the same data as `list-earthquakes` and `list-natural-events`) for hazards it has not seen before, and matches each event against every subscription's stored `scope`.
 
-- **One event, one delivery.** Every body carries an `eventId`. For `news.breaking` it is `rss_` + 32 hex of the story's canonical link (host and path, no query or fragment), so the same story reaching the relay through several site feeds, or under a reworded headline, is one event; a headline with no link hashes its normalized title instead. For `market.move` it is `mkt_` + 32 hex of the relay's coalesce key (`market:<assetClass>:<symbol>:<surge|decline>:<severity>`) per UTC day: the relay republishes a sustained move every hour, you receive it once a day per symbol, direction and severity band, and a move that escalates into the critical band is a second event. A subscription gets one `X-WM-Delivery-Id` per `eventId`, taken from the first copy that matches its `scope`: a later copy (a bigger move in the same band, a reworded headline) still reaches a subscription the earlier copies did not match, and never reaches one that already has the event. Delivery is at-least-once: if the worker stops after your endpoint accepted a POST but before it recorded the success, the next tick resends it under the same `X-WM-Delivery-Id`, so make processing idempotent on that id. Two subscriptions on the same event receive the same `eventId` under different `X-WM-Delivery-Id`s, which is the key to dedupe across Zaps or receivers.
-- **Retry and expiry.** A failed delivery (non-2xx, timeout, refused callback) is retried every 5 minutes under the same `X-WM-Delivery-Id` and body, with the same `failureCount` ceiling as threshold events (5 consecutive failed ticks deactivate the webhook). A delivery still pending two hours after it was first queued is dropped and never sent, and a later copy of that event does not restart it. A deactivated webhook keeps its pending deliveries: reactivated within those two hours, it retries them on the next tick under their original ids; older ones are dropped.
-- **Caps.** Each subscription receives at most 20 events an hour and 100 a day per event type (UTC buckets), retries included: a pending retry carried into a new hour takes one of that hour's slots and waits, still pending, while the hour is full. New events over the cap are dropped and counted on the server, not queued or batched. Narrow the scope (keywords, categories, countries, symbols, a higher `importanceFloor` or `minAbsPct`) rather than relying on the cap. Measured on 2026-10-18, the relay queues about 135 distinct headlines a day (16 critical) and a handful of distinct market moves.
+- **One event, one delivery.** Every body carries an `eventId`. For `news.breaking` it is `rss_` + 32 hex of the story's canonical link (host and path, no query or fragment), so the same story reaching the relay through several site feeds, or under a reworded headline, is one event; a headline with no link hashes its normalized title instead. For `market.move` it is `mkt_` + 32 hex of the relay's coalesce key (`market:<assetClass>:<symbol>:<surge|decline>:<severity>`) per UTC day: the relay republishes a sustained move every hour, you receive it once a day per symbol, direction and severity band, and a move that escalates into the critical band is a second event. For `natural.hazard` it is `eq:` + the earthquake feed's id (a USGS event id, or `nrcan:` + the Earthquakes Canada id) or `nat:` + the natural-event id (`EONET_<n>`, `gdacs-<type>-<id>`, a western-Pacific `cyclone:` id), with `:red` appended to a GDACS event at Red; National Hurricane Center ids embed the advisory number, so a storm is keyed on its basin and storm number (`nat:nhc-AL09`) and a new advisory is not a new hazard. A subscription gets one `X-WM-Delivery-Id` per `eventId`, taken from the first copy that matches its `scope`: a later copy (a bigger move in the same band, a reworded headline) still reaches a subscription the earlier copies did not match, and never reaches one that already has the event. Delivery is at-least-once: if the worker stops after your endpoint accepted a POST but before it recorded the success, the next tick resends it under the same `X-WM-Delivery-Id`, so make processing idempotent on that id. Two subscriptions on the same event receive the same `eventId` under different `X-WM-Delivery-Id`s, which is the key to dedupe across Zaps or receivers.
+- **Retry and expiry.** A failed delivery (non-2xx, timeout, refused callback) is retried every 5 minutes under the same `X-WM-Delivery-Id` and body, with the same `failureCount` ceiling as threshold events (5 consecutive failed ticks deactivate the webhook). A delivery still pending two hours after it was first queued (a day for `natural.hazard`) is dropped and never sent, and a later copy of that event does not restart it. A deactivated webhook keeps its pending deliveries: reactivated within that window, it retries them on the next tick under their original ids; older ones are dropped.
+- **Caps.** Each subscription receives at most 20 events an hour and 100 a day per event type (30 and 150 for `natural.hazard`, so an aftershock swarm fits; UTC buckets), retries included: a pending retry carried into a new hour takes one of that hour's slots and waits, still pending, while the hour is full. New events over the cap are dropped and counted on the server, not queued or batched. Narrow the scope (keywords, categories, countries, symbols, hazard types, a higher `importanceFloor`, `minAbsPct` or `minMagnitude`) rather than relying on the cap. Measured on 2026-10-18, the relay queues about 135 distinct headlines a day (16 critical) and a handful of distinct market moves; over the previous 30 days the hazard feeds carried about 1 earthquake a day at magnitude 5.5 or more (21 at 4.5 or more) and about 1.4 new EONET events a day, most of them US wildfires, some of them prescribed burns.
+- **New hazards.** A hazard is new the first time its id appears in either feed, when its event time is within the last 24 hours (earthquakes) or 72 hours (other hazards) and the agency has not closed it; an older or closed id is recorded as seen without a delivery. A GDACS event is new whenever WorldMonitor first sees it at Orange or Red, however long ago GDACS opened it (an event that starts Green is not stored until it escalates). An escalation from Orange to Red is a second event (`eventId` ending in `:red`), delivered to Orange and Red scopes alike; a Red event that falls back to Orange is not new. Hong Kong Observatory warning signals are not hazards here: their id names the signal, not the storm, which arrives through the cyclone feeds. The first time the worker ever reads a feed it records every current id and delivers nothing, so a subscription receives hazards that appear after it, never a backlog. It remembers that it has read the feed for good, so a quiet feed whose seen ids have aged out (NHC off-season) still delivers its next hazard; if the record of seen ids is lost, hazards still inside their new window may be delivered once more. Another agency's copy of a hazard already seen is not new: an earthquake within 120 seconds, 150 km and 0.6 magnitude of a seen one that came from the other agency or has left the feed (an Earthquakes Canada quake that USGS later reports, or a USGS id change; two quakes the feed still lists side by side are both delivered), or a storm whose name matches a seen storm (the same hurricane from the National Hurricane Center, EONET and GDACS). A quake whose magnitude is revised across your `minMagnitude` after it was first seen is not delivered.
+- **Hazard scope.** `minMagnitude` applies to earthquakes only. `minAlertLevel` applies to GDACS events only: WorldMonitor stores Orange and Red GDACS events, so `Orange` accepts all of them and `Red` only those GDACS marked Red; western-Pacific cyclones carry no level and pass `Orange` only. `countryCodes` holds the country the agency's text names (the USGS place, the GDACS or EONET title), else the smallest country bounding box that contains the point (France and the United States use boxes around their territories, since their published boxes span open ocean), else nothing; a box can name a coastal country for an offshore point; a country scope is strict and never receives a hazard placed in no country. Earthquake rows of the natural-event feed (GDACS) are skipped because the earthquake feed carries the same quakes.
 - **Severity and floors.** Only headlines the relay classified `critical` or `high` exist on this stream; `severityFloor: "critical"` keeps the critical band only. `importanceScore` is the relay's score (the critical band starts at 82); the default floor of 69 is the watchlist-story floor. `countryCodes` is what the relay attributed from the headline text (often empty); a country scope is strict and never receives unattributed headlines. `category` is `null` for alert paths with no classifier category (Saudi Civil Defense posts).
 - **Signing.** Occurrence deliveries go through the same sender as threshold events, so they carry the same headers and signatures; verify them as described in [Verifying deliveries](#verifying-deliveries), then dedupe on `X-WM-Delivery-Id` (one subscription) or `eventId` (across subscriptions).
 
@@ -374,6 +392,34 @@ A `market.move` delivery carries `X-WM-Event: market.move` and this body (`reaso
   "reason": "large_move"
 }
 ```
+
+A `natural.hazard` delivery carries `X-WM-Event: natural.hazard` and this body (`reason` is always `new_hazard`; every field is present: `magnitude`, `depthKm` and `nearTestSite` are `null` except for earthquakes, `alertLevel` except for GDACS events, `stormName`, `stormCategory` and `windKt` except for storms that report them):
+
+```json
+{
+  "subscriberId": "wh_...",
+  "eventId": "eq:us6000u2mq",
+  "hazardType": "earthquakes",
+  "title": "M6.9 - 76 km NE of Ozernovskiy, Russia",
+  "source": "usgs",
+  "sourceUrl": "https://earthquake.usgs.gov/earthquakes/eventpage/us6000u2mq",
+  "lat": 51.98,
+  "lon": 157.27,
+  "countryCodes": ["RU"],
+  "occurredAt": "2026-10-16T03:35:31.925Z",
+  "magnitude": 6.9,
+  "depthKm": 135,
+  "nearTestSite": false,
+  "alertLevel": null,
+  "stormName": null,
+  "stormCategory": null,
+  "windKt": null,
+  "triggeredAt": "2026-10-16T03:40:02Z",
+  "reason": "new_hazard"
+}
+```
+
+`source` is `usgs`, `nrcan`, `eonet`, `gdacs` or `nhc` (a western-Pacific cyclone names the agency it was built from). `occurredAt` is the earthquake's origin time, or the agency's event or latest-observation time for other hazards. `nearTestSite` is `true` within the monitoring radius of a nuclear test site.
 
 All events share the headers and the signature scheme below. The [OpenAPI spec](https://www.worldmonitor.app/openapi.json) carries the delivery contract once under `webhooks` (`chokepoint.disruption`) and names the other events in the `X-WM-Event` header's description; this page and the event registry hold their payload schemas.
 

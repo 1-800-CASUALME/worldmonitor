@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 
 import {
   FANOUT_TRIM_SCRIPT,
+  HAZARD_INIT_SCRIPT,
+  HAZARD_SEEN_SCRIPT,
   LOCK_RENEW_SCRIPT,
   PRUNE_SCRIPT,
   RECORD_CAS_SCRIPT,
@@ -83,6 +85,13 @@ export function fakeRedis(initial = {}) {
         return zset instanceof Map && zset.has(args[0]) ? String(zset.get(args[0])) : null;
       }
       case 'ZCARD': return store.get(key) instanceof Map ? store.get(key).size : 0;
+      case 'ZRANGE': {
+        const zset = store.get(key);
+        if (!(zset instanceof Map)) return [];
+        const members = [...zset].sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([member]) => member);
+        const stop = Number(args[1]) < 0 ? members.length + Number(args[1]) : Number(args[1]);
+        return members.slice(Number(args[0]), stop + 1);
+      }
       case 'EVAL': {
         const script = key;
         const keys = args.slice(1, 1 + Number(args[0]));
@@ -128,6 +137,24 @@ export function fakeRedis(initial = {}) {
           let added = 0;
           for (let i = 3; i + 1 < argv.length; i += 2) {
             if (!zset.has(argv[i + 1])) { zset.set(argv[i + 1], Number(argv[i])); added += 1; }
+          }
+          store.set(keys[1], zset);
+          ttl.set(keys[1], Number(argv[2]));
+          return added;
+        }
+        if (script === HAZARD_INIT_SCRIPT) {
+          const hash = store.get(keys[1]) ?? {};
+          for (let i = 1; i + 1 < argv.length; i += 2) if (!(argv[i] in hash)) hash[argv[i]] = argv[i + 1];
+          store.set(keys[1], hash);
+          return 1;
+        }
+        if (script === HAZARD_SEEN_SCRIPT) {
+          const zset = store.get(keys[1]) instanceof Map ? store.get(keys[1]) : new Map();
+          for (const [member, score] of [...zset]) if (score <= Number(argv[1])) zset.delete(member);
+          let added = 0;
+          for (let i = 3; i + 1 < argv.length; i += 2) {
+            if (!zset.has(argv[i + 1])) added += 1;
+            zset.set(argv[i + 1], Number(argv[i]));
           }
           store.set(keys[1], zset);
           ttl.set(keys[1], Number(argv[2]));

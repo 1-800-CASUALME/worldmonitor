@@ -125,6 +125,7 @@ describe('OpenAPI webhooks contract', () => {
       [RISK_SURGE_WEBHOOK_EVENT, 'RiskSurgeWebhookPayload'],
       ['news.breaking', 'NewsBreakingWebhookPayload'],
       ['market.move', 'MarketMoveWebhookPayload'],
+      ['natural.hazard', 'NaturalHazardWebhookPayload'],
     ];
     assert.deepEqual(interfaces.map(([event]) => event).sort(), Object.keys(registry.events).sort(), 'every registry event pins a delivery interface');
     for (const [event, interfaceName] of interfaces) {

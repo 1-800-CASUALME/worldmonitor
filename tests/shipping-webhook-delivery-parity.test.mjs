@@ -171,7 +171,7 @@ describe('shipping webhook delivery parity (TS sender vs Railway worker)', () =>
   });
 });
 
-// Occurrence events (news.breaking, market.move) go through the same sender as
+// Occurrence events (news.breaking, market.move, natural.hazard) go through the same sender as
 // the threshold events, so they carry exactly the headers that sender builds,
 // signatures included. Pinned against buildShippingWebhookDelivery (with a
 // fixed send time) rather than a header list, so a signing change in the
@@ -188,11 +188,17 @@ describe('shipping webhook delivery parity: occurrence events', () => {
       subscriberId: record.subscriberId, eventId: 'mkt_' + '2'.repeat(32), assetClass: 'equity', symbol: 'VIX', name: 'CBOE Volatility Index', price: 28.41,
       changePct: 21.3, direction: 'up', severity: 'critical', source: 'Equity Market', publishedAt: '2026-10-17T17:46:47.000Z', triggeredAt: '2026-10-17T17:50:02.000Z', reason: 'large_move',
     },
+    'natural.hazard': {
+      subscriberId: record.subscriberId, eventId: 'eq:us6000u2mq', hazardType: 'earthquakes', title: 'M6.9 - 76 km NE of Ozernovskiy, Russia', source: 'usgs',
+      sourceUrl: 'https://earthquake.usgs.gov/earthquakes/eventpage/us6000u2mq', lat: 51.98, lon: 157.27, countryCodes: ['RU'], occurredAt: '2026-10-16T03:35:31.925Z',
+      magnitude: 6.9, depthKm: 135, nearTestSite: false, alertLevel: null, stormName: null, stormCategory: null, windKt: null, triggeredAt: '2026-10-16T03:40:02.000Z', reason: 'new_hazard',
+    },
   };
+  const deliveryIdChar = { 'news.breaking': 'a', 'market.move': 'b', 'natural.hazard': 'c' };
 
   for (const [event, body] of Object.entries(bodies)) {
     it(`${event}: the API and the worker send the same bytes and the shared sender's headers`, async () => {
-      const deliveryId = `whd_${event === 'news.breaking' ? 'a' : 'b'}${'0'.repeat(31)}`;
+      const deliveryId = `whd_${deliveryIdChar[event]}${'0'.repeat(31)}`;
       const ts = capture();
       const mjs = capture();
       await deliverShippingV2Webhook(record, body, { nowMs, deliveryId, event, fetchImpl: ts.fetchImpl, resolveHostname });

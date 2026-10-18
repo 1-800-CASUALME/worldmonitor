@@ -42,7 +42,7 @@ message RegisterWebhookRequest {
     (buf.validate.field).int32.gte = 0,
     (buf.validate.field).int32.lte = 40
   ];
-  // Occurrence-event scope (news.breaking, market.move); keys not defined for the event fail with 400.
+  // Occurrence-event scope (news.breaking, market.move, natural.hazard); keys not defined for the event fail with 400.
   WebhookScope scope = 7;
 }
 
@@ -56,8 +56,14 @@ message WebhookScope {
   optional int32 importance_floor = 3;
   // news.breaking: `critical` or `high` (default high).
   optional string severity_floor = 4;
-  // news.breaking: ISO2 codes; unattributed headlines never match.
+  // news.breaking, natural.hazard: ISO2 codes; unplaced events never match.
   repeated string countries = 5;
+  // natural.hazard: event categories.
+  repeated string hazard_types = 6;
+  // natural.hazard: earthquake magnitude floor, 4.5-9.5 (default 5.5).
+  optional double min_magnitude = 7;
+  // natural.hazard: GDACS `Orange` or `Red` (default Orange).
+  optional string min_alert_level = 8;
   // market.move: `equity`, `commodity`, `crypto`.
   repeated string asset_classes = 9;
   // market.move: quote symbols, 1-50.

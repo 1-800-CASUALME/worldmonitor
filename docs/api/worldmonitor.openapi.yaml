@@ -35456,7 +35456,7 @@ webhooks:
                   required: true
                   description: |-
                       Always `chokepoint.disruption` for this body. The other events
-                      (`country.risk_surge`, `news.breaking`, `market.move`) send the
+                      (`country.risk_surge`, `news.breaking`, `market.move`, `natural.hazard`) send the
                       same headers and signature with the payloads documented at
                       https://www.worldmonitor.app/docs/api-shipping-v2#delivery-format.
                   schema:
@@ -56984,7 +56984,19 @@ components:
                     type: array
                     items:
                         type: string
-                        description: 'news.breaking: ISO2 codes; unattributed headlines never match.'
+                        description: 'news.breaking, natural.hazard: ISO2 codes; unplaced events never match.'
+                hazardTypes:
+                    type: array
+                    items:
+                        type: string
+                        description: 'natural.hazard: event categories.'
+                minMagnitude:
+                    type: number
+                    format: double
+                    description: 'natural.hazard: earthquake magnitude floor, 4.5-9.5 (default 5.5).'
+                minAlertLevel:
+                    type: string
+                    description: 'natural.hazard: GDACS `Orange` or `Red` (default Orange).'
                 assetClasses:
                     type: array
                     items:

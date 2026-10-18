@@ -120,6 +120,38 @@ describe('normalizeWebhookScope: market.move', () => {
   });
 });
 
+describe('normalizeWebhookScope: natural.hazard', () => {
+  it('applies the defaults (magnitude 5.5, alert level Orange, every type and country)', () => {
+    assert.ok(OCCURRENCE_EVENT_TYPES.has('natural.hazard'));
+    assert.deepEqual(normalizeWebhookScope('natural.hazard', undefined), {
+      hazardTypes: [], minMagnitude: 5.5, minAlertLevel: 'Orange', countries: [],
+    });
+  });
+
+  it('keeps hazard types as sent, upper-cases countries, and bounds the magnitude', () => {
+    assert.deepEqual(normalizeWebhookScope('natural.hazard', { hazardTypes: ['earthquakes', 'severeStorms', 'earthquakes'], countries: ['jp', 'TW'], minMagnitude: '6.5', minAlertLevel: 'Red' }), {
+      hazardTypes: ['earthquakes', 'severeStorms'], countries: ['JP', 'TW'], minMagnitude: 6.5, minAlertLevel: 'Red',
+    });
+    rejects(() => normalizeWebhookScope('natural.hazard', { hazardTypes: ['tsunami'] }), 'scope.hazardTypes', /Unknown hazardTypes value: tsunami/);
+    rejects(() => normalizeWebhookScope('natural.hazard', { minMagnitude: 4 }), 'scope.minMagnitude', /between 4.5 and 9.5/);
+    rejects(() => normalizeWebhookScope('natural.hazard', { minMagnitude: 10 }), 'scope.minMagnitude');
+    rejects(() => normalizeWebhookScope('natural.hazard', { minAlertLevel: 'Green' }), 'scope.minAlertLevel', /Orange, Red/);
+    rejects(() => normalizeWebhookScope('natural.hazard', { countries: ['XX'] }), 'scope.countries', /Unknown country code/);
+    rejects(() => normalizeWebhookScope('natural.hazard', { keywords: ['quake'] }), 'scope.keywords', /does not apply to natural\.hazard/);
+  });
+});
+
+describe('published WebhookScope schema', () => {
+  it('names exactly the scope keys the registry occurrence events define, so the spec documents no key every registration rejects', () => {
+    const spec = JSON.parse(readFileSync(new URL('../docs/api/ShippingV2Service.openapi.json', import.meta.url), 'utf8'));
+    const published = Object.keys(spec.components.schemas.WebhookScope.properties).sort();
+    const registryKeys = [...new Set(Object.values(registry.events)
+      .filter((event) => event.kind === 'occurrence')
+      .flatMap((event) => Object.keys(event.inputSchema.properties)))].sort();
+    assert.deepEqual(published, registryKeys);
+  });
+});
+
 describe('published RegisterWebhook example', () => {
   it('carries no scope, since its chokepoint.disruption event rejects one', () => {
     const spec = JSON.parse(readFileSync(new URL('../docs/api/ShippingV2Service.openapi.json', import.meta.url), 'utf8'));
