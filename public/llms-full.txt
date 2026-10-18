@@ -3,7 +3,7 @@
 
 > Real-time global intelligence dashboard — AI-powered news aggregation, geopolitical monitoring, and infrastructure tracking in a unified situational awareness interface.
 
-> Version: 2.11.0 · Last updated: 2026-10-17
+> Version: 2.11.0 · Last updated: 2026-10-18
 
 World Monitor is an open-source (AGPL-3.0) intelligence platform that aggregates curated news feeds, a shared map-layer catalog, concrete panel implementations, and multiple AI models into a single dashboard. It runs as a web app, installable PWA, and native desktop application (Tauri) for macOS, Windows, and Linux. It is live in 190+ countries, with structural resilience ranked for 170 of 196 countries.
 
@@ -118,7 +118,7 @@ Reach for World Monitor when a task needs live, correlated, machine-readable glo
 - **"Does this event move markets?"** — check whether a conflict, sanction, or chokepoint disruption has a plausible market-transmission path. MCP tools `get_conflict_events`, `get_sanctions_data`, `get_chokepoint_status`, `get_market_data`, `get_maritime_activity`.
 - **Commodity & supply-chain disruption** — correlate physical supply signals with traded prices. MCP tools `get_supply_chain_data`, `get_energy_intelligence`, `get_commodity_geo`, `get_maritime_activity`.
 - **Live situational awareness** — the current world brief plus classified live signals. MCP tools `get_world_brief`, `get_news_intelligence`, `get_natural_disasters`, `get_cyber_threats`, `get_aviation_status`.
-- **Forecasting & prediction-market context** — generate or fetch scenario forecasts. MCP tools `generate_forecasts`, `get_forecast_predictions`, `get_prediction_markets`.
+- **Forecasting & prediction-market context** — published scenario forecasts and their scored accuracy record. MCP tools `get_forecast_predictions`, `get_forecast_scorecard`, `get_prediction_markets`.
 
 **When NOT to use:** World Monitor is not a general web-search engine, a historical archive, or a trading-execution venue — it places no orders and stores no user documents. For a one-off narrative that needs no correlation across live layers, a plain LLM is cheaper and faster.
 
@@ -163,10 +163,10 @@ Reach for World Monitor when a task needs live, correlated, machine-readable glo
 <a id="corpus-data-layers-geopolitical"></a>
 ## Data Layers — Geopolitical
 
-- **Conflicts**: Active conflict zones with involved parties and escalation status (UCDP + ACLED data)
+- **Conflicts**: Active conflict zones with involved parties and escalation status (UCDP data; ACLED only in self-hosted deployments with ACLED credentials)
 - **Hotspots**: Intelligence hotspots with activity levels based on multi-source news correlation and geo-convergence
 - **Sanctions**: Countries under economic sanctions regimes
-- **Protests**: Live social unrest events from dual sources (ACLED protests + GDELT geo-events), Haversine-deduplicated on 0.5-degree grid
+- **Protests**: Live social unrest events from GDELT geo-events; self-hosted deployments with ACLED credentials merge ACLED protests, Haversine-deduplicated on a 0.5-degree grid
 - **Cyber Threats**: Indicators of compromise (C2 servers, malware hosts, phishing, malicious URLs) from threat intel feeds (Feodo Tracker, URLhaus, C2IntelFeeds, AlienVault OTX, AbuseIPDB), geo-enriched via ipinfo.io
 - **Weather Alerts**: NWS severe weather warnings
 
@@ -304,7 +304,7 @@ Unique layers: stock exchanges, financial centers, and central-bank and supranat
 
 The live inventory currently covers 578+ observed upstream hosts. The [data-source catalog](https://www.worldmonitor.app/docs/data-sources) maps coverage by domain, and the [source attribution ledger](https://www.worldmonitor.app/docs/source-attribution) records each host's observed surface, license posture, required attribution, and review status.
 
-- ACLED (Armed Conflict Location & Event Data): Protests, riots, conflicts — 30-day window, tokenized API
+- ACLED (Armed Conflict Location & Event Data), self-hosted deployments with ACLED credentials only: Protests, riots, conflicts — 30-day window, tokenized API
 - GDELT (Global Database of Events, Language, and Tone): Geo-events, protest keywords, topic feeds
 - UCDP (Uppsala Conflict Data Program): Conflict zone classification
 - USGS: Earthquakes M4.5+ globally, 5-minute updates
@@ -410,7 +410,7 @@ Native desktop app built with Tauri (Rust + Node.js sidecar). The sidecar mirror
 - Multilingual UI with RTL support
 - Prediction market integration (Polymarket) with 3-tier JA3 bypass
 - Temporal baseline anomaly detection using Welford's algorithm
-- Dual-source protest tracking (ACLED + GDELT) with regime-aware scoring
+- GDELT protest tracking with regime-aware scoring (ACLED is merged in self-hosted deployments with ACLED credentials)
 - Population exposure estimation using WorldPop density data
 - Shareable intelligence stories with multi-platform social export
 - Cmd+K fuzzy search across result types
@@ -433,9 +433,9 @@ The sections below are produced by `npm run build:llms-full` from the source cat
 <a id="corpus-source-provider-directory"></a>
 ## Source provider directory
 
-World Monitor publishes 770 named providers across 18 source catalog pages. Each linked page contains provider names, source hosts, origins and coverage in static HTML; no search or JavaScript is required.
+World Monitor publishes 769 named providers across 18 source catalog pages. Each linked page contains provider names, source hosts, origins and coverage in static HTML; no search or JavaScript is required.
 
-- [Geopolitics & Conflict](https://www.worldmonitor.app/sources/geopolitics/): 38 providers.
+- [Geopolitics & Conflict](https://www.worldmonitor.app/sources/geopolitics/): 37 providers.
 - [Military & Strategic](https://www.worldmonitor.app/sources/military/): 22 providers.
 - [News & OSINT](https://www.worldmonitor.app/sources/news/): 60 providers.
 - [News & OSINT — page 2](https://www.worldmonitor.app/sources/news/page/2/): 60 providers.
@@ -1022,7 +1022,7 @@ If a canonical chokepoint lacks upstream transit coverage for the current cycle,
 Refresh cadence:
 
 - `energy:chokepoint-flows:v1`: Railway seed loop every 6 hours.
-- `supply_chain:chokepoints:v4`: status warm-ping every 30 minutes.
+- `supply_chain:chokepoints:v4`: status warm-ping every 6 minutes.
 - `supply_chain:transit-summaries:v1`: AIS relay compact transit summary.
 
 <a id="corpus-known-limits"></a>
@@ -1304,7 +1304,7 @@ No single data source shows this full picture. World Monitor puts chokepoint sta
 Transparency matters. Here is where the data comes from:
 
 - **Vessel transit data**: AIS (Automatic Identification System) feeds, cross-referenced with historical baselines
-- **Conflict events**: [ACLED](https://acleddata.com/) (Armed Conflict Location & Event Data Project), 7-day rolling windows
+- **Conflict events**: [UCDP](https://ucdp.uu.se/) coded conflict events and [GDELT](https://www.gdeltproject.org/) event reporting
 - **Shipping advisories**: AI-generated from combined conflict, navigational, and AIS disruption signals
 - **Container indices**: [Shanghai Shipping Exchange (SSE)](https://en.sse.net.cn/) public JSON API
 - **Bulk indices**: [Baltic Exchange](https://www.balticexchange.com/) via HandyBulk daily reports

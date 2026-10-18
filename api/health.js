@@ -408,6 +408,7 @@ const BOOTSTRAP_KEYS = {
 // aggregate is cleanly absent. Include both fallback keys in the same health
 // sweep so the canadaAlerts probe grades the data clients actually receive.
 const STANDALONE_KEYS = {
+  sanctionsChanges: 'sanctions:changes:v1',
   predictionCountryMarkets: 'prediction:markets-country-index:v1',
   // US HTS chapter 99 duty index (catalog; coverage shards are versioned by
   // release under trade:us-hts:coverage:v1). Read only by get-us-import-duty.
@@ -497,6 +498,7 @@ const STANDALONE_KEYS = {
   theaterPostureLive:    'theater-posture:sebuf:v1',
   theaterPostureBackup:  'theater-posture:sebuf:backup:v1',
   riskScoresLive:        CII_RISK_SCORE_CACHE_KEYS.live,
+  riskScoresHistory:     CII_RISK_SCORE_CACHE_KEYS.dailyHistoryIndex,
   usniFleet:             'usni-fleet:sebuf:v1',
   usniFleetStale:        'usni-fleet:sebuf:stale:v1',
   faaDelays:             'aviation:delays:faa:v1',
@@ -687,6 +689,8 @@ const STANDALONE_KEYS = {
   digestNotifications:           'digest:last-run',
   webcams:                       'webcam:cameras:active',
   forecastResolutions:           'forecast:resolutions:v1',
+  forecastProbabilityTrail:      'forecast:probability-trail:v1',
+  forecastArchive:               'forecast:archive:v1',
   forecastScorecard:             'forecast:scorecard:v1',
   forecastCalibrationMap:        'forecast:calibration-map:v1',
   marketAlertLedger:             'correlation:market-alerts:ledger:v1',
@@ -989,6 +993,11 @@ const SEED_META = {
   gpsjam:           { key: 'seed-meta:intelligence:gpsjam',       maxStaleMin: 1440 }, // Wingbits API (scripts/fetch-gpsjam.mjs); 1440min = 24h tolerance gives operator headroom to handle upstream outages and monthly quota exhaustion (HTTP 402 observed 2026-04-29) without dashboard noise. Seeder catch-block extends TTL on fail without refreshing fetchedAt, so STALE_SEED via age is the only alarm path.
   positiveGeoEvents:{ key: 'seed-meta:positive-events:geo',       maxStaleMin: 60 },
   riskScores:       { key: 'seed-meta:intelligence:risk-scores',  maxStaleMin: 30, minRecordCount: 3 }, // CII warm-ping every 8min; recordCount is realtime signal-density coverage for score-relevant conflict (ACLED or UCDP), news, and cyber families, not raw feed availability; quiet-but-fresh feeds may warn COVERAGE_PARTIAL.
+  riskScoresHistory: {
+    key: 'seed-meta:intelligence:risk-scores-history', maxStaleMin: 30, minRecordCount: 31,
+    activationKey: CII_RISK_SCORE_CACHE_KEYS.dailyHistoryActivation,
+    cutover: { mode: 'activation-marker', fromKey: null, issue: 9354, activationKey: CII_RISK_SCORE_CACHE_KEYS.dailyHistoryActivation },
+  },
   iranEvents:       { key: 'seed-meta:conflict:iran-events',      maxStaleMin: 20160 }, // manual seed from LiveUAMap; 20160 = 14d = 2× weekly cadence
   ucdpEvents:       { key: 'seed-meta:conflict:ucdp-events',      maxStaleMin: 420 },
   ucdpEventsBootstrap: { key: 'seed-meta:conflict:ucdp-events-bootstrap', maxStaleMin: 420 }, // Same cron. Monitored separately because the bootstrap tier now hydrates from the compact projection, and a transform/write failure there must not hide behind a healthy canonical key (#5300).
@@ -1237,6 +1246,16 @@ const SEED_META = {
   xFeed:            { key: 'seed-meta:intelligence:x-feed:v1', maxStaleMin: 45 }, // Fixed 15min List slots; 45min = 3 missed slots. Freshness advances only after an accepted page is published.
   digestNotifications: { key: 'seed-meta:digest:last-run',          maxStaleMin: 90 }, // Railway digest-notifications cron runs every 30min; 90 = 3x cadence and detects a dead cron before daily digests are missed.
   forecasts:        { key: 'seed-meta:forecast:predictions',       maxStaleMin: 90 },
+  forecastProbabilityTrail: {
+    key: 'seed-meta:forecast:probability-trail', maxStaleMin: 90,
+    activationKey: 'seed-activated:forecast:probability-trail',
+    cutover: { mode: 'activation-marker', fromKey: null, issue: 9353, activationKey: 'seed-activated:forecast:probability-trail' },
+  },
+  forecastArchive: {
+    key: 'seed-meta:forecast:archive', maxStaleMin: 2160,
+    activationKey: 'seed-activated:forecast:archive',
+    cutover: { mode: 'activation-marker', fromKey: null, issue: 9353, activationKey: 'seed-activated:forecast:archive' },
+  },
   forecastsBootstrap: { key: 'seed-meta:forecast:predictions-bootstrap', maxStaleMin: 90 }, // Same cron. Monitored separately: the fast tier now hydrates from the dashboard list, and a transform/write failure there must not hide behind a healthy canonical key (#5300).
   forecastResolutions: { key: 'seed-meta:forecast:resolutions',     maxStaleMin: 2160 }, // daily Bet-2 resolver; 36h catches a missed cron without flapping on normal daily jitter
   forecastScorecard:   { key: 'seed-meta:forecast:scorecard',       maxStaleMin: 2160 }, // scorecard extra key written by seed-forecast-resolutions
@@ -1415,6 +1434,11 @@ const SEED_META = {
   regionalSnapshots:   { key: 'seed-meta:intelligence:regional-snapshots',    maxStaleMin: 720 }, // 6h cron via seed-bundle-derived-signals; 720min = 12h = 2x interval
   regionalBriefs:      { key: 'seed-meta:intelligence:regional-briefs',      maxStaleMin: 20160 }, // weekly cron; 20160min = 14 days = 2x interval
   sanctionsEntities:   { key: 'seed-meta:sanctions:entities',                 maxStaleMin: 720 }, // same 6h producer; co-pinned with pressure so both alarm before the 18h TTL
+  sanctionsChanges: {
+    key: 'seed-meta:sanctions:changes', maxStaleMin: 720,
+    activationKey: 'seed-activated:sanctions:changes',
+    cutover: { mode: 'activation-marker', fromKey: null, issue: 9352, activationKey: 'seed-activated:sanctions:changes' },
+  },
   radiationWatch:      { key: 'seed-meta:radiation:observations',             maxStaleMin: 30 },
   groceryBasket:       { key: 'seed-meta:economic:grocery-basket',            maxStaleMin: 10080 }, // weekly seed; 10080 = 7 days
   bigmac:              { key: 'seed-meta:economic:bigmac',                    maxStaleMin: 10080 }, // weekly seed; 10080 = 7 days
@@ -2057,6 +2081,7 @@ const ON_DEMAND_KEYS = new Set([
   // shipping-webhook-worker Railway service is provisioned. The worker SETs the
   // durable marker on its first tick that reads the score feed; strict from then on.
   'shippingWebhookWorker',
+  'sanctionsChanges',
   // Same deployment-order bridge as chinaCoverage: Vercel can ship this reader
   // before seed-bundle-macro's next 08:00 UTC tick publishes the first CBR
   // table, and the every-15-minute freshness monitor would otherwise report an
@@ -2170,6 +2195,7 @@ const ON_DEMAND_KEYS = new Set([
   // archive is, and that still reports STALE_SEED because on-demand softening
   // never covers a key that has data behind it (see classifyKey).
   'pizzintHistory',
+  'riskScoresHistory', // first fresh leader build atomically activates daily history
   // #6070 retired six expired deployment-order bridges after live producer
   // verification. Future temporary softening needs an activation marker or an
   // enforced wall-clock expiry; a prose-only removal reminder is not a control.
@@ -2185,6 +2211,8 @@ const ON_DEMAND_KEYS = new Set([
   // is pending, not CRIT. GTA Update is not registered: writer disabled.
   'tpsMci',
   'tpsCallsAttended',
+  'forecastProbabilityTrail',
+  'forecastArchive',
 ]);
 
 // Legacy broad empty-data exemptions. classifyKey uses this set in both the
@@ -2202,8 +2230,10 @@ const ACTIVATION_MARKERS = {
   chinaCoverage: 'seed-activated:health:china-coverage',
   // Written by the PizzINT archive's Lua (scripts/shared/pizzint-history.cjs).
   pizzintHistory: SEED_META.pizzintHistory.activationKey,
+  riskScoresHistory: SEED_META.riskScoresHistory.activationKey,
   companyMonitoringWorker: 'seed-activated:company-monitoring:worker',
   shippingWebhookWorker: SEED_META.shippingWebhookWorker.activationKey,
+  sanctionsChanges: SEED_META.sanctionsChanges.activationKey,
   // Written by scripts/seed-cbr-rates.mjs (CBR_ACTIVATION_KEY) in runSeed's
   // afterPublish hook, so it exists only once a real table has been published.
   cbrRates: 'seed-activated:economic:cbr-rates',
@@ -2236,6 +2266,8 @@ const ACTIVATION_MARKERS = {
   scorecardFiveFactor: SEED_META.scorecardFiveFactor.activationKey,
   imdCycloneMarine: SEED_META.imdCycloneMarine.activationKey,
   forecastCalibrationMap: SEED_META.forecastCalibrationMap.activationKey,
+  forecastProbabilityTrail: SEED_META.forecastProbabilityTrail.activationKey,
+  forecastArchive: SEED_META.forecastArchive.activationKey,
   marketAlertLedger: SEED_META.marketAlertLedger.activationKey,
   marketAlertScorecard: SEED_META.marketAlertScorecard.activationKey,
   supplyVulnerability: SEED_META.supplyVulnerability.activationKey,
@@ -2600,6 +2632,8 @@ const MISSING_DATA_IS_FAILURE_KEYS = new Set([
 // key itself must still exist. Do not use this set in the missing-key branch.
 const ZERO_RECORD_DATA_OK_KEYS = new Set([
   ...EMPTY_DATA_OK_KEYS,
+  'sanctionsChanges',
+  'forecastArchive',
   'naturalEvents',
   // A current List query can validly return no Posts. The relay still writes
   // the canonical snapshot, so a missing xFeed key remains a hard failure.

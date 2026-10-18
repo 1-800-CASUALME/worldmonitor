@@ -1,3 +1,4 @@
+import { buildSanctionsChanges } from '../scripts/_sanctions-changes.mjs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -25,16 +26,18 @@ const row = (source, i) => ({
 });
 const canadian = Array.from({ length: 80 }, (_, i) => row(SEMA_SOURCE, i + 1));
 
-async function publish({ successes = ['SDN', 'CONSOLIDATED', SEMA_SOURCE], stored = null, preview = [], previousState = null, clock = now, writeError = false, readError = false, semaRecords = canadian, semaQuarantined = [], io = {} } = {}) {
+async function publish({ successes = ['SDN', 'CONSOLIDATED', SEMA_SOURCE], stored = null, preview = [], previousState = null, history = null, activated = false, clock = now, writeError = false, readError = false, semaRecords = canadian, semaQuarantined = [], io = {} } = {}) {
   const writes = [];
   let options;
   const context = vm.createContext({
     console: { log() {}, warn() {} }, Buffer, gzipSync, gunzipSync,
     Date: class extends Date { static now() { return clock; } },
-    SEMA_SOURCE, mergeSanctionEntries, sanctionsListContentMeta, projectCountrySanctions,
+    SEMA_SOURCE, mergeSanctionEntries, sanctionsListContentMeta, projectCountrySanctions, buildSanctionsChanges,
     SANCTIONS_SOURCE_VERSION, SANCTIONS_MAX_CONTENT_AGE_MIN: 43200,
-    readSeedSnapshot: async () => {
+    readSeedSnapshot: async key => {
       if (readError) throw new Error('synthetic cache read failure');
+      if (key === 'sanctions:changes:v1') return history;
+      if (key === 'seed-activated:sanctions:changes') return activated ? 1 : null;
       return stored;
     },
     verifySeedKey: async key => key === 'sanctions:pressure:v1' ? { entries: preview } : previousState,
@@ -49,6 +52,8 @@ async function publish({ successes = ['SDN', 'CONSOLIDATED', SEMA_SOURCE], store
       if (writeError) throw new Error('synthetic cache write failure');
       writes.push(normalize(args));
     },
+    getOptionalUpstashCreds: () => ({ restUrl: 'https://sanctions.test', token: 'test' }),
+    upstashCommand: async (_creds, command) => writes.push(normalize(command)),
     runSeed: (_d, _r, _k, _f, opts) => { options = opts; },
     ...io,
   });
@@ -63,6 +68,65 @@ async function save(fresh) {
 }
 
 describe('sanctions source lifecycle', () => {
+  it('does not reset missing history after the durable activation marker exists', async () => {
+    const fresh = await publish({ activated: true });
+    assert.equal(fresh.data._changes, null);
+    assert.equal(fresh.options.validateFn(fresh.data), true);
+    await fresh.options.beforePublish(fresh.data, {});
+    assert.deepEqual(fresh.writes, []);
+  });
+  it('publishes durable changes before advancing source snapshots and keeps private history out of pressure', async () => {
+    const first = await publish();
+    const stored = await save(first);
+    const next = await publish({ stored, history: normalize(first.data._changes), clock: now + 6 * 3600000,
+      semaRecords: [...canadian, row(SEMA_SOURCE, 81)] });
+    assert.equal(next.data._changes.events.length, 1);
+    assert.equal(next.data._changes.events[0].op, 'added');
+    assert.equal(next.data._changes.events[0].list, SEMA_SOURCE);
+    assert.equal(next.options.publishTransform(next.data)._changes, undefined);
+    await save(next);
+    const [key, log, ttl, count, metaKey, metaTtl, , diagnostics] = next.writes[0];
+    assert.equal(key, 'sanctions:changes:v1');
+    assert.equal(log.events.length, 1);
+    assert.equal(count, 1);
+    assert.equal(ttl, 100 * 86400);
+    assert.equal(metaTtl, ttl);
+    assert.equal(metaKey, 'seed-meta:sanctions:changes');
+    assert.equal(diagnostics.sourceState, 'ok');
+    assert.equal(next.writes[1][0], 'sanctions:source-snapshots:v1');
+    assert.deepEqual(next.writes[2], ['SET', 'seed-activated:sanctions:changes', '1']);
+    const failed = await publish({ stored, history: normalize(first.data._changes), successes: [], clock: now + 6 * 3600000 });
+    await save(failed);
+    assert.equal(failed.data._changes.events.length, 0);
+    assert.equal(failed.data._changes.gaps.filter(g => g.reason === 'retained').length, 3);
+    assert.equal(failed.writes[0][7].sourceState, 'error');
+    const invalid = await publish({ stored, history: {} });
+    assert.equal(invalid.data._changes, null);
+    await invalid.options.beforePublish(invalid.data, {});
+    assert.deepEqual(invalid.writes, []);
+  });
+
+  it('health accepts a quiet present change log, rejects a missing log and reports held sources', () => {
+    const key = health.STANDALONE_KEYS.sanctionsChanges;
+    assert.equal(key, 'sanctions:changes:v1');
+    assert.equal(health.SEED_META.sanctionsChanges.maxStaleMin, 720);
+    const classify = (size, extra = {}) => health.classifyKey('sanctionsChanges', key, { allowOnDemand: false }, {
+      now, containmentEvidenceByName: new Map(), keyStrens: new Map([[key, size]]), keyErrors: new Map(),
+      keyMetaValues: new Map([[health.SEED_META.sanctionsChanges.key, JSON.stringify({ fetchedAt: now, recordCount: 0, ...extra })]]),
+      keyMetaErrors: new Map(),
+    });
+    assert.equal(classify(1024).status, 'OK');
+    assert.equal(classify(0).status, 'EMPTY');
+    assert.equal(classify(1024, { sourceState: 'error', errorCode: 'SANCTIONS_CHANGES_HELD' }).status, 'SEED_ERROR');
+    const missing = activated => health.classifyKey('sanctionsChanges', key, { allowOnDemand: true }, {
+      now, containmentEvidenceByName: new Map(), keyStrens: new Map([[key, 0]]), keyErrors: new Map(),
+      keyMetaValues: new Map(), keyMetaErrors: new Map(),
+      activationStates: new Map([['sanctionsChanges', activated]]),
+    });
+    assert.equal(missing(false).status, 'EMPTY_ON_DEMAND');
+    assert.equal(missing(true).status, 'EMPTY');
+  });
+
   it('captures the actual preceding state clock and keeps expired or legacy baselines unknown', async () => {
     for (const previousState of [null, { entryIds: ['SDN:1'] },
       { entryIds: ['SDN:1'], observedAt: String(now - 7 * 3600000) }]) {
@@ -181,12 +245,29 @@ describe('sanctions source lifecycle', () => {
     assert.equal(result.freshnessMetaPatch.sourceHealth[SEMA_SOURCE].retainedUntil, null);
   });
 
-  it('strips private snapshots and source health from public data and stops on a snapshot write failure', async () => {
+  it('strips private snapshots and source health and contains history publication failure', async () => {
     const { data, options } = await publish({ writeError: true });
     const publicData = options.publishTransform(data);
     assert.ok(!('_sourceSnapshots' in publicData));
     assert.ok(!('_sourceHealth' in publicData));
-    await assert.rejects(options.beforePublish(data, {}), /synthetic cache write failure/);
+    await assert.doesNotReject(options.beforePublish(data, {}));
+    assert.equal(options.validateFn(data), true);
+  });
+
+  it('contains history read and credential failures without advancing history or baselines', async () => {
+    for (const io of [
+      { readSeedSnapshot: async key => {
+        if (key === 'sanctions:changes:v1') throw new Error('history read failed');
+        return null;
+      } },
+      { getOptionalUpstashCreds: () => null },
+    ]) {
+      const fresh = await publish({ io });
+      await assert.doesNotReject(fresh.options.beforePublish(fresh.data, {}));
+      assert.deepEqual(fresh.writes, []);
+      assert.equal(fresh.options.validateFn(fresh.data), true);
+      assert.ok(fresh.data._entityIndex.length > 0);
+    }
   });
 
   it('clears source failure metadata on complete recovery', async () => {
@@ -404,27 +485,31 @@ it('keeps the preceding canonical cohort and private baseline when the publicati
   });
 });
 
-it('preserves the published comparison cohort on a before-publish failure and does not advance the saved state', async () => {
+it('refreshes core publication on a history failure while preserving the history baseline', async () => {
   await withLocalRedis(async ({ store }) => {
     const priorAt = now - 7 * 3600000;
     const first = await publish({ previousState: { entryIds: ['SDN:1'], observedAt: String(priorAt) },
       io: { writeExtraKeyWithMeta } });
     await assert.rejects(runSeed('sanctions', 'pressure', 'sanctions:pressure:v1', async () => first.data, first.options),
       error => error.exitCode === 0);
-    const previousCanonical = store.get('sanctions:pressure:v1');
-    const previousState = store.get('sanctions:pressure:state:v1');
+    const previousHistory = store.get('sanctions:changes:v1');
+    const previousSnapshots = store.get('sanctions:source-snapshots:v1');
     const failed = await publish({ clock: now + 6 * 3600000, io: {
       verifySeedKey,
-      writeExtraKeyWithMeta: async () => { throw new Error('fixture publication failure'); },
+      writeExtraKeyWithMeta: async (key, ...args) => {
+        if (key === 'sanctions:changes:v1') throw new Error('fixture publication failure');
+        return writeExtraKeyWithMeta(key, ...args);
+      },
     } });
     assert.equal(failed.data.pressureMetadata.comparison.from, String(now));
     await assert.rejects(runSeed('sanctions', 'pressure', 'sanctions:pressure:v1', async () => failed.data, failed.options),
-      /fixture publication failure/);
-    assert.equal(store.get('sanctions:pressure:v1'), previousCanonical);
-    assert.equal(store.get('sanctions:pressure:state:v1'), previousState);
-    const canonical = JSON.parse(previousCanonical).data;
-    assert.equal(canonical._state.comparison.from, String(priorAt));
-    assert.equal(canonical._state.cohort.computationAt, String(now));
+      error => error.exitCode === 0);
+    assert.equal(store.get('sanctions:changes:v1'), previousHistory);
+    assert.equal(store.get('sanctions:source-snapshots:v1'), previousSnapshots);
+    const canonical = JSON.parse(store.get('sanctions:pressure:v1')).data;
+    assert.equal(canonical._state.comparison.from, String(now));
+    assert.equal(canonical._state.cohort.computationAt, String(now + 6 * 3600000));
+    assert.equal(JSON.parse(store.get('sanctions:pressure:state:v1')).data.observedAt, String(now + 6 * 3600000));
   });
 });
 

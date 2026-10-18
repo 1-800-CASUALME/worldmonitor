@@ -27,12 +27,13 @@ const countryDirectControls = {
 export const countryBriefDirectViewSchema = z.object({
   ...countryDirectControls, framework: z.unknown().optional(), allow_stale: z.unknown().optional(),
 }).strict().refine(value => !value.refresh || value.request_id !== undefined);
-export const countryRiskDirectViewSchema = z.object(countryDirectControls).strict()
+const historyDays = z.number().int().min(1).max(90).optional();
+export const countryRiskDirectViewSchema = z.object({ ...countryDirectControls, history_days: historyDays }).strict()
   .refine(value => !value.refresh || value.request_id !== undefined);
 const countryBriefDirectReadSchema = z.object({
   country_code: z.string().min(2).max(100), framework: z.unknown().optional(), allow_stale: z.unknown().optional(),
 }).strict();
-const countryRiskDirectReadSchema = z.object({ country_code: z.string().min(2).max(100) }).strict();
+const countryRiskDirectReadSchema = z.object({ country_code: z.string().min(2).max(100), history_days: historyDays }).strict();
 
 export function normalizeCountryDirectRead(name: 'get_country_brief' | 'get_country_risk', args: Record<string, unknown>): Record<string, unknown> | null {
   const parsed = (name === 'get_country_brief' ? countryBriefDirectReadSchema : countryRiskDirectReadSchema).safeParse(args);
@@ -42,7 +43,9 @@ export function normalizeCountryDirectRead(name: 'get_country_brief' | 'get_coun
   const original = parsed.data as { framework?: unknown; allow_stale?: unknown };
   let framework = '';
   try { if (name === 'get_country_brief') framework = String(original.framework ?? '').slice(0, 2000); } catch { return null; }
-  return { country_code: country, ...(framework ? { framework } : {}), ...(original.allow_stale === true ? { allow_stale: true } : {}) };
+  return { country_code: country, ...(framework ? { framework } : {}), ...(original.allow_stale === true ? { allow_stale: true } : {}),
+    ...('history_days' in parsed.data && parsed.data.history_days !== undefined ? { history_days: parsed.data.history_days } : {}),
+  };
 }
 
 const activityBoundsSchema = {

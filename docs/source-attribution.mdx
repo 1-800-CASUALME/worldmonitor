@@ -2,7 +2,7 @@
 ## Observed Source Inventory
 
 {/* BEGIN GENERATED SOURCE ATTRIBUTION */}
-This generated inventory covers **785 active source hosts** representing **770 active providers** (**348 structured/API**, **469 feed**, and **30 operational-status** hosts). It is derived from source declarations in `scripts/`, `server/`, `api/`, and `src/`. Each row shows the configured provider identity and where the source is referenced. Syndication transports such as FeedBurner and Google News remain listed as hosts and are not counted as publishers.
+This generated inventory covers **784 active source hosts** representing **769 active providers** (**347 structured/API**, **469 feed**, and **30 operational-status** hosts). It is derived from source declarations in `scripts/`, `server/`, `api/`, and `src/`. Each row shows the configured provider identity and where the source is referenced. Syndication transports such as FeedBurner and Google News remain listed as hosts and are not counted as publishers.
 
 | Provider | Observed surface |
 | --- | --- |
@@ -403,7 +403,7 @@ This generated inventory covers **785 active source hosts** representing **770 a
 | liveuamap.com (liveuamap.com) | structured — scripts/comparison-shortlist.mjs |
 | lnc-abc-news.tubi.video (lnc-abc-news.tubi.video) | Excluded / candidate — No current fetch observed |
 | lobste.rs (lobste.rs) | feed+structured — server/worldmonitor/news/v1/_feeds.ts, src/config/feeds.ts, src/config/variants/tech.ts |
-| Local development transport (localhost) | structured — scripts/ais-relay.cjs, server/worldmonitor/research/v1/list-tech-events.ts, src/services/desktop-runtime.ts, src/services/wm-session.ts |
+| Local development transport (localhost) | structured — scripts/ais-relay.cjs, server/worldmonitor/research/v1/list-tech-events.ts, src/config/desktop-runtime.ts, src/services/wm-session.ts |
 | Local loopback transport (127.0.0.1) | structured — scripts/measure-trade-animation-rebuild.mjs, scripts/profile-news-hybrid-clustering-7782-dashboard.mjs, src/services/runtime.ts |
 | lowyinstitute.org (lowyinstitute.org) | feed — src/config/feeds.ts |
 | macleans.ca (macleans.ca) | feed — server/worldmonitor/news/v1/_feeds.ts, src/config/feeds.ts |
@@ -474,7 +474,7 @@ This generated inventory covers **785 active source hosts** representing **770 a
 | open.alberta.ca (open.alberta.ca) | Excluded / candidate — No current fetch observed |
 | OpenAQ (api.openaq.org) | structured — scripts/seed-health-air-quality.mjs |
 | openrouter.ai (openrouter.ai) | structured — scripts/eval-classify-labels.mjs, scripts/lib/brief-dedup-consts.mjs, scripts/lib/company-monitoring-classifier-client.mjs, scripts/regional-snapshot/weekly-brief.mjs |
-| OpenSanctions (api.opensanctions.org) | structured — server/worldmonitor/sanctions/v1/lookup-entity.ts |
+| OpenSanctions (api.opensanctions.org) | Excluded / candidate — No current fetch observed |
 | opensky-network.org (auth.opensky-network.org) | structured — scripts/seed-military-flights.mjs |
 | opensky-network.org (opensky-network.org) | structured — scripts/ais-relay.cjs, scripts/seed-military-flights.mjs, server/worldmonitor/military/v1/list-military-flights.ts, src/components/MapPopup.ts |
 | openstreetmap.org (openstreetmap.org) | structured — src/config/basemap-styles.ts |
@@ -719,8 +719,8 @@ This generated inventory covers **785 active source hosts** representing **770 a
 | World Bank Open Data (api.worldbank.org) | structured — scripts/_defense-industrial-source.mjs, scripts/_demographics-capability-source.mjs, scripts/ais-relay.cjs, scripts/seed-bis-lbs.mjs, +12 more |
 | World Monitor hosted API (api.worldmonitor.app) | feed+structured — api/a2a.ts, api/internal/mcp-grant-mint.ts, api/mcp/downstream.ts, api/mcp/skill-extension/generated.ts, +23 more |
 | World Monitor proxy (proxy.worldmonitor.app) | structured — api/widget-agent.ts, scripts/seed-security-advisories.mjs, src/utils/proxy.ts |
-| World Monitor web app (worldmonitor.app) | structured — api/_agent-metadata.ts, api/a2a.ts, api/ask.ts, api/fwdstart.js, +50 more |
-| World Monitor web app (www.worldmonitor.app) | structured — api/_cors.js, api/a2a.ts, api/ask.ts, api/customer-portal.ts, +44 more |
+| World Monitor web app (worldmonitor.app) | structured — api/_agent-metadata.ts, api/a2a.ts, api/ask.ts, api/fwdstart.js, +49 more |
+| World Monitor web app (www.worldmonitor.app) | structured — api/_cors.js, api/a2a.ts, api/ask.ts, api/customer-portal.ts, +45 more |
 | WorldMonitor test origin (worldmonitor.invalid) | structured — src/shared/public-rpc-cache.ts, src/utils/dom-utils.ts |
 | worldmonitor.mintlify.dev (worldmonitor.mintlify.dev) | structured — api/docs-mcp.ts, src/config/docs-locale-seo.ts |
 | wublockchain.com (wublockchain.com) | feed — server/worldmonitor/news/v1/_feeds.ts, src/config/feeds.ts |

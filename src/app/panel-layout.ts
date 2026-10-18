@@ -3291,7 +3291,7 @@ export class PanelLayoutManager implements AppModule {
     let allOrder: string[];
 
     if (hasSavedOrder) {
-      const valid = savedOrder.filter(k => activePanelKeys.includes(k));
+      const valid = savedOrder.filter(k => activePanelKeys.includes(k) && (SITE_VARIANT !== 'happy' || k !== 'monitors'));
       const missing = activePanelKeys.filter(k => !valid.includes(k));
 
       missing.forEach(k => {
@@ -3306,9 +3306,7 @@ export class PanelLayoutManager implements AppModule {
         if (!inserted) valid.push(k);
       });
 
-      const monitorsIdx = valid.indexOf('monitors');
-      if (monitorsIdx !== -1) valid.splice(monitorsIdx, 1);
-      if (SITE_VARIANT !== 'happy') valid.push('monitors');
+      if (SITE_VARIANT !== 'happy' && !valid.includes('monitors')) valid.push('monitors');
       allOrder = valid;
     } else {
       allOrder = [...defaultOrder];

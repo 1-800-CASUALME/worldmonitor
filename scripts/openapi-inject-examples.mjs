@@ -189,6 +189,9 @@ function isCuratedOmission(key, context = {}) {
   // chokepoint.disruption subscription, and the handler rejects `countries` on
   // that event, so the field would make the sample un-runnable.
   if (key === 'countries' && where.includes('registerwebhook')) return true;
+  // Same for `scope`: it belongs to occurrence events only, and the handler
+  // rejects any scope on a chokepoint.disruption subscription.
+  if (key === 'scope' && where.includes('registerwebhook')) return true;
   // GetTradeFlows / GetTariffTrends: a 200 carrying rows always has
   // unavailableReason at the UNSPECIFIED zero value. The generic enum picker
   // skips the zero value and so paired rows with INVALID_REQUEST — a response
@@ -1173,6 +1176,17 @@ function exampleForSchema(schema, spec, context = {}, depth = 0, seen = new Set(
         unit: 'percent',
         source: 'World Bank',
         indicatorCode: 'IT.NET.USER.ZS',
+      };
+    }
+    if (resolvedName === 'CapabilityObservation') {
+      const field = context.name ?? '';
+      return {
+        available: true,
+        value: 1.5,
+        year: 2024,
+        source: 'Example dataset',
+        unit: field.endsWith('Years') ? 'years' : field.endsWith('People') ? 'people'
+          : field === 'researchersPerMillion' ? 'people per million' : 'percent',
       };
     }
     if (resolvedName === 'GetFiveFactorScorecardResponse' || resolvedName === 'GetBlocScorecardResponse') {

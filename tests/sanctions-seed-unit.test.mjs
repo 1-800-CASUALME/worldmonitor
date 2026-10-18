@@ -1,3 +1,4 @@
+import { buildSanctionsChanges } from '../scripts/_sanctions-changes.mjs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -47,9 +48,9 @@ async function partialPublication({ sources = ['CONSOLIDATED'], cached = [], sna
   const context = vm.createContext({
     console: { log() {}, warn() {} },
     SEMA_SOURCE, SANCTIONS_SOURCE_VERSION, Buffer, gzipSync, gunzipSync,
-    mergeSanctionEntries,
+    mergeSanctionEntries, buildSanctionsChanges,
     verifySeedKey: async (key) => key === 'sanctions:pressure:v1' ? { entries: cached } : null,
-    readSeedSnapshot: async () => snapshots,
+    readSeedSnapshot: async key => key === 'sanctions:source-snapshots:v1' ? snapshots : null,
     ingestSemaEntries: semaJson === undefined
       ? async () => ({ records: [], publishedAtMs: 0, error: 'SEMA_INVALID_RECORD' })
       : () => ingestSemaEntries({ fetchFn: async () => new Response(JSON.stringify(semaJson)) }),
@@ -59,6 +60,7 @@ async function partialPublication({ sources = ['CONSOLIDATED'], cached = [], sna
         datasetDate: Date.UTC(2026, 8, 14),
         entries: [{ id: `${label}:1`, name: `${label} entity`, sourceLists: [label],
           countryCodes: ['RU'], countryNames: ['Russia'], programs: [label],
+          _aliases: Array.from({ length: 12 }, (_, i) => `Alias ${i}`), _identifiers: ['imo:1234567'],
           entityType: 'SANCTIONS_ENTITY_TYPE_ENTITY', effectiveAt: '0', isNew: false }],
       };
     },
@@ -99,6 +101,13 @@ describe('partial sanctions publication', () => {
     const data = await partialPublication({ sources: ['SDN'] });
     assert.equal(data.sdnCount, 1);
     assert.equal(data.consolidatedCount, 0);
+  });
+
+  it('publishes bounded aliases, IMO identifiers and source lists in the screening index', async () => {
+    const data = await partialPublication({ sources: ['SDN'] });
+    assert.equal(data._entityIndex[0].al.length, 10);
+    assert.deepEqual(data._entityIndex[0].ids, ['imo:1234567']);
+    assert.deepEqual(data._entityIndex[0].sl, ['SDN']);
   });
 
   it('counts both sources when both succeed', async () => {

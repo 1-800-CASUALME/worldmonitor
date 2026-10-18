@@ -303,7 +303,8 @@
       "trainedIndustrialWorkforce": "Combined industrial workforce",
       "manufacturingShare": "Manufacturing employment",
       "source": "Sources: {{sources}}.",
-      "retained": "{{stage}} data retained from the last successful refresh."
+      "retained": "{{stage}} data retained from the last successful refresh.",
+      "statusNotSupplied": "A becslés és imputáció állapota nincs megadva"
     },
     "fiveFactorScorecard": {
       "title": "Öt tényezős ellenállóképesség-pontszám",

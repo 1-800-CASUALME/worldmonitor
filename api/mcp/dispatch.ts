@@ -11,6 +11,8 @@ import { isAppOwnedRedisKey } from '../_redis-key-ownership.js';
 // @ts-expect-error — JS module, no declaration file
 import { captureSilentError } from '../_sentry-edge.js';
 import { secondsUntilUtcMidnight } from '../../server/_shared/pro-mcp-token';
+import { OPERATOR_KEY_DAILY_CEILINGS, reportHighUsageIfCrossed } from '../../server/_shared/high-usage-alarm';
+import { hashKeySync } from '../../server/_shared/usage-identity';
 import { readAccountAllowance } from './_account-allowance';
 import { applyPerMinuteLimit, getMcpBillingVerificationDenial, wwwAuthHeader } from './auth';
 import { BillingDenialError, RpcValidationError, ToolBackoffError } from './billing-denial';
@@ -31,7 +33,7 @@ import { isSharedRestCounter, readDailyAllowance, reserveQuota, resolveDailyLimi
 import { reserveFreeAccountAllowance } from './free-account-allowance';
 import { buildMcpStructuredDenial, type McpDenial } from './upgrade';
 import { filterConflictPanelEvents, isOrdinaryMarketDefault, presentConflictEvents, presentDefaultMarketData, projectConflictSourceObservation } from './registry/cache-tools';
-import { isQuotaExemptMetadataTool, toolAccess, toolWeight, TOOL_REGISTRY } from './registry/index';
+import { findCallableTool, isQuotaExemptMetadataTool, toolAccess, toolWeight, TOOL_REGISTRY } from './registry/index';
 import { rpcError, rpcOk, withMcpNoStore } from './rpc';
 import { McpSourceUnavailableError } from './source-unavailable';
 import { buildStructuredContent } from './structured-content';
@@ -115,8 +117,12 @@ async function executeCacheTool(
   // key failed the whole tool as a raw TimeoutError (WORLDMONITOR-176/ZM/137),
   // while folding the failure into null would read an unreadable seed-meta as
   // "never seeded" and an unreadable data key as an empty section.
-  const reads = tool._cacheKeys.map((k) => settleRead((panel !== undefined ? readRawJsonFromUpstash : readJsonFromUpstash)(k, 3_000, !isAppOwnedRedisKey(k))));
-  const freshnessChecks = tool._freshnessChecks;
+  const historyMode = params.changes_since_days !== undefined;
+  const cacheKeys = tool.name === 'get_sanctions_data'
+    ? tool._cacheKeys.filter(key => (key === 'sanctions:changes:v1') === historyMode) : tool._cacheKeys;
+  const reads = cacheKeys.map((k) => settleRead((panel !== undefined ? readRawJsonFromUpstash : readJsonFromUpstash)(k, 3_000, !isAppOwnedRedisKey(k))));
+  const freshnessChecks = tool.name === 'get_sanctions_data'
+    ? tool._freshnessChecks.filter(check => (check.key === 'seed-meta:sanctions:changes') === historyMode) : tool._freshnessChecks;
   const metaReads = freshnessChecks.map((check) => settleRead(readJsonFromUpstash(check.key, 3_000, !isAppOwnedRedisKey(check.key))));
   // #6080 deployment-order grace. Only checks declaring a content contract pay
   // for this read, so it is one extra command on get_chokepoint_status and
@@ -150,7 +156,7 @@ async function executeCacheTool(
   // is what tells the caller the verdict rests on a read that failed.
   const metas = metaOutcomes.map((r) => (r.ok ? r.value : null));
   let freshnessUnknown = metaOutcomes.some((r) => !r.ok);
-  const labels = tool._cacheKeys.map((key) => cacheKeyLabel(tool, key));
+  const labels = cacheKeys.map((key) => cacheKeyLabel(tool, key));
   let unreadable = labels.filter((_, i) => !dataReads[i]!.ok);
   // Three-valued on purpose: only a marker we actually read and found ABSENT
   // earns the deployment-order grace. An unreadable marker stays out of the
@@ -204,7 +210,7 @@ async function executeCacheTool(
   // type). The all-null case is structurally distinguishable from "the
   // upstream returned an empty list" (which is a JSON value, not null).
   if (
-    tool._cacheKeys.length > 0 &&
+    cacheKeys.length > 0 &&
     results.every((v: unknown) => v === null || v === undefined)
   ) {
     // Nothing usable came back. If any of it was a failed read rather than a
@@ -429,7 +435,7 @@ export async function dispatchToolsCall(
   if (!p || typeof p.name !== 'string') {
     return rpcError(id, -32602, 'Invalid params: missing tool name', corsHeaders);
   }
-  const tool = TOOL_REGISTRY.find((t) => t.name === p.name);
+  const tool = findCallableTool(p.name);
   if (!tool) {
     if (deferredBurst) {
       const limited = await applyPerMinuteLimit(context, corsHeaders, toolBurstPerMinute, id);
@@ -511,6 +517,23 @@ export async function dispatchToolsCall(
   // jmespath only shapes the response after execution (and after any panel save),
   // so the strict reader contracts and the panel read scope must not see it.
   const forecastReaderArguments = forecastReader ? Object.fromEntries(Object.entries(callArguments).filter(([key]) => key !== 'jmespath')) : callArguments;
+  // A new panel allocation charges the same daily counter as a standalone call
+  // but skips that call's reservation below, so check the Enterprise alarm for
+  // it too, including when the request fails after the allocation was charged.
+  // A reused allocation charged nothing.
+  const reportPanelAllocation = () => {
+    if (panelRequest && !panelRequest.reused && budget?.enterprisePlan
+      && (context.kind === 'pro' || context.kind === 'user_key')) {
+      reportHighUsageIfCrossed({
+        meter: 'mcp',
+        credential: 'enterprise-plan',
+        principal: context.userId,
+        newCount: panelRequest.usage.used,
+        ceiling: resolveDailyLimit(budget.limit) ?? 0,
+        ctx,
+      });
+    }
+  };
   try {
     if (tool.name === 'get_country_brief' || tool.name === 'get_country_risk') {
       if (!dedicatedPanel && ('refresh' in callArguments || 'request_id' in callArguments)) throw new PanelRequestError('Country refresh controls require a paid panel allowance.', 'invalid');
@@ -678,6 +701,7 @@ export async function dispatchToolsCall(
       if (allowance && allowance.used > 0) panelUsage = { ...allowance, unit: 'requests' };
     }
   } catch (error) {
+    reportPanelAllocation();
     if (!(error instanceof PanelRequestError)) throw error;
     if (deferredBurst && !panelRead) {
       const limited = await applyPerMinuteLimit(context, corsHeaders, toolBurstPerMinute, id);
@@ -687,6 +711,7 @@ export async function dispatchToolsCall(
     if (error.code === 'backend') return quotaBackendUnavailableResponse(id, corsHeaders);
     return rpcError(id, error.code === 'reads' ? -32029 : -32602, error.message, { ...corsHeaders, ...(error.retryAfter ? { 'Retry-After': String(error.retryAfter) } : {}) }, undefined, error.code === 'reads' ? 429 : 200);
   }
+  reportPanelAllocation();
 
   // user_key (#4859) consumes the same per-user daily budget as pro: cache
   // tools read Upstash directly (no downstream gateway metering), so an
@@ -753,6 +778,18 @@ export async function dispatchToolsCall(
         // Hard-cap correctness: NEVER dispatch on reservation failure.
         return quotaBackendUnavailableResponse(id, corsHeaders);
       }
+      if (budget?.enterprisePlan) {
+        reportHighUsageIfCrossed({
+          meter: 'mcp',
+          credential: 'enterprise-plan',
+          principal: context.userId,
+          newCount: reservation.newCount,
+          // reserveQuota prices only an `api` allowance at the tool weight.
+          weight: budget.allowance === 'api' ? toolWeight(tool) : 1,
+          ceiling: resolveDailyLimit(budget.limit) ?? 0,
+          ctx,
+        });
+      }
       // No caller-side rollback of the reservation: once we pass this point the
       // tool runs and the daily slot is charged for good (GHSA-hcq5). The only
       // rollback is INSIDE reserveQuota, for the pre-dispatch cap-exceeded case.
@@ -762,6 +799,42 @@ export async function dispatchToolsCall(
         reset.setUTCHours(24, 0, 0, 0);
         panelUsage = { used: reservation.newCount, limit, remaining: limit === null ? null : Math.max(0, limit - reservation.newCount), resetsAt: reset.toISOString(), unit: 'requests' };
       }
+    }
+  } else if (context.kind === 'env_key' && tool._freeTier !== true && !isMetadataTool) {
+    // Operator keys carry no account and used to skip the daily counter
+    // entirely, so one leaked key had no ceiling. They now reserve on their own
+    // per-key dedicated counter (one unit per call, as on Pro's) against a
+    // circuit breaker far above observed use. Panel admissions need a
+    // user-bound context, so none reach this branch.
+    //
+    // Unlike Pro this fails OPEN when the counter cannot be read, matching the
+    // env_key per-minute limiter: the ceiling guards against a leak, not a
+    // sold allowance, and these tools read cached data. Provider spend stays
+    // fail-closed in the direct-LLM quota the downstream gateway applies.
+    const principal = hashKeySync(context.apiKey);
+    const ceiling = OPERATOR_KEY_DAILY_CEILINGS.mcpUnits;
+    const reservation = deps.redisPipeline
+      ? await reserveQuota(`env_key:${principal}`, deps.redisPipeline, { allowance: 'mcp', limit: ceiling })
+      : null;
+    if (reservation && !reservation.ok && reservation.reason === 'cap-exceeded') {
+      return mcpDenialResponse(
+        { reason: 'quota-exceeded', limit: reservation.floor, sharedWithRestApi: false },
+        -32029,
+        429,
+        id,
+        corsHeaders,
+        { retryAfter: String(secondsUntilUtcMidnight()) },
+      );
+    }
+    if (reservation?.ok) {
+      reportHighUsageIfCrossed({
+        meter: 'mcp',
+        credential: 'operator-key',
+        principal,
+        newCount: reservation.newCount,
+        ceiling,
+        ctx,
+      });
     }
   }
 
@@ -830,7 +903,7 @@ export async function dispatchToolsCall(
         const { panelRequest: _receipt, ...snapshot } = result as Record<string, unknown>;
         forecastSnapshotToSave = snapshot;
         forecastCompletedBytes = utf8ByteLength(JSON.stringify(panelRequest ? { ...result, panelRequest } : result));
-      } else await panelRead.save(result);
+      } else await panelRead.save(result, execution?.countryRiskHistoryReuseUntil);
     }
     if (tool.name === 'get_forecast_predictions' && panelRead?.panel === 'forecasts' && tool._execute === undefined && argBool(callArguments.summary) && result && typeof result === 'object' && 'data' in result) {
       const data = (result as { data: Record<string, unknown> }).data;

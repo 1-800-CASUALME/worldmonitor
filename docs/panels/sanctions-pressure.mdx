@@ -45,4 +45,4 @@ OFAC publishes list updates on an irregular cadence (daily-to-weekly). The panel
 ## API reference
 
 - [Sanctions service](https://github.com/koala73/worldmonitor/blob/main/docs/api/SanctionsService.openapi.yaml) — sanctions pressure + entity search RPCs.
-- Related: `GET /api/sanctions/v1/lookup-sanction-entity?q=...` — fuzzy entity lookup against OpenSanctions (live) with OFAC local index as a fallback.
+- Related: `GET /api/sanctions/v1/lookup-sanction-entity?q=...` — name, up to 10 retained aliases per entity and exact IMO screening against the seeded OFAC SDN, OFAC Consolidated and Canada SEMA index. The response reports the source lists searched, `seeded` for a query outside 2–200 characters, or `unavailable` when no valid index records are available. It makes no live provider request. A match is a lead to confirm with the issuing agency, not legal advice.

@@ -474,6 +474,7 @@ PROTO_INPUTS=(
   scripts/shared/iso2-to-region.json
   server/_shared/api-key-rate-limit.ts
   server/_shared/auth-session.ts
+  server/_shared/bounded-jmespath.ts
   server/_shared/bounded-json.ts
   server/_shared/cache-contract.ts
   server/_shared/client-ip.ts
@@ -481,6 +482,7 @@ PROTO_INPUTS=(
   server/_shared/direct-llm-quota.ts
   server/_shared/entitlement-check.ts
   server/_shared/entitlement-coverage.ts
+  server/_shared/high-usage-alarm.ts
   server/_shared/idempotency.ts
   server/_shared/internal-auth.ts
   server/_shared/mcp-internal-hmac.ts
@@ -516,6 +518,7 @@ PROTO_INPUTS=(
   shared/decision-signal-provenance.ts
   shared/embed-access.ts
   shared/embed-panels.ts
+  shared/event-triggers.json
   shared/iso2-to-iso3.json
   shared/openapi-filter-param-contracts.json
   shared/source-provenance-declarations.ts

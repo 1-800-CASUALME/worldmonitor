@@ -11,6 +11,9 @@
  *      piece failed (avoids enumeration).
  *   2. Asserts the grant payload's `nonce` matches the URL `?nonce=` query
  *      parameter (defense vs grant-payload-swap forgery class).
+ *      Then reads `oauth:nonce:<n>` without consuming it: a CIMD client is
+ *      resolved here, so a vendor blip answers 503 before step 3 or 4 spends
+ *      the link. Step 4's GETDEL stays the authoritative, one-shot read.
  *   3. Atomically `GETDEL mcp-grant:<n>` → recovers `{userId, exp}` written
  *      by U3. Strict equality check against grant payload's `userId` AND
  *      `exp` (defense vs grant-without-redis-record forgery + token cloning
@@ -86,7 +89,7 @@ import {
 import { captureSilentError } from '../_sentry-edge.js';
 import { mcpGrantName } from '../../shared/agent-client-source';
 // @ts-expect-error — JS module, no declaration file
-import { clientAllowsRedirectUri, describeClientFailure, resolveOAuthClient } from './_client-metadata.js';
+import { clientAllowsRedirectUri, describeClientFailure, isClientMetadataDocumentId, resolveOAuthClient } from './_client-metadata.js';
 
 /** OAuth authorization-code TTL — matches `api/oauth/authorize.js:10`. */
 const CODE_TTL_SECONDS = 600;
@@ -279,7 +282,7 @@ export interface GrantRedisData {
 export interface AuthorizeProDeps {
   /** Atomic GETDEL on a raw `mcp-grant:*` or `oauth:nonce:*` key. */
   redisGetDel: (key: string) => Promise<unknown | null>;
-  /** Non-consuming read of the `oauth:client:<id>` row and the CIMD cache. */
+  /** Non-consuming read of `oauth:nonce:<n>`, the `oauth:client:<id>` row, and the CIMD cache. */
   redisGet: (key: string) => Promise<unknown | null>;
   /** SETEX of `oauth:code:<code>`. Returns false on failure (caller rolls back). */
   redisSetEx: (key: string, value: unknown, ttlSeconds: number) => Promise<boolean>;
@@ -360,6 +363,36 @@ export async function authorizeProHandler(req: Request, deps: AuthorizeProDeps):
     );
   }
 
+  // ----- 2b. Resolve a CIMD client before consuming anything -----
+  // Resolving fetches the vendor's document, which can fail for a moment.
+  // Doing it after the GETDELs below would burn this one-shot link on a
+  // retryable error. A DCR lookup has no such dependency and stays in step 5.
+  let preResolved: { clientId: string; result: Awaited<ReturnType<typeof resolveOAuthClient>> } | null = null;
+  let peeked: NonceData | null = null;
+  try {
+    peeked = (await deps.redisGet(`oauth:nonce:${nonce}`)) as NonceData | null;
+  } catch {
+    // Without the client_id there is no telling whether step 5 would fetch,
+    // so stop before anything is consumed.
+    return htmlError(
+      'Service Unavailable',
+      'Authorization service is temporarily unavailable. Please try again shortly.',
+      503,
+    );
+  }
+  if (peeked && typeof peeked.client_id === 'string' && isClientMetadataDocumentId(peeked.client_id)) {
+    const early = await resolveOAuthClient(peeked.client_id, {
+      redisGet: deps.redisGet,
+      redisSetEx: deps.redisSetEx,
+      fetch: deps.fetchClientMetadata,
+    });
+    if (!early.ok && early.transient) {
+      return htmlError('Service Unavailable', describeClientFailure(early), 503);
+    }
+    // A permanent failure is reported in step 5, after the link is spent.
+    preResolved = { clientId: peeked.client_id, result: early };
+  }
+
   // ----- 3. Atomic GETDEL mcp-grant:<n> -----
   let grantRedis: GrantRedisData | null;
   try {
@@ -414,11 +447,14 @@ export async function authorizeProHandler(req: Request, deps: AuthorizeProDeps):
   const state = typeof nonceData.state === 'string' ? nonceData.state : '';
 
   // ----- 5. Resolve the client (DCR row or CIMD document; no consume) -----
-  const resolved = await resolveOAuthClient(client_id, {
-    redisGet: deps.redisGet,
-    redisSetEx: deps.redisSetEx,
-    fetch: deps.fetchClientMetadata,
-  });
+  // Reuse step 2b's result only for the client_id it resolved.
+  const resolved = preResolved && preResolved.clientId === client_id
+    ? preResolved.result
+    : await resolveOAuthClient(client_id, {
+      redisGet: deps.redisGet,
+      redisSetEx: deps.redisSetEx,
+      fetch: deps.fetchClientMetadata,
+    });
   if (!resolved.ok) {
     if (resolved.transient) {
       return htmlError('Service Unavailable', describeClientFailure(resolved), 503);

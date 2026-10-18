@@ -13,6 +13,8 @@
 // the callbacks that vendor maintains. Sources are listed in
 // docs/mcp-overview.mdx#client-id-metadata-documents.
 
+import { CLIENT_METADATA_SNAPSHOTS } from './_client-metadata-snapshots.js';
+
 // Exact client_id URLs, as each vendor publishes them.
 const TRUSTED_CLIENT_METADATA_URLS = new Set([
   // Claude, Claude Code
@@ -164,6 +166,15 @@ async function readCappedBody(resp, signal) {
   return new TextDecoder().decode(bytes.subarray(0, total));
 }
 
+// The start of a rejected response body, for the failure log: it is what
+// tells a WAF block page from an outage.
+async function withBodySnippet(err, resp, signal) {
+  try {
+    err.snippet = (await readCappedBody(resp, signal)).replace(/\s+/g, ' ').slice(0, 200);
+  } catch { /* the log goes without it */ }
+  return err;
+}
+
 // One deadline covers the request and the body, so a server that sends
 // headers promptly and then trickles the body is still cut off.
 async function fetchDocument(clientId, fetchImpl) {
@@ -172,9 +183,9 @@ async function fetchDocument(clientId, fetchImpl) {
   const timeout = new Promise((_, reject) => {
     controller.signal.addEventListener('abort', () => reject(new ClientMetadataError('document_fetch_timeout', true)), { once: true });
   });
+  let resp;
   try {
     return await Promise.race([timeout, (async () => {
-      let resp;
       try {
         resp = await fetchImpl(clientId, {
           method: 'GET',
@@ -182,8 +193,10 @@ async function fetchDocument(clientId, fetchImpl) {
           headers: { Accept: 'application/json', 'User-Agent': USER_AGENT },
           signal: controller.signal,
         });
-      } catch {
-        throw new ClientMetadataError(controller.signal.aborted ? 'document_fetch_timeout' : 'document_fetch_failed', true);
+      } catch (fetchErr) {
+        const failure = new ClientMetadataError(controller.signal.aborted ? 'document_fetch_timeout' : 'document_fetch_failed', true);
+        failure.detail = { error: fetchErr instanceof Error ? `${fetchErr.name}: ${fetchErr.message}` : String(fetchErr) };
+        throw failure;
       }
       if (resp.type === 'opaqueredirect' || (resp.status >= 300 && resp.status < 400)) {
         throw new ClientMetadataError('document_redirected');
@@ -192,9 +205,9 @@ async function fetchDocument(clientId, fetchImpl) {
       // a blip at the vendor's edge, and treating it as permanent would answer
       // a refresh with invalid_client and sign every user of that client out.
       if (resp.status === 404 || resp.status === 410) throw new ClientMetadataError('document_not_found');
-      if (resp.status !== 200) throw new ClientMetadataError('document_fetch_failed', true);
+      if (resp.status !== 200) throw await withBodySnippet(new ClientMetadataError('document_fetch_failed', true), resp, controller.signal);
       if (!/^application\/(?:[\w.+-]+\+)?json\b/i.test(resp.headers.get('content-type') ?? '')) {
-        throw new ClientMetadataError('document_not_json', true);
+        throw await withBodySnippet(new ClientMetadataError('document_not_json', true), resp, controller.signal);
       }
       const text = await readCappedBody(resp, controller.signal);
       let doc;
@@ -203,6 +216,20 @@ async function fetchDocument(clientId, fetchImpl) {
       try { doc = JSON.parse(text); } catch { throw new ClientMetadataError('document_not_json', true); }
       return { doc, ttl: clientMetadataCacheTtl(resp.headers.get('cache-control')) };
     })()]);
+  } catch (err) {
+    // What the vendor sent, for the failure log: a challenge page and an
+    // outage look the same to the caller but need different fixes.
+    if (err instanceof ClientMetadataError && resp) {
+      err.detail = {
+        status: resp.status,
+        content_type: resp.headers.get('content-type'),
+        cf_mitigated: resp.headers.get('cf-mitigated'),
+        cf_ray: resp.headers.get('cf-ray'),
+        server: resp.headers.get('server'),
+        ...(err.snippet !== undefined ? { body: err.snippet } : {}),
+      };
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
     controller.abort();
@@ -265,6 +292,7 @@ function isCachedClient(clientId, value) {
  * deps.redisGet(key): parsed value or null; throws on transport failure.
  * deps.redisSetEx(key, value, ttl): best-effort cache write.
  * deps.fetch: defaults to the global fetch.
+ * deps.snapshots: defaults to CLIENT_METADATA_SNAPSHOTS.
  */
 export async function resolveOAuthClient(clientId, deps) {
   if (typeof clientId !== 'string' || clientId.length === 0) return { ok: false, reason: 'unknown_client', transient: false };
@@ -278,7 +306,13 @@ export async function resolveOAuthClient(clientId, deps) {
 
   const urlProblem = checkClientIdUrl(clientId);
   if (urlProblem) return { ok: false, reason: urlProblem, transient: false };
-  if (!trustedEntry(clientId)) return { ok: false, reason: 'untrusted_client_id', transient: false };
+  if (!trustedEntry(clientId)) {
+    // A client that prefers CIMD does not fall back to DCR, so this is a
+    // client that cannot connect at all until its URL is listed. Never
+    // fetched; the URL is only recorded.
+    console.warn('[oauth/cimd] untrusted client_id', JSON.stringify({ client_id: clientId.slice(0, 300) }));
+    return { ok: false, reason: 'untrusted_client_id', transient: false };
+  }
 
   const cacheKey = `${CLIENT_METADATA_CACHE_PREFIX}${clientId}`;
   try {
@@ -293,8 +327,26 @@ export async function resolveOAuthClient(clientId, deps) {
     client = validateDocument(clientId, fetched.doc);
     ttl = fetched.ttl;
   } catch (err) {
-    if (err instanceof ClientMetadataError) return { ok: false, reason: err.reason, transient: err.transient };
-    return { ok: false, reason: 'document_fetch_failed', transient: true };
+    // sentry-coverage-ok a vendor's document being down or invalid is an external condition; callers answer it as retryable or unknown client.
+    const failure = err instanceof ClientMetadataError
+      ? { ok: false, reason: err.reason, transient: err.transient }
+      : { ok: false, reason: 'document_fetch_failed', transient: true };
+    // A retryable failure falls back to the vetted copy of a listed document.
+    // It is never cached, so the live document is tried again next time.
+    const snapshots = deps.snapshots ?? CLIENT_METADATA_SNAPSHOTS;
+    const snapshot = failure.transient && Object.hasOwn(snapshots, clientId) ? snapshots[clientId] : null;
+    // The document URL is public; nothing logged here is a secret.
+    console.warn('[oauth/cimd] client document unusable', JSON.stringify({
+      client_id: clientId,
+      reason: failure.reason,
+      transient: failure.transient,
+      ...(snapshot ? { fallback: 'snapshot' } : {}),
+      ...(err instanceof ClientMetadataError
+        ? err.detail
+        : { error: err instanceof Error ? `${err.name}: ${err.message}` : String(err) }),
+    }));
+    if (snapshot) return { ok: true, client: { ...validateDocument(clientId, snapshot), cimd: true } };
+    return failure;
   }
   // Only a validated document is cached; a failure above never reaches here.
   if (ttl > 0 && deps.redisSetEx) {

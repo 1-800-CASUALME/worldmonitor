@@ -10,6 +10,8 @@ import { projectCountrySanctions } from './shared/country-sanctions-signals.mjs'
 
 import { loadEnvFile, runSeed, verifySeedKey, readSeedSnapshot, writeExtraKeyWithMeta } from './_seed-utils.mjs';
 import { fetchOfacSourceResponse } from './_sanctions-source.mjs';
+import { buildSanctionsChanges } from './_sanctions-changes.mjs';
+import { getOptionalUpstashCreds, upstashCommand } from './_upstash-rest.mjs';
 import { SANCTIONS_MAX_CONTENT_AGE_MIN, SANCTIONS_SOURCE_VERSION, SEMA_SOURCE, ingestSemaEntries, mergeSanctionEntries, ofacRegistrationToIdentifier, sanctionsListContentMeta } from './_sema-sanctions.mjs';
 
 loadEnvFile(import.meta.url);
@@ -24,6 +26,10 @@ const COUNTRY_COUNTS_KEY = 'sanctions:country-counts:v1';
 const COUNTRY_COUNTS_META_KEY = 'seed-meta:sanctions:country-counts';
 const SOURCE_SNAPSHOTS_KEY = 'sanctions:source-snapshots:v1';
 const SOURCE_SNAPSHOTS_META_KEY = 'seed-meta:sanctions:source-snapshots';
+const CHANGES_KEY = 'sanctions:changes:v1';
+const CHANGES_META_KEY = 'seed-meta:sanctions:changes';
+const CHANGES_ACTIVATION_KEY = 'seed-activated:sanctions:changes';
+const CHANGES_TTL = 100 * 86400;
 // OFAC's lists change slowly, and a Railway container can lose egress to
 // treasury.gov/S3 for several runs; 12h dropped ~20k OFAC entities on 2026-09-27.
 const SOURCE_RETAIN_MS = 48 * 60 * 60 * 1000;
@@ -636,6 +642,17 @@ async function fetchSanctionsPressure() {
   console.log(`  Previous state: ${hasPrevious ? `${previousIds.size} known IDs` : 'none (first run or expired)'}`);
 
   const previousSnapshots = decodeSourceSnapshots(await readSeedSnapshot(SOURCE_SNAPSHOTS_KEY, { strict: true }));
+  let previousChanges;
+  let changesReadable = true;
+  try {
+    previousChanges = await readSeedSnapshot(CHANGES_KEY, { strict: true });
+    if (previousChanges === null && await readSeedSnapshot(CHANGES_ACTIVATION_KEY, { strict: true }) !== null) {
+      throw new Error('SANCTIONS_CHANGES_HISTORY_MISSING');
+    }
+  } catch {
+    changesReadable = false;
+    console.warn('  Sanctions change history unavailable; preserving history and its baseline.');
+  }
   const outcomes = {};
   for (const source of OFAC_SOURCES) {
     try {
@@ -662,6 +679,18 @@ async function fetchSanctionsPressure() {
     const selected = selectSanctionsSourceSnapshot(source, result, previousSnapshots[source], now);
     _sourceSnapshots[source] = selected.snapshot;
     _sourceHealth[source] = selected.health;
+  }
+  const eligiblePrevious = Object.fromEntries(Object.keys(outcomes).map(source => [source,
+    selectSanctionsSourceSnapshot(source, { error: 'baseline' }, previousSnapshots[source], now).snapshot,
+  ]));
+  let _changes = null;
+  if (changesReadable) {
+    try {
+      _changes = buildSanctionsChanges({ history: previousChanges, previous: eligiblePrevious,
+        current: _sourceSnapshots, health: _sourceHealth, now });
+    } catch {
+      console.warn('  Sanctions change history invalid; preserving history and its baseline.');
+    }
   }
   // Quarantined rows are bounded by SEMA_MAX_QUARANTINE_SHARE and belong to this
   // run's ingest only; a retained snapshot must not claim them.
@@ -691,17 +720,20 @@ async function fetchSanctionsPressure() {
   const consolidatedCount = _sourceSnapshots.CONSOLIDATED?.records.length ?? 0;
   console.log(`  Merged: ${totalCount} total (${sdnCount} SDN + ${consolidatedCount} consolidated + ${semaCount} SEMA), ${newEntryCount} new, ${vesselCount} vessels, ${aircraftCount} aircraft`);
 
-  // Build compact entity index for name-based lookup (Phase 1 — issue #2042).
-  // Each record: { id, name, et (compact type), cc (country codes), pr (programs) }
-  // Stored as a flat array in a single Redis key for O(N) in-memory search.
+  // Keep lookup identities separate from the pressure display projection.
   const _entityIndex = entries.map((e) => ({
     id: e.id,
     name: e.name,
     et: ET_CODE[e.entityType] ?? 'entity',
     cc: e.countryCodes.slice(0, 3),
     pr: e.programs.slice(0, 3),
+    al: (e._aliases ?? []).slice(0, 10),
+    ids: e._identifiers ?? [],
+    sl: e.sourceLists,
   }));
-  console.log(`  Entity index: ${_entityIndex.length} records (~${Math.round(JSON.stringify(_entityIndex).length / 1024)}KB)`);
+  const legacyIndexBytes = Buffer.byteLength(JSON.stringify(_entityIndex.map(({ al, ids, sl, ...record }) => record)), 'utf8');
+  const indexBytes = Buffer.byteLength(JSON.stringify(_entityIndex), 'utf8');
+  console.log(`  Entity index: ${_entityIndex.length} records, ${legacyIndexBytes} -> ${indexBytes} bytes with screening identities`);
 
   const knownWindow = hasPrevious && validPressureClock(previousState.observedAt)
     && Number(previousState.observedAt) < now;
@@ -744,6 +776,7 @@ async function fetchSanctionsPressure() {
     _entityIndex,
     _sourceSnapshots,
     _sourceHealth,
+    _changes,
     _countryCounts: buildCountryCounts(entries),
     _state: {
       observedAt: String(now),
@@ -780,7 +813,7 @@ runSeed('sanctions', 'pressure', CANONICAL_KEY, fetchSanctionsPressure, {
   // Strip internal-only fields before writing the main key so the pressure payload
   // does not include the entity index (~hundreds of KB) or state snapshot.
   publishTransform: (data) => {
-    const { _entityIndex: _ei, _state: _s, _countryCounts: _cc, _sourceSnapshots, _sourceHealth, pressureMetadata, ...rest } = data;
+    const { _entityIndex: _ei, _state: _s, _countryCounts: _cc, _sourceSnapshots, _sourceHealth, _changes, pressureMetadata, ...rest } = data;
     if (Array.isArray(rest.entries)) {
       rest.entries = rest.entries.map((entry) => {
         const { _aliases, _identifiers, _publishedAt, _regime, ...publicEntry } = entry;
@@ -797,8 +830,28 @@ runSeed('sanctions', 'pressure', CANONICAL_KEY, fetchSanctionsPressure, {
   },
   zeroIsValid: true,
   beforePublish: async (data) => {
-    const count = Object.values(data._sourceSnapshots).reduce((sum, snapshot) => sum + (snapshot?.records.length ?? 0), 0);
-    await writeExtraKeyWithMeta(SOURCE_SNAPSHOTS_KEY, encodeSourceSnapshots(data._sourceSnapshots), SOURCE_SNAPSHOTS_TTL, count, SOURCE_SNAPSHOTS_META_KEY);
+    if (!data._changes) return;
+    const creds = getOptionalUpstashCreds();
+    if (!creds) {
+      console.warn('  Sanctions change history credentials unavailable; skipping history publication.');
+      return;
+    }
+    try {
+      const currentGaps = data._changes.gaps.filter(gap => gap.to === data._changes.fetchedAt
+        && gap.reason !== 'baseline-unavailable');
+      await writeExtraKeyWithMeta(CHANGES_KEY, data._changes, CHANGES_TTL, data._changes.events.length,
+        CHANGES_META_KEY, CHANGES_TTL, undefined, {
+          sourceState: currentGaps.length ? 'error' : 'ok',
+          errorCode: currentGaps.some(gap => gap.reason === 'held') ? 'SANCTIONS_CHANGES_HELD'
+            : currentGaps.length ? 'SANCTIONS_CHANGES_SOURCE_FAILED' : null,
+          failedSources: [...new Set(currentGaps.map(gap => gap.list))],
+        });
+      const count = Object.values(data._sourceSnapshots).reduce((sum, snapshot) => sum + (snapshot?.records.length ?? 0), 0);
+      await writeExtraKeyWithMeta(SOURCE_SNAPSHOTS_KEY, encodeSourceSnapshots(data._sourceSnapshots), SOURCE_SNAPSHOTS_TTL, count, SOURCE_SNAPSHOTS_META_KEY);
+      await upstashCommand(creds, ['SET', CHANGES_ACTIVATION_KEY, '1']);
+    } catch {
+      console.warn('  Sanctions change history publication failed; core sanctions publication will continue.');
+    }
   },
   extraKeys: [
     {

@@ -81,6 +81,10 @@ export const CII_RISK_SCORE_CACHE_KEYS = {
   live: 'risk:scores:sebuf:v8',
   stale: 'risk:scores:sebuf:stale:v8',
   trendHistoryPrefix: 'risk:scores:sebuf:trend-history:v8',
+  dailyHistoryPrefix: 'risk:scores:history:',
+  dailyHistoryIndex: 'risk:scores:history:index',
+  dailyHistoryMeta: 'seed-meta:intelligence:risk-scores-history',
+  dailyHistoryActivation: 'seed-activated:intelligence:risk-scores-history',
 } as const;
 export const CLIMATE_ANOMALIES_KEY = 'climate:anomalies:v2';
 export const CLIMATE_AIR_QUALITY_KEY = 'climate:air-quality:v1';

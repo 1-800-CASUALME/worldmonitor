@@ -5,6 +5,16 @@ import { IntelligenceServiceClient } from '../src/generated/client/worldmonitor/
 import { ScorecardServiceClient } from '../src/generated/client/worldmonitor/scorecard/v1/service_client';
 import { ResilienceServiceClient } from '../src/generated/client/worldmonitor/resilience/v1/service_client';
 import { SupplyChainServiceClient } from '../src/generated/client/worldmonitor/supply_chain/v1/service_client';
+import { countryRiskDirectViewSchema, normalizeCountryDirectRead } from '../shared/country-brief-host';
+
+it('preserves bounded risk history in panel validation and normalized cache identity', () => {
+  assert.equal(countryRiskDirectViewSchema.safeParse({ country_code: 'US', history_days: 30 }).success, true);
+  assert.deepEqual(normalizeCountryDirectRead('get_country_risk', { country_code: 'USA', history_days: 30 }), { country_code: 'US', history_days: 30 });
+  for (const history_days of [0, 91, 1.5, '30', null]) {
+    assert.equal(countryRiskDirectViewSchema.safeParse({ country_code: 'US', history_days }).success, false);
+    assert.equal(normalizeCountryDirectRead('get_country_risk', { country_code: 'US', history_days }), null);
+  }
+});
 
 it('uses generated country query names without passing browser credentials to the host', async () => {
   const calls: Array<{ name: string; args: any }> = [];

@@ -2091,7 +2091,15 @@ async function main() {
         status: 'error',
         errorReason: `fetch_rules_http_${res.status}`,
       });
-      return;
+      // Not a `return`: a run that never obtained its rules delivered nothing,
+      // and resolving main() here let the process exit 0 — Railway recorded
+      // the 2026-09-16 relay-auth outage (#8208) as a green cron until the
+      // /api/health staleness window elapsed (#8215). Exit non-zero, the same
+      // way the brief-compose gate at the end of main() does, so a 401/5xx
+      // from the relay shows red immediately. The seed-meta write above stays
+      // first so health still sees the reason.
+      await flushPendingLlmEvents();
+      process.exit(1);
     }
     rules = await res.json();
   } catch (err) {
@@ -2101,10 +2109,24 @@ async function main() {
       status: 'error',
       errorReason: `fetch_rules_failed:${err.message}`,
     });
-    return;
+    // Same contract as the non-ok branch: a network failure or timeout
+    // reaching the relay is a failed run, not a quiet one (#8215).
+    await flushPendingLlmEvents();
+    process.exit(1);
   }
 
-  if (!Array.isArray(rules) || rules.length === 0) {
+  if (!Array.isArray(rules)) {
+    console.error('[digest] Malformed rules response: expected an array');
+    await writeDigestLastRunMeta({
+      startedAtMs: nowMs,
+      status: 'error',
+      errorReason: 'fetch_rules_malformed',
+    });
+    await flushPendingLlmEvents();
+    process.exit(1);
+  }
+
+  if (rules.length === 0) {
     console.log('[digest] No digest rules found — nothing to do');
     await writeDigestLastRunMeta({ startedAtMs: nowMs, sentCount: 0 });
     return;
