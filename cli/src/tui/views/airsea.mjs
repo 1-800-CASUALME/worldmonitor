@@ -13,8 +13,9 @@ export class AirSeaView extends PaneView {
     this.bitmap = decodeBitmap(app.catalog.map);
   }
 
+  // Highest first: the list and the map marker must index the same order.
   flights() {
-    return this.store.raw.flights?.flights || [];
+    return [...(this.store.raw.flights?.flights || [])].sort((a, b) => (b.altitude || 0) - (a.altitude || 0));
   }
 
   render(ctx, r) {
@@ -56,7 +57,7 @@ export class AirSeaView extends PaneView {
 
   renderFlights(ctx, r) {
     const { t, now } = ctx;
-    const flights = [...this.flights()].sort((a, b) => (b.altitude || 0) - (a.altitude || 0));
+    const flights = this.flights();
     const inner = panel(ctx, r, { title: 'Military flights', focused: this.isFocused('flights'), right: 'ADS-B', onClick: () => this.focusPane('flights') });
     const meta = this.store.meta.flights;
     this.lists.flights.draw(

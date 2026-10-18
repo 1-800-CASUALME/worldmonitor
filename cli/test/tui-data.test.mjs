@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { ApiError, createClient } from '../src/tui/data/client.mjs';
 import { BOOT_ORDER, SOURCES, Store } from '../src/tui/data/store.mjs';
@@ -25,7 +26,7 @@ import {
 } from '../src/tui/data/select.mjs';
 import { DEFAULT_PREFS, loadPrefs, prefsPath, savePrefs } from '../src/tui/prefs.mjs';
 import { THEMES } from '../src/tui/ui/theme.mjs';
-import { detectTerminalGraphics, mpvArgs } from '../src/tui/video.mjs';
+import { detectTerminalGraphics, mpvArgs, openExternal, playInWindow } from '../src/tui/video.mjs';
 import { findRepoRoot, runWeb } from '../src/tui/web.mjs';
 
 const bootstrap = JSON.parse(readFileSync(new URL('./fixtures/bootstrap.json', import.meta.url), 'utf8'));
@@ -152,6 +153,52 @@ describe('store', () => {
     assert.equal(events.length, 1);
     assert.equal(store.status().errors[0], 'fast');
   });
+  it('keeps a failed source at no-success while backing off', async () => {
+    const now = { t: 5000000 };
+    const { fetch, calls } = fakeFetch([['tier=fast', { status: 503, body: { error: 'nope' } }]]);
+    const store = new Store(createClient({ fetch }), { now: () => now.t });
+    store.on('error', () => {});
+    await store.refresh('fast');
+    assert.equal(store.meta.fast.loadedAt, 0, 'a failure is not a load');
+    assert.equal(store.age('fast'), Infinity);
+    const n = calls.length;
+    now.t += 5000;
+    assert.equal(await store.refresh('fast'), false, 'backoff holds the retry');
+    assert.equal(calls.length, n);
+    now.t += 15000;
+    await store.refresh('fast');
+    assert.equal(calls.length, n + 1, 'retries once the backoff passes');
+  });
+  it('stops booting and does not restart polling once stopped', async () => {
+    const { store, calls } = makeStore();
+    const seen = [];
+    const booting = store.boot((_p, id) => {
+      seen.push(id);
+      if (seen.length === 2) store.stop();
+    });
+    await booting;
+    assert.equal(seen.length, 2, 'boot halts after stop()');
+    assert.equal(calls.filter((c) => !c.url.includes('wm-session')).length, 2);
+  });
+});
+
+describe('client shutdown', () => {
+  it('aborts in-flight requests and refuses new ones after close()', async () => {
+    let aborted = false;
+    const fetch = (_url, init) =>
+      new Promise((_, reject) => {
+        init.signal.addEventListener('abort', () => {
+          aborted = true;
+          reject(init.signal.reason);
+        });
+      });
+    const client = createClient({ fetch, timeoutMs: 60000 });
+    const pending = client.getJson('/api/health');
+    client.close();
+    await assert.rejects(pending, /client closed/);
+    assert.equal(aborted, true);
+    await assert.rejects(client.getJson('/api/version'), /client closed/);
+  });
 });
 
 describe('selectors', () => {
@@ -249,10 +296,14 @@ describe('video', () => {
   });
 });
 
+// The checkout root (cli/test -> repo), whatever the clone or worktree is named.
+const HERE = fileURLToPath(new URL('.', import.meta.url));
+const REPO_ROOT = resolve(HERE, '..', '..');
+
 describe('web command', () => {
   it('finds the repository root from inside the checkout', () => {
-    const root = findRepoRoot(new URL('.', import.meta.url).pathname);
-    assert.ok(root && root.endsWith('worldmonitor'));
+    const root = findRepoRoot(HERE);
+    assert.equal(root, REPO_ROOT);
     assert.equal(findRepoRoot(tmpdir(), 'file:///nowhere/x.mjs'), null);
   });
   it('opens the hosted dashboard when not in a checkout or with --hosted', async () => {
@@ -278,10 +329,76 @@ describe('web command', () => {
       }, 5);
       return child;
     };
-    const code = await runWeb({ options: { port: 5173 }, stdout: () => {}, open: (u) => opened.push(u), spawnImpl, cwd: new URL('.', import.meta.url).pathname });
+    const code = await runWeb({ options: { port: 5173 }, stdout: () => {}, open: (u) => opened.push(u), spawnImpl, cwd: HERE });
     assert.equal(code, 0);
     assert.deepEqual(opened, ['http://localhost:5173/']);
     assert.deepEqual(spawned.args.slice(0, 3), ['run', 'dev', '--']);
-    assert.ok(spawned.opts.cwd.endsWith('worldmonitor'));
+    assert.equal(spawned.opts.cwd, REPO_ROOT);
+    assert.equal(spawned.opts.shell, false);
+  });
+  it('runs npm.cmd through a shell on Windows and rejects a non-numeric port', async () => {
+    let spawned = null;
+    const { EventEmitter } = await import('node:events');
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.kill = () => {};
+    const spawnImpl = (cmd, args, opts) => {
+      spawned = { cmd, args, opts };
+      setTimeout(() => child.emit('exit', 0), 1);
+      return child;
+    };
+    const quiet = { stdout: () => {}, stderr: () => {}, open: () => {}, cwd: HERE };
+    assert.equal(await runWeb({ ...quiet, options: { port: '4000', noOpen: true }, spawnImpl, platform: 'win32' }), 0);
+    assert.equal(spawned.cmd, 'npm.cmd');
+    assert.equal(spawned.opts.shell, true);
+    spawned = null;
+    let err = '';
+    assert.equal(await runWeb({ ...quiet, stderr: (s) => (err += s), options: { port: '4000&calc' }, spawnImpl, platform: 'win32' }), 2);
+    assert.equal(spawned, null);
+    assert.match(err, /Invalid port/);
+  });
+  it('reports a synchronous spawn failure instead of throwing', async () => {
+    let err = '';
+    const spawnImpl = () => {
+      throw Object.assign(new Error('spawn EINVAL'), { code: 'EINVAL' });
+    };
+    const code = await runWeb({ options: { noOpen: true }, stdout: () => {}, stderr: (s) => (err += s), open: () => {}, spawnImpl, cwd: HERE });
+    assert.equal(code, 1);
+    assert.match(err, /EINVAL/);
+  });
+});
+
+describe('opening links', () => {
+  const recorder = () => {
+    const calls = [];
+    const spawnImpl = (cmd, args) => {
+      calls.push({ cmd, args });
+      return { on() {}, unref() {} };
+    };
+    return { calls, spawnImpl };
+  };
+  it('never routes a feed link through cmd.exe on Windows', () => {
+    const { calls, spawnImpl } = recorder();
+    const url = 'https://example.com/a?x=1&calc.exe';
+    assert.equal(openExternal(url, { platform: 'win32', spawnImpl }).ok, true);
+    assert.equal(calls.length, 1);
+    assert.notEqual(calls[0].cmd.toLowerCase(), 'cmd');
+    assert.deepEqual(calls[0].args, ['url.dll,FileProtocolHandler', url]);
+  });
+  it('refuses links that are not http(s)', () => {
+    const { calls, spawnImpl } = recorder();
+    for (const url of ['file:///etc/passwd', 'javascript:alert(1)', '--help', 'not a url']) {
+      assert.equal(openExternal(url, { platform: 'linux', spawnImpl }).ok, false, url);
+    }
+    assert.equal(calls.length, 0);
+  });
+  it('survives an asynchronous mpv window spawn error', async () => {
+    const { EventEmitter } = await import('node:events');
+    const child = new EventEmitter();
+    child.unref = () => {};
+    const res = playInWindow('https://x/y.m3u8', { player: { mpv: '/missing/mpv' }, spawnImpl: () => child });
+    assert.equal(res.ok, true);
+    // With no 'error' listener this emit would throw ERR_UNHANDLED_ERROR.
+    assert.doesNotThrow(() => child.emit('error', new Error('spawn ENOENT')));
   });
 });

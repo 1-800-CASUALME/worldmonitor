@@ -40,7 +40,8 @@ export class Store extends EventEmitter {
     this.meta = {}; // per source: { loadedAt, error, loading, attempts }
     this.wanted = new Set(); // lazy sources currently requested
     this.timer = null;
-    for (const id of Object.keys(sources)) this.meta[id] = { loadedAt: 0, error: null, loading: false, attempts: 0 };
+    this.stopped = false;
+    for (const id of Object.keys(sources)) this.meta[id] = { loadedAt: 0, retryAt: 0, error: null, loading: false, attempts: 0 };
   }
 
   // Load one source. Resolves to true when the data changed.
@@ -48,7 +49,8 @@ export class Store extends EventEmitter {
     const src = this.sources[id];
     const m = this.meta[id];
     if (!src || !m || m.loading) return false;
-    if (!force && m.loadedAt && this.now() - m.loadedAt < src.every) return false;
+    if (!force && m.retryAt && this.now() < m.retryAt) return false;
+    if (!force && !m.retryAt && m.loadedAt && this.now() - m.loadedAt < src.every) return false;
     m.loading = true;
     this.emit('loading', id);
     try {
@@ -63,6 +65,7 @@ export class Store extends EventEmitter {
         this.raw[id] = body;
       }
       m.loadedAt = this.now();
+      m.retryAt = 0;
       m.error = null;
       m.attempts = 0;
       this.emit('update', id);
@@ -70,8 +73,8 @@ export class Store extends EventEmitter {
     } catch (err) {
       m.error = err && err.message ? err.message : String(err);
       m.attempts += 1;
-      // Back off: treat the failure as a partial load so the scheduler waits.
-      m.loadedAt = this.now() - src.every + Math.min(src.every, 15000 * m.attempts);
+      // Back off before the next attempt; loadedAt keeps the last success.
+      m.retryAt = this.now() + Math.min(src.every, 15000 * m.attempts);
       this.emit('error', id, m.error);
       return false;
     } finally {
@@ -84,6 +87,7 @@ export class Store extends EventEmitter {
     let done = 0;
     const total = BOOT_ORDER.length;
     for (const id of BOOT_ORDER) {
+      if (this.stopped) return; // the dashboard quit mid-boot
       await this.refresh(id, { force: true });
       done += 1;
       onProgress(done / total, id);
@@ -110,6 +114,7 @@ export class Store extends EventEmitter {
 
   start(intervalMs = 5000) {
     this.stop();
+    this.stopped = false;
     this.timer = setInterval(() => this.tick(), intervalMs);
     if (this.timer.unref) this.timer.unref();
   }
@@ -117,6 +122,7 @@ export class Store extends EventEmitter {
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.stopped = true;
   }
 
   // Age in ms of a source's last successful load, or Infinity.

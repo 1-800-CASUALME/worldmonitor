@@ -11,6 +11,7 @@ import {
   USER_AGENT,
   UsageError,
   VERSION,
+  dashboardOptions,
   formatOutput,
   parseArgs,
   planRequest,
@@ -69,18 +70,19 @@ export async function run(argv, io = {}) {
   // A bare `worldmonitor` on an interactive terminal opens the dashboard; in a
   // pipe or script it keeps printing help so existing automation is unchanged.
   const interactive = io.isTTY !== undefined ? io.isTTY : Boolean(process.stdout.isTTY && process.stdin.isTTY);
-  const wantsTui = command === 'tui' || command === 'dashboard' || (!command && interactive && !options.help);
+  // `--help` always prints help, even after `tui` or `web`.
+  const wantsTui = !options.help && (command === 'tui' || command === 'dashboard' || (!command && interactive));
   if (wantsTui) {
     if (!interactive && !env.WM_TUI_FORCE) {
       stderr('The dashboard needs an interactive terminal. Run `worldmonitor tui` from a terminal, or see --help.\n');
       return 2;
     }
     const launch = io.launchTui || (await import('./tui/index.mjs')).launchTui;
-    return launch({ options, config: resolveConfig(env), env, fetchImpl: io.fetch });
+    return launch({ options: dashboardOptions(parsed), config: resolveConfig(env), env, fetchImpl: io.fetch });
   }
-  if (command === 'web') {
+  if (command === 'web' && !options.help) {
     const runWeb = io.runWeb || (await import('./tui/web.mjs')).runWeb;
-    return runWeb({ options, stdout, stderr, env });
+    return runWeb({ options: dashboardOptions(parsed), stdout, stderr, env });
   }
   if (options.help || !command || command === 'help') {
     stdout(`${HELP}\n`);

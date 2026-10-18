@@ -33,7 +33,7 @@ export class NewsView extends PaneView {
   }
 
   activate(pane) {
-    if (pane === 'items' && this.selectedUrl()) this.app.handleEvent({ type: 'key', name: 'o' });
+    if (pane === 'items' && this.selectedUrl()) this.app.openSelected();
     if (pane === 'cats') this.focus = 1;
   }
 

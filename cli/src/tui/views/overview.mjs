@@ -30,7 +30,7 @@ export class OverviewView extends PaneView {
   activate(pane) {
     const url = this.selectedUrl();
     if (pane === 'stories' && url) {
-      this.app.handleEvent({ type: 'key', name: 'o' });
+      this.app.openSelected();
     }
   }
 

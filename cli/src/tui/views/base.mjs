@@ -64,8 +64,11 @@ export class PaneView {
     return false;
   }
 
-  // Override: Enter / click on the selected row of a pane.
-  activate() {}
+  // Enter / click on the selected row of a pane: open its link when it has one.
+  // Views with richer behaviour (detail panes, playback) override this.
+  activate() {
+    if (this.selectedUrl()) this.app.openSelected();
+  }
 
   // Common list options wiring focus and activation.
   listOpts(paneId, extra = {}) {

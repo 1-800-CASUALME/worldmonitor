@@ -177,7 +177,7 @@ export function decodeEntities(str) {
 export function sanitize(str) {
   return decodeEntities(str)
     .replace(/\t/g, ' ')
-    .replace(/[\u0000-\u0008\u000a-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g, '');
+    .replace(/[\u0000-\u0008\u000a-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '');
 }
 
 // Word-wrap into lines of at most `width` columns.

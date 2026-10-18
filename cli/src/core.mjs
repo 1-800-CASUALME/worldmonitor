@@ -107,17 +107,9 @@ const VALUE_FLAGS = new Map([
   ['args', 'args'],
   ['arg-json', 'args'],
   ['timeout', 'timeout'],
-  ['theme', 'theme'],
-  ['fps', 'fps'],
-  ['port', 'port'],
-  ['url', 'url'],
 ]);
 
 const BOOL_FLAGS = new Map([
-  ['no-anim', 'noAnim'],
-  ['no-animations', 'noAnim'],
-  ['hosted', 'hosted'],
-  ['no-open', 'noOpen'],
   ['raw', 'raw'],
   ['compact', 'compact'],
   ['help', 'help'],
@@ -179,6 +171,23 @@ export function parseArgs(argv) {
 
   const command = positionals.shift();
   return { command, positionals, options, params };
+}
+
+// Dashboard-only flags (`tui`, `web`, bare `worldmonitor`). They stay out of
+// the global flag tables so `--url`, `--port` and `--theme` keep reaching the
+// API as parameters on every other command; the dashboard launchers read them
+// from `params` here instead.
+const DASHBOARD_VALUE_FLAGS = { theme: 'theme', fps: 'fps', port: 'port', url: 'url' };
+const DASHBOARD_BOOL_FLAGS = { 'no-anim': 'noAnim', 'no-animations': 'noAnim', hosted: 'hosted', 'no-open': 'noOpen' };
+
+export function dashboardOptions({ options = {}, params = {} } = {}) {
+  const out = { ...options };
+  for (const [name, value] of Object.entries(params)) {
+    const key = name.toLowerCase();
+    if (DASHBOARD_VALUE_FLAGS[key] && value !== true) out[DASHBOARD_VALUE_FLAGS[key]] = String(value);
+    else if (DASHBOARD_BOOL_FLAGS[key]) out[DASHBOARD_BOOL_FLAGS[key]] = value !== 'false';
+  }
+  return out;
 }
 
 // Read defaults from the environment so keys and hosts don't have to be passed

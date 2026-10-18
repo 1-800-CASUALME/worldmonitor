@@ -77,6 +77,9 @@ export function playInWindow(url, { player, title, spawnImpl = spawn }) {
   const args = mpvArgs(url, { mode: 'window', title });
   try {
     const child = spawnImpl(player.mpv, args, { stdio: 'ignore', detached: true });
+    // A spawn failure (mpv removed, not executable) arrives as an async 'error'
+    // event; without a listener it would crash the dashboard.
+    child.on('error', () => {});
     child.unref();
     return { ok: true };
   } catch (err) {
@@ -84,8 +87,18 @@ export function playInWindow(url, { player, title, spawnImpl = spawn }) {
   }
 }
 
+// Only http(s) links are opened. Links come from third-party feeds, so the
+// Windows path avoids cmd.exe, which would interpret `&`, `|` and `^` in them.
 export function openExternal(url, { platform = process.platform, spawnImpl = spawn } = {}) {
-  const [cmd, args] = platform === 'darwin' ? ['open', [url]] : platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
+  let href;
+  try {
+    const parsed = new URL(String(url));
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return { ok: false, error: 'only http(s) links can be opened' };
+    href = parsed.href;
+  } catch {
+    return { ok: false, error: 'not a valid URL' };
+  }
+  const [cmd, args] = platform === 'darwin' ? ['open', [href]] : platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', href]] : ['xdg-open', [href]];
   try {
     const child = spawnImpl(cmd, args, { stdio: 'ignore', detached: true });
     child.on('error', () => {});

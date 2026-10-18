@@ -38,7 +38,7 @@ export function findRepoRoot(start = process.cwd(), selfUrl = import.meta.url) {
   return null;
 }
 
-export async function runWeb({ options = {}, stdout = (s) => process.stdout.write(s), stderr = (s) => process.stderr.write(s), env = process.env, spawnImpl = spawn, open = openExternal, cwd = process.cwd() } = {}) {
+export async function runWeb({ options = {}, stdout = (s) => process.stdout.write(s), stderr = (s) => process.stderr.write(s), env = process.env, spawnImpl = spawn, open = openExternal, cwd = process.cwd(), platform = process.platform } = {}) {
   const root = options.hosted ? null : findRepoRoot(cwd);
   if (!root) {
     const url = options.url || HOSTED_DASHBOARD_URL;
@@ -47,9 +47,22 @@ export async function runWeb({ options = {}, stdout = (s) => process.stdout.writ
     return 0;
   }
   const port = String(options.port || env.PORT || 5173);
+  if (!/^\d{1,5}$/.test(port) || Number(port) > 65535) {
+    stderr(`Invalid port: ${port}\n`);
+    return 2;
+  }
   stdout(`WorldMonitor checkout found at ${root}\nStarting the web dashboard: npm run dev -- --port ${port}\n`);
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const child = spawnImpl(npm, ['run', 'dev', '--', '--port', port, '--strictPort'], { cwd: root, stdio: ['inherit', 'pipe', 'inherit'], env });
+  // Node refuses to spawn .cmd files without a shell on Windows (CVE-2024-27980),
+  // so npm.cmd runs through one there; every argument is a fixed literal or the
+  // digits-only port checked above.
+  const win = platform === 'win32';
+  let child;
+  try {
+    child = spawnImpl(win ? 'npm.cmd' : 'npm', ['run', 'dev', '--', '--port', port, '--strictPort'], { cwd: root, stdio: ['inherit', 'pipe', 'inherit'], env, shell: win });
+  } catch (err) {
+    stderr(`Could not start the dev server: ${err.message}\n`);
+    return 1;
+  }
   let opened = options.noOpen === true;
   child.stdout.on('data', (chunk) => {
     const text = chunk.toString();

@@ -2,9 +2,7 @@
 // session reads mint an anonymous short-lived token exactly like the browser
 // (POST /api/wm-session) and send it in X-WorldMonitor-Key. A user API key, when
 // configured, is sent instead of the session token.
-import { API_KEY_HEADER } from '../../core.mjs';
-
-export const DEFAULT_TUI_BASE_URL = 'https://api.worldmonitor.app';
+import { API_KEY_HEADER, DEFAULT_BASE_URL, VERSION } from '../../core.mjs';
 
 export class ApiError extends Error {
   constructor(status, body, url) {
@@ -22,18 +20,22 @@ function trimSlash(url) {
 }
 
 export function createClient(options = {}) {
-  const baseUrl = trimSlash(options.baseUrl || DEFAULT_TUI_BASE_URL);
+  const baseUrl = trimSlash(options.baseUrl || DEFAULT_BASE_URL);
   const apiKey = options.apiKey || '';
-  const userAgent = options.userAgent || 'worldmonitor-tui/0.2.0 (+https://worldmonitor.app)';
+  const userAgent = options.userAgent || `worldmonitor-tui/${VERSION} (+https://worldmonitor.app)`;
   const fetchImpl = options.fetch || globalThis.fetch;
   const timeoutMs = options.timeoutMs || 25000;
   const now = options.now || (() => Date.now());
   let session = null; // { token, exp }
   let minting = null;
+  let closed = false;
+  const inflight = new Set(); // AbortControllers of requests still running
 
   async function request(path, init = {}) {
+    if (closed) throw new Error('client closed');
     const url = path.startsWith('http') ? path : `${baseUrl}${path}`;
     const controller = new AbortController();
+    inflight.add(controller);
     const timer = setTimeout(() => controller.abort(new Error(`timed out after ${timeoutMs}ms`)), timeoutMs);
     try {
       const res = await fetchImpl(url, {
@@ -52,6 +54,7 @@ export function createClient(options = {}) {
       return body;
     } finally {
       clearTimeout(timer);
+      inflight.delete(controller);
     }
   }
 
@@ -99,6 +102,13 @@ export function createClient(options = {}) {
     },
     sessionState() {
       return session ? { ...session } : null;
+    },
+    // Abort every in-flight request and refuse new ones, so quitting the
+    // dashboard does not leave the process waiting on open sockets.
+    close() {
+      closed = true;
+      for (const controller of inflight) controller.abort(new Error('client closed'));
+      inflight.clear();
     },
   };
 }

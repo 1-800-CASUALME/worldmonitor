@@ -75,10 +75,13 @@ export class App {
     this.markDirty();
   }
 
-  setTheme(id) {
+  // `persist: false` previews a theme without writing it to the prefs file.
+  setTheme(id, { persist = true } = {}) {
     this.theme = getTheme(id);
-    this.prefs.theme = this.theme.id;
-    this.savePrefs(this.prefs);
+    if (persist) {
+      this.prefs.theme = this.theme.id;
+      this.savePrefs(this.prefs);
+    }
     this.prev = null;
     this.markDirty();
   }
@@ -161,6 +164,7 @@ export class App {
         return this.cycleTheme(ev.shift ? -1 : 1);
       case 'T':
         this.themePicker = true;
+        this.themeBeforePicker = this.theme.id;
         this.themePickerIndex = THEME_IDS.indexOf(this.theme.id);
         return;
       case 'a':
@@ -170,14 +174,8 @@ export class App {
       case 'W':
         openExternal('https://www.worldmonitor.app/dashboard');
         return this.toast('opening the web dashboard');
-      case 'o': {
-        const url = this.view.selectedUrl && this.view.selectedUrl();
-        if (url) {
-          openExternal(url);
-          this.toast(`opening ${truncate(url, 60)}`);
-        } else this.toast('nothing to open here', 1500, 'warn');
-        return;
-      }
+      case 'o':
+        return this.openSelected();
       case 'escape':
         return;
       default:
@@ -189,17 +187,33 @@ export class App {
     }
   }
 
+  // Open the selected item's link in the browser (the `o` key and Enter).
+  openSelected() {
+    const url = this.view.selectedUrl && this.view.selectedUrl();
+    if (url) {
+      openExternal(url);
+      this.toast(`opening ${truncate(url, 60)}`);
+    } else this.toast('nothing to open here', 1500, 'warn');
+  }
+
   handleThemePickerKey(ev) {
     const n = THEME_IDS.length;
-    if (ev.name === 'escape' || ev.name === 'T' || ev.name === 'q') this.themePicker = false;
-    else if (ev.name === 'up' || ev.name === 'k') this.themePickerIndex = (this.themePickerIndex + n - 1) % n;
+    const before = this.themePickerIndex;
+    if (ev.name === 'escape' || ev.name === 'T' || ev.name === 'q') {
+      // Cancel: drop the preview and go back to the theme the picker opened on.
+      this.themePicker = false;
+      this.setTheme(this.themeBeforePicker || this.prefs.theme, { persist: false });
+      return;
+    }
+    if (ev.name === 'up' || ev.name === 'k') this.themePickerIndex = (this.themePickerIndex + n - 1) % n;
     else if (ev.name === 'down' || ev.name === 'j') this.themePickerIndex = (this.themePickerIndex + 1) % n;
     else if (ev.name === 'enter' || ev.name === 'space') {
       this.setTheme(THEME_IDS[this.themePickerIndex]);
       this.themePicker = false;
       this.toast(`theme: ${this.theme.label}`);
+      return;
     }
-    if (this.themePicker) this.setTheme(THEME_IDS[this.themePickerIndex]); // live preview
+    if (this.themePickerIndex !== before) this.setTheme(THEME_IDS[this.themePickerIndex], { persist: false }); // live preview
   }
 
   handleMouse(ev) {

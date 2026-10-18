@@ -175,6 +175,31 @@ describe('App input', () => {
     app.handleEvent({ type: 'mouse', kind: 'down', button: 0, x: x + 1, y: 0 });
     assert.equal(app.theme.id, THEME_IDS[3]);
   });
+  it('previews themes without saving them and restores the original on Esc', () => {
+    const { app, saved } = makeApp();
+    app.render();
+    const original = app.theme.id;
+    app.handleEvent({ type: 'key', name: 'T', ch: 'T', shift: true });
+    app.handleEvent({ type: 'key', name: 'down' });
+    app.handleEvent({ type: 'key', name: 'down' });
+    assert.equal(app.theme.id, THEME_IDS[2], 'live preview applies');
+    assert.equal(saved.length, 0, 'previews are not persisted');
+    app.handleEvent({ type: 'key', name: 'escape' });
+    assert.equal(app.themePicker, false);
+    assert.equal(app.theme.id, original);
+    assert.equal(saved.length, 0);
+    assert.equal(app.prefs.theme, original);
+  });
+  it('opens the selected link on Enter in views without a detail pane', () => {
+    const { app, show } = makeApp();
+    show('climate');
+    app.render();
+    const opened = [];
+    app.openSelected = () => opened.push(app.view.selectedUrl());
+    assert.match(app.view.selectedUrl(), /^https:\/\/earthquake\.usgs\.gov\//);
+    app.handleEvent({ type: 'key', name: 'enter' });
+    assert.equal(opened.length, 1);
+  });
   it('toggles animations and help, and quits on q', () => {
     const { app, saved } = makeApp();
     app.render();

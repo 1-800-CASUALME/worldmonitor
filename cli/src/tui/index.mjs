@@ -17,7 +17,7 @@ export function loadCatalog() {
 export async function launchTui({ options = {}, config = {}, env = process.env, stdin = process.stdin, stdout = process.stdout, fetchImpl } = {}) {
   const apiKey = options.apiKey || config.apiKey || '';
   const client = createClient({
-    baseUrl: options.baseUrl || env.WORLDMONITOR_TUI_BASE_URL || undefined,
+    baseUrl: options.baseUrl || env.WORLDMONITOR_TUI_BASE_URL || config.baseUrl || undefined,
     apiKey,
     userAgent: USER_AGENT.replace('worldmonitor-cli', 'worldmonitor-tui'),
     fetch: fetchImpl,
@@ -81,6 +81,7 @@ export async function launchTui({ options = {}, config = {}, env = process.env, 
     if (timer) clearInterval(timer);
     if (escTimer) clearTimeout(escTimer);
     store.stop();
+    client.close();
     stdin.off('data', onData);
     stdout.off('resize', onResize);
     leave();
@@ -104,7 +105,13 @@ export async function launchTui({ options = {}, config = {}, env = process.env, 
     shutdown();
     process.exit(0);
   };
-  process.once('SIGINT', onSignal);
+  // While mpv plays in the terminal it shares the foreground process group, so
+  // Ctrl-C reaches both; it should stop the video and return to the dashboard.
+  const onInterrupt = () => {
+    if (app.suspended) return;
+    onSignal();
+  };
+  process.on('SIGINT', onInterrupt);
   process.once('SIGTERM', onSignal);
   process.once('SIGHUP', onSignal);
   const onCrash = (err) => {
@@ -118,10 +125,13 @@ export async function launchTui({ options = {}, config = {}, env = process.env, 
   timer = setInterval(frameLoop, Math.round(1000 / fps));
   app.render();
   store.boot((progress, stage) => {
+    if (!active) return;
     app.boot.progress = progress;
     app.boot.stage = stage;
     app.markDirty();
-  }).then(() => store.start());
+  }).then(() => {
+    if (active) store.start();
+  });
 
   await new Promise((resolve) => {
     const check = setInterval(() => {
@@ -131,7 +141,7 @@ export async function launchTui({ options = {}, config = {}, env = process.env, 
       }
     }, 50);
   });
-  process.off('SIGINT', onSignal);
+  process.off('SIGINT', onInterrupt);
   process.off('SIGTERM', onSignal);
   process.off('SIGHUP', onSignal);
   process.off('uncaughtException', onCrash);
