@@ -10,10 +10,17 @@ name: Convex Deploy
 # `WORLDMONITOR-PD` kept growing because Convex prod was still running the old
 # string-data throws.
 #
-# Setup required (one-time): add `CONVEX_DEPLOY_KEY` to the repo's GitHub
-# Actions secrets. Generate via `npx convex deploy --once-create-deploy-key`
-# against the prod deployment, or via the Convex dashboard → Settings →
-# Deploy Keys → "Production: deploy" scope.
+# Setup required (one-time), in this order:
+#   1. Create the `convex-production` GitHub environment and set its deployment
+#      branches to "Selected branches" with `main` as the only rule. A new
+#      environment allows every branch, and `workflow_dispatch` can run a
+#      branch-edited copy of this workflow, so without the rule the key is
+#      readable from any branch.
+#   2. Add `CONVEX_DEPLOY_KEY` as a secret of that environment, not as a
+#      repository secret, which any workflow on any branch can read.
+# Generate the key via `npx convex deploy --once-create-deploy-key` against the
+# prod deployment, or via the Convex dashboard → Settings → Deploy Keys →
+# "Production: deploy" scope.
 
 on:
   push:
