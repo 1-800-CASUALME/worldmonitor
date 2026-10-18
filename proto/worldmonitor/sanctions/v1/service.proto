@@ -15,7 +15,8 @@ service SanctionsService {
     option (sebuf.http.config) = {path: "/list-sanctions-pressure", method: HTTP_METHOD_GET};
   }
 
-  // LookupSanctionEntity searches the OFAC entity index by name, vessel, or aircraft.
+  // LookupSanctionEntity searches OpenSanctions by name when a licensed API key is configured.
+  // Otherwise, or on upstream failure, it searches the local OFAC and Canada SEMA index.
   rpc LookupSanctionEntity(LookupSanctionEntityRequest) returns (LookupSanctionEntityResponse) {
     option (sebuf.http.config) = {path: "/lookup-sanction-entity", method: HTTP_METHOD_GET};
   }

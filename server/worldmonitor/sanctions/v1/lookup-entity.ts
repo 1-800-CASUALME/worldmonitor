@@ -16,10 +16,12 @@ const MAX_QUERY_LENGTH = 200;
 const MIN_QUERY_LENGTH = 2;
 const OPENSANCTIONS_BASE = 'https://api.opensanctions.org';
 const OPENSANCTIONS_TIMEOUT_MS = 8_000;
-// Designations are published by regulators daily at most, so an hour of reuse
-// is well inside any reasonable freshness expectation while collapsing the
-// repeat-query traffic that dominates entity lookups.
 const OPENSANCTIONS_CACHE_TTL_SECONDS = 3_600;
+const SOURCE_LABELS = [
+  ['SDN:', 'OFAC SDN'],
+  ['CONSOLIDATED:', 'OFAC Consolidated'],
+  ['sema-ca:', 'Canada SEMA'],
+] as const;
 
 interface EntityIndexRecord {
   id: string;
@@ -78,19 +80,12 @@ function normalizeOpenSanctionsHit(hit: OpenSanctionsHit): SanctionEntityMatch |
   };
 }
 
-/**
- * Cache identity for a lookup. Case and surrounding/interior whitespace are
- * not meaningful to OpenSanctions' matcher, so folding them here lets the
- * common "same name typed slightly differently" retries share one entry.
- * `maxResults` stays in the key because a narrower response must never be
- * replayed to a caller that asked for a wider one.
- */
 async function lookupCacheKey(q: string, maxResults: number): Promise<string> {
   const canonical = q.toLowerCase().replace(/\s+/g, ' ').trim();
   return `sanctions:lookup:v2:${await sha256Hex(canonical)}:${maxResults}`;
 }
 
-async function searchOpenSanctions(q: string, limit: number): Promise<{ results: SanctionEntityMatch[]; total: number } | null> {
+async function searchOpenSanctions(q: string, limit: number, apiKey: string): Promise<{ results: SanctionEntityMatch[]; total: number }> {
   const url = new URL(`${OPENSANCTIONS_BASE}/search/default`);
   url.searchParams.set('q', q);
   url.searchParams.set('limit', String(limit));
@@ -99,17 +94,16 @@ async function searchOpenSanctions(q: string, limit: number): Promise<{ results:
     headers: {
       'User-Agent': 'WorldMonitor/1.0 sanctions-search',
       Accept: 'application/json',
+      Authorization: `ApiKey ${apiKey}`,
     },
     signal: AbortSignal.timeout(OPENSANCTIONS_TIMEOUT_MS),
   });
 
-  // Throw rather than return null so an availability failure takes the
-  // no-negative-cache path below. Returning null would persist a sentinel and
-  // pin every later caller to the narrower OFAC index for the negative TTL.
   if (!resp.ok) throw new Error(`OpenSanctions HTTP ${resp.status}`);
 
   const data = (await resp.json()) as OpenSanctionsSearchResponse;
-  const hits = Array.isArray(data.results) ? data.results : [];
+  if (!Array.isArray(data.results)) throw new Error('Invalid OpenSanctions search response');
+  const hits = data.results;
   const results = hits
     .map(normalizeOpenSanctionsHit)
     .filter((r): r is SanctionEntityMatch => r !== null);
@@ -117,10 +111,7 @@ async function searchOpenSanctions(q: string, limit: number): Promise<{ results:
   return { results, total };
 }
 
-function searchOfacLocal(q: string, maxResults: number, raw: unknown): { results: SanctionEntityMatch[]; total: number } {
-  if (!Array.isArray(raw)) return { results: [], total: 0 };
-
-  const index = raw as EntityIndexRecord[];
+function searchLocalIndex(q: string, maxResults: number, index: EntityIndexRecord[]): { results: SanctionEntityMatch[]; total: number } {
   const needle = normalize(q);
   const tokens = needle.split(' ').filter(Boolean);
   const scored: Array<{ score: number; entry: EntityIndexRecord }> = [];
@@ -166,37 +157,41 @@ export const lookupSanctionEntity: SanctionsServiceHandler['lookupSanctionEntity
 ): Promise<LookupSanctionEntityResponse> => {
   const q = (req.q ?? '').trim();
   if (q.length < MIN_QUERY_LENGTH || q.length > MAX_QUERY_LENGTH) {
-    return { results: [], total: 0, source: 'opensanctions' };
+    return { results: [], total: 0, source: 'Not searched' };
   }
 
   const maxResults = clampMax(req.maxResults);
 
-  // Primary: live query against OpenSanctions — broader global coverage than
-  // the local OFAC index. Matches the legacy /api/sanctions-entity-search path.
-  // Cached because repeat lookups dominate this route (#6235); a genuine
-  // zero-match answer caches normally, but an upstream outage must not be
-  // persisted as one, hence cacheFetcherErrors: false.
-  try {
-    const upstream = await cachedFetchJson<{ results: SanctionEntityMatch[]; total: number }>(
-      await lookupCacheKey(q, maxResults),
-      OPENSANCTIONS_CACHE_TTL_SECONDS,
-      () => searchOpenSanctions(q, maxResults),
-      undefined,
-      { cacheFetcherErrors: false },
-    );
-    if (upstream) {
-      return { ...upstream, source: 'opensanctions' };
+  const apiKey = process.env.OPENSANCTIONS_API_KEY?.trim();
+  if (apiKey) {
+    try {
+      const upstream = await cachedFetchJson<{ results: SanctionEntityMatch[]; total: number }>(
+        await lookupCacheKey(q, maxResults),
+        OPENSANCTIONS_CACHE_TTL_SECONDS,
+        () => searchOpenSanctions(q, maxResults, apiKey),
+        undefined,
+        { cacheFetcherErrors: false },
+      );
+      if (upstream) {
+        return { ...upstream, source: 'opensanctions' };
+      }
+    } catch {
+      // A failed upstream request must not hide the available local index.
     }
-  } catch {
-    // fall through to OFAC fallback
   }
 
-  // Fallback: local OFAC fuzzy match from the seeded Redis index. Keeps the
-  // endpoint useful when OpenSanctions is unreachable or rate-limiting us.
   try {
     const raw = await getCachedJson(ENTITY_INDEX_KEY, true);
-    return { ...searchOfacLocal(q, maxResults, raw), source: 'ofac' };
+    if (!Array.isArray(raw)) {
+      return { results: [], total: 0, source: 'Local sanctions index unavailable' };
+    }
+    const index = raw as EntityIndexRecord[];
+    const sources = SOURCE_LABELS
+      .filter(([prefix]) => index.some(entry => entry.id.startsWith(prefix)))
+      .map(([, label]) => label);
+    const source = sources.join(', ') || (index.length === 0 ? 'Local sanctions index (empty)' : 'Local sanctions index');
+    return { ...searchLocalIndex(q, maxResults, index), source };
   } catch {
-    return { results: [], total: 0, source: 'ofac' };
+    return { results: [], total: 0, source: 'Local sanctions index unavailable' };
   }
 };

@@ -1,9 +1,9 @@
 ---
 title: "制裁压力"
-description: "制裁压力面板整合美国财政部 OFAC SDN 名单与欧盟 Consolidated List 制裁指定数据，以国家级压力评分直观呈现全球制裁强度分布，并附最新新增条目、被指定船舶与航空器计数以及按制裁项目细分的走势，用于追踪出口管制、金融限制与二级制裁的动态演进。"
+description: "制裁压力面板整合美国财政部 OFAC SDN、OFAC Consolidated 名单与加拿大 SEMA/JVCFOA 制裁指定数据，以国家级压力评分直观呈现全球制裁强度分布，并附最新新增条目、被指定船舶与航空器计数以及按制裁项目细分的走势，用于追踪出口管制、金融限制与二级制裁的动态演进。"
 ---
 
-**Sanctions Pressure** 面板（内部 id `sanctions-pressure`）将 OFAC SDN 和 Consolidated 制裁列表转化为可操作的概览：哪些国家目前承受最大的指定压力、哪些项目在驱动它、以及自上次更新以来有什么变化。
+**Sanctions Pressure** 面板（内部 id `sanctions-pressure`）将 OFAC SDN、OFAC Consolidated 和加拿大 SEMA/JVCFOA 制裁列表转化为可操作的概览：哪些国家目前承受最大的指定压力、哪些项目在驱动它、以及自上次更新以来有什么变化。
 
 ## 面板显示内容
 
@@ -28,8 +28,9 @@ description: "制裁压力面板整合美国财政部 OFAC SDN 名单与欧盟 C
 
 - **OFAC Specially Designated Nationals (SDN) list**
 - **OFAC Consolidated List**
+- **加拿大外交部 SEMA / JVCFOA 综合名单**（`sema-ca`）
 
-种子器拉取两者，标准化国家归属，统计船舶和航空器，并与前一个快照比较以计算 `newEntryCount`。
+种子器独立拉取各名单并合并记录，标准化国家归属，统计船舶和航空器，并与前一个快照比较以计算 `newEntryCount`。
 
 ## 刷新频率
 
@@ -42,4 +43,10 @@ OFAC 以不规律频率（每日到每周）发布列表更新。面板读取最
 ## API 参考
 
 - [Sanctions service](https://github.com/koala73/worldmonitor/blob/main/docs/api/SanctionsService.openapi.yaml) — 制裁压力 + 实体搜索 RPC。
-- 相关：`GET /api/sanctions/v1/lookup-sanction-entity?q=...` — 对 OpenSanctions（实时）的模糊实体查询，OFAC 本地索引作为回退。
+- 相关：`GET /api/sanctions/v1/lookup-sanction-entity?q=...` — 配置获授权的 API 密钥后通过 OpenSanctions 按名称搜索，并以本地索引作为后备。
+
+在服务器设置 `OPENSANCTIONS_API_KEY` 可启用 OpenSanctions `default` 数据集的认证查询。密钥仅保留在服务器，通过 `Authorization: ApiKey` 请求头发送。成功响应（包括零匹配）缓存一小时，返回 `source: "opensanctions"`。覆盖范围取决于 OpenSanctions 数据集，而非本地索引。
+
+未配置密钥时，此端点完全跳过 OpenSanctions。密钥被拒、限流、超时或上游故障时，也会回退到包含 OFAC SDN、OFAC Consolidated 和加拿大 SEMA 记录的本地索引。故障不会缓存为零匹配响应；共享缓存仅采用短暂的重试退避。
+
+回退时，`source` 根据所查询本地索引中的记录 ID 标明名单来源，即使没有匹配也会返回。合并记录保留主要来源 ID，因此该标签不保证某个名单的完整覆盖。空索引、索引不可用和未执行查询会分别标注。本地后备索引不直接查询英国、欧盟或联合国名单。英国和欧盟官方名单的直接接入属于 [#9352](https://github.com/koala73/worldmonitor/issues/9352) 所述的后续工作。

@@ -28178,7 +28178,9 @@ paths:
             tags:
                 - SanctionsService
             summary: LookupSanctionEntity
-            description: LookupSanctionEntity searches the OFAC entity index by name, vessel, or aircraft.
+            description: |-
+                LookupSanctionEntity searches OpenSanctions by name when a licensed API key is configured.
+                 Otherwise, or on upstream failure, it searches the local OFAC and Canada SEMA index.
             operationId: LookupSanctionEntity
             parameters:
                 - name: q
@@ -56004,7 +56006,9 @@ components:
                     type: integer
                     format: int32
                     description: Maximum number of matching sanctioned entities to return.
-            description: LookupSanctionEntityRequest searches the OFAC entity index by name, vessel, or aircraft.
+            description: |-
+                LookupSanctionEntityRequest searches OpenSanctions by name when a licensed API key is configured.
+                 Otherwise, or on upstream failure, it searches the local OFAC and Canada SEMA index.
         worldmonitor_sanctions_v1_LookupSanctionEntityResponse:
             type: object
             properties:
@@ -56017,7 +56021,14 @@ components:
                     format: int32
                 source:
                     type: string
-            description: LookupSanctionEntityResponse contains matched entities from OFAC + OpenSanctions.
+                    description: |-
+                        "opensanctions" identifies an authenticated OpenSanctions search response, including cached or zero-match answers.
+                         On local fallback, lists are identified by primary record IDs in the searched index.
+                         Merged local records retain only their primary source ID; complete list coverage is not guaranteed.
+                         Empty, unavailable, and unsearched states are labelled separately.
+            description: |-
+                LookupSanctionEntityResponse contains name matches from OpenSanctions or the local OFAC and Canada SEMA index.
+                 The source field identifies the searched provider or local lists.
         worldmonitor_sanctions_v1_SanctionEntityMatch:
             type: object
             properties:
@@ -56035,7 +56046,7 @@ components:
                     type: array
                     items:
                         type: string
-            description: SanctionEntityMatch is a compact entity match from the lookup index.
+            description: SanctionEntityMatch is a compact entity match from OpenSanctions or the local index.
         worldmonitor_scenario_v1_RunScenarioRequest:
             type: object
             properties:

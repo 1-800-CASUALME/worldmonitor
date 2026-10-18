@@ -45,4 +45,10 @@ OFAC publishes list updates on an irregular cadence (daily-to-weekly). The panel
 ## API reference
 
 - [Sanctions service](https://github.com/koala73/worldmonitor/blob/main/docs/api/SanctionsService.openapi.yaml) — sanctions pressure + entity search RPCs.
-- Related: `GET /api/sanctions/v1/lookup-sanction-entity?q=...` — fuzzy entity lookup against OpenSanctions (live) with OFAC local index as a fallback.
+- Related: `GET /api/sanctions/v1/lookup-sanction-entity?q=...` — name search through OpenSanctions when a licensed API key is configured, with a seeded local index as fallback.
+
+Set `OPENSANCTIONS_API_KEY` on the server to enable authenticated searches of OpenSanctions' `default` dataset. The key stays on the server and is sent in the `Authorization: ApiKey` header. Successful answers, including zero matches, are cached for one hour. `source: "opensanctions"` identifies these answers. Coverage follows the OpenSanctions dataset, rather than the local index.
+
+Without a key, the endpoint skips OpenSanctions entirely. A rejected key, rate limit, timeout, or upstream failure also falls back to the local index of OFAC SDN, OFAC Consolidated, and Canada SEMA records. Failures are not cached as zero-match answers; the shared cache applies a short retry backoff.
+
+On fallback, `source` names the lists represented by record IDs in the searched local index, including when no name matches. Merged records retain their primary source ID, so this label does not establish complete coverage of a list. Empty, unavailable, and unsearched states are labelled separately. The local fallback does not search UK, EU, or UN lists directly. Direct UK and EU ingestion is deferred to [#9352](https://github.com/koala73/worldmonitor/issues/9352).

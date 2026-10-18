@@ -4,7 +4,8 @@ package worldmonitor.sanctions.v1;
 
 import "sebuf/http/annotations.proto";
 
-// LookupSanctionEntityRequest searches the OFAC entity index by name, vessel, or aircraft.
+// LookupSanctionEntityRequest searches OpenSanctions by name when a licensed API key is configured.
+// Otherwise, or on upstream failure, it searches the local OFAC and Canada SEMA index.
 message LookupSanctionEntityRequest {
   // Search text for a sanctioned person, organization, vessel, or aircraft.
   string q = 1 [(sebuf.http.query) = { name: "q" }];
@@ -12,7 +13,7 @@ message LookupSanctionEntityRequest {
   int32 max_results = 2 [(sebuf.http.query) = { name: "max_results" }];
 }
 
-// SanctionEntityMatch is a compact entity match from the lookup index.
+// SanctionEntityMatch is a compact entity match from OpenSanctions or the local index.
 message SanctionEntityMatch {
   string id = 1;
   string name = 2;
@@ -21,9 +22,14 @@ message SanctionEntityMatch {
   repeated string programs = 5;
 }
 
-// LookupSanctionEntityResponse contains matched entities from OFAC + OpenSanctions.
+// LookupSanctionEntityResponse contains name matches from OpenSanctions or the local OFAC and Canada SEMA index.
+// The source field identifies the searched provider or local lists.
 message LookupSanctionEntityResponse {
   repeated SanctionEntityMatch results = 1;
   int32 total = 2;
+  // "opensanctions" identifies an authenticated OpenSanctions search response, including cached or zero-match answers.
+  // On local fallback, lists are identified by primary record IDs in the searched index.
+  // Merged local records retain only their primary source ID; complete list coverage is not guaranteed.
+  // Empty, unavailable, and unsearched states are labelled separately.
   string source = 3;
 }
