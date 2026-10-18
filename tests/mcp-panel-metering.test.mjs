@@ -1188,6 +1188,24 @@ describe('paid prediction panel through the MCP handler', () => {
     for (const key of Object.keys(process.env)) if (!(key in originalEnv)) delete process.env[key];
     Object.assign(process.env, originalEnv);
   });
+  it('accepts sort on receipt reads and keeps unknown arguments rejected', async () => {
+    bootstrapOverride = { ...payload(), geopolitical: [
+      { title: 'unknown', source: 'kalshi', yesPrice: 50 },
+      { title: 'down', source: 'kalshi', yesPrice: 30, change24h: -12 },
+      { title: 'up', source: 'polymarket', yesPrice: 60, change24h: 4, change7d: -15 },
+    ] };
+    const { deps, pipe } = makeProDeps();
+    const first = await invoke(deps);
+    const token = first.body.result.structuredContent.panelRequest.token;
+    const sorted = await invoke(deps, { panel_request: token, sort: 'move_24h', limit: 1 });
+    assert.deepEqual(data(sorted).geopolitical.map(m => m.title), ['down']);
+    const weekly = await invoke(deps, { panel_request: token, sort: 'move_7d', limit: 1 });
+    assert.deepEqual(data(weekly).geopolitical.map(m => m.title), ['up']);
+    assert.equal(pipe.count, 1);
+    for (const args of [{ sort: 'invalid' }, { sort: 'move_24h', unknown: true }]) {
+      assert.equal((await invoke(deps, { ...args, panel_request: token })).body.error.code, -32602);
+    }
+  });
   it('opens once, narrows exact contracts and replays normalized filters with two fixed reads per uncached filter', async () => {
     const { deps, pipe } = makeProDeps();
     const first = await invoke(deps);

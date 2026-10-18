@@ -2207,7 +2207,7 @@ export const CACHE_TOOLS: ToolDef[] = [
     title: 'Prediction markets',
     _uiResourceUri: PREDICTION_MARKETS_UI_URI,
     _outputBudgetBytes: 131072,
-    description: 'Return seeded prediction-market contracts from multiple venues with current probabilities, grouped into three buckets: geopolitical (including elections), tech (AI, crypto, science) and finance (economics, plus the untagged fallback for non-geopolitical records). Flagged stale when the seed is older than 90 minutes. Kalshi currently supplies no classifier tags, so source=kalshi with category=tech returns no records and other non-geopolitical Kalshi records fall back to finance. Seeded-cache read with no live fetch: weight 1 on API plans, included in the signed-in free allowance. query matches titles case-insensitively; limit caps each bucket (default 30, 0 for no cap). Dedicated paid connections reuse one panel allocation across openings and filters; refresh with a request_id starts a new one and the same ID retries it. API allowances retain per-tool billing.',
+    description: 'Return seeded prediction-market contracts from multiple venues with current probabilities, grouped into three buckets: geopolitical (including elections), tech (AI, crypto, science) and finance (economics, plus the untagged fallback for non-geopolitical records). Flagged stale when the seed is older than 90 minutes. Kalshi currently supplies no classifier tags, so source=kalshi with category=tech returns no records and other non-geopolitical Kalshi records fall back to finance. Seeded-cache read with no live fetch: weight 1 on API plans, included in the signed-in free allowance. query matches titles case-insensitively; limit caps each bucket (default 30, 0 for no cap). Dedicated paid connections reuse one panel allocation across openings and filters; refresh with a request_id starts a new one and the same ID retries it. API allowances retain per-tool billing. change24h/change7d are percentage-point moves (7d: Polymarket only); sort=move_24h|move_7d ranks by absolute move.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -2218,6 +2218,7 @@ export const CACHE_TOOLS: ToolDef[] = [
         },
         query: { type: 'string', description: 'Keep only markets whose title contains this text (case-insensitive).' },
         source: { type: 'string', enum: ['kalshi', 'polymarket'], description: 'Filter to one prediction-market source. Kalshi currently provides no classifier tags, so source=kalshi with category=tech returns no records.' },
+        sort: { type: 'string', enum: ['rank', 'move_24h', 'move_7d'], default: 'rank', description: 'Order each bucket by seed rank or absolute 24h/7d move before limiting. Missing moves go last.' },
         limit: { type: 'number', description: 'Cap each category bucket to at most this many markets (default 30, pass 0 for no cap).' },
         panel_request: { type: 'string', description: 'Paid prediction panel receipt. Reuse for internal curated reads without another daily allocation.' },
         refresh: { type: 'boolean', description: 'Paid panel only. Start a new allocation with request_id; retry the same ID to reuse it.' },
@@ -2231,16 +2232,22 @@ export const CACHE_TOOLS: ToolDef[] = [
         properties: {
           geopolitical: { type: 'array', items: { type: 'object', properties: {
             title: { type: 'string' }, yesPrice: { type: 'number', minimum: 0, maximum: 100 },
+            change24h: { type: 'number', minimum: -100, maximum: 100 },
+            change7d: { type: 'number', minimum: -100, maximum: 100 },
             source: { type: 'string' }, volume: { type: 'number' }, url: { type: 'string' },
             endDate: { type: 'string' }, regions: { type: 'array', items: { type: 'string' } },
           } } },
           tech: { type: 'array', items: { type: 'object', properties: {
             title: { type: 'string' }, yesPrice: { type: 'number', minimum: 0, maximum: 100 },
+            change24h: { type: 'number', minimum: -100, maximum: 100 },
+            change7d: { type: 'number', minimum: -100, maximum: 100 },
             source: { type: 'string' }, volume: { type: 'number' }, url: { type: 'string' },
             endDate: { type: 'string' }, regions: { type: 'array', items: { type: 'string' } },
           } } },
           finance: { type: 'array', items: { type: 'object', properties: {
             title: { type: 'string' }, yesPrice: { type: 'number', minimum: 0, maximum: 100 },
+            change24h: { type: 'number', minimum: -100, maximum: 100 },
+            change7d: { type: 'number', minimum: -100, maximum: 100 },
             source: { type: 'string' }, volume: { type: 'number' }, url: { type: 'string' },
             endDate: { type: 'string' }, regions: { type: 'array', items: { type: 'string' } },
           } } },
@@ -2257,9 +2264,20 @@ export const CACHE_TOOLS: ToolDef[] = [
       const query = argStr(params.query);
       const source = argStr(params.source);
       const limit = (argNum(params.limit) ?? DEFAULT_LIST_LIMIT);
+      const sort = argStr(params.sort);
+      const changeField = sort === 'move_24h' ? 'change24h' : sort === 'move_7d' ? 'change7d' : null;
       for (const b of buckets) {
         if (query) narrowNested(data, 'markets-bootstrap', b, (m) => ciIncludes(m.title, query));
         if (source) narrowNested(data, 'markets-bootstrap', b, (m) => argStr(m.source) === source);
+        if (changeField) {
+          const node = bootstrap as Record<string, unknown>;
+          node[b] = [...node[b] as Record<string, unknown>[]].sort((a, b) => {
+            const aMove = a[changeField];
+            const bMove = b[changeField];
+            return (typeof bMove === 'number' && Number.isFinite(bMove) ? Math.abs(bMove) : -1)
+              - (typeof aMove === 'number' && Number.isFinite(aMove) ? Math.abs(aMove) : -1);
+          });
+        }
         capNested(data, 'markets-bootstrap', b, limit);
       }
       if (category && buckets.includes(category)) {

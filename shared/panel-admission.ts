@@ -42,6 +42,7 @@ export type PanelUsage = z.infer<typeof panelReceiptSchema>['usage'];
 export const predictionPanelAdmissionSchema = panelReceiptSchema.extend({ panel: z.literal('predictions') });
 export type PredictionPanelAdmission = z.infer<typeof predictionPanelAdmissionSchema>;
 export const predictionPanelReadSchema = z.object({
+  sort: z.enum(['rank', 'move_24h', 'move_7d']).default('rank'),
   category: z.string().optional().transform(value => value?.trim().toLowerCase() || undefined).pipe(z.enum(['geopolitical', 'tech', 'finance']).optional()),
   source: z.string().optional().transform(value => value?.trim().toLowerCase() || undefined).pipe(z.enum(['kalshi', 'polymarket']).optional()),
   query: z.string().optional().transform(value => value?.trim().toLowerCase() || undefined),
