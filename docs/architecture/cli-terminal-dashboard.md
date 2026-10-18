@@ -47,7 +47,7 @@ path into a product surface of its own and makes the CLI worth installing.
   / `--api-key` are honoured, exactly as today. Preferences (theme, animation
   toggle) live in a small JSON file under the XDG config dir and never hold keys.
 - Hammering the API. One bootstrap load at start, then per-view `?keys=`
-  refreshes on a timer, RSS fetches with bounded concurrency and caching.
+  refreshes on a timer; news comes from the public digest, not per-feed RSS.
 
 ## Data path (verified 2026-10-17 against production)
 
@@ -93,13 +93,14 @@ cli/src/tui/
   ui/widgets.mjs        Panel, List, Table, Sparkline, Gauge, Ticker, Tabs, Button, Scrollbar, Map
   ui/fx.mjs             boot sequence, radar sweep, pulse, wipe, typewriter, marquee
   ui/layout.mjs         grid splitting helpers
-  data/session.mjs      session mint + authenticated fetch + retry/backoff
-  data/store.mjs        bootstrap load, keyed refresh schedule, RSS loading, derived models
-  data/rss.mjs          dependency-free RSS/Atom parser
-  data/catalog.generated.json  feeds subset, live channels, webcams, world-map bitmap
-  views/*.mjs           one module per tab
-  video.mjs             mpv / yt-dlp / browser fallback
-  prefs.mjs             XDG prefs (theme, animations)
+  data/client.mjs       HTTP client: anonymous session mint, 401 re-mint, timeouts, close()
+  data/store.mjs        source table, refresh schedule, retry backoff, lazy sources
+  data/select.mjs       selectors that turn bootstrap and digest payloads into view models
+  data/catalog.generated.json  live channels, webcams, world-map bitmap
+  views/*.mjs           one module per tab (base.mjs holds shared pane behaviour)
+  video.mjs             mpv / yt-dlp / browser fallback, http(s)-only link opener
+  web.mjs               `worldmonitor web`: local dev server in a checkout, else hosted
+  prefs.mjs             XDG prefs (theme, animations, last view)
 scripts/sync-tui-catalog.mjs   generates data/catalog.generated.json from src/config and public/data
 ```
 
@@ -151,7 +152,8 @@ in the browser, `s` cycles stream sources.
 
 - Unit tests (node:test, `cli/test/tui-*.test.mjs`, run by `npm run test:data`):
   ANSI colour fallback, screen diff output, input decoding (keys, SGR mouse),
-  RSS parsing, theme contract, layout splitting, store derivations with
+  client session mint and shutdown, theme contract, layout splitting, store
+  scheduling and backoff, selectors with
   fixture bootstrap data, catalog generator `--check`.
 - Headless App tests (`cli/test/tui-app.test.mjs`): render every view at
   160x45, 100x30 and 80x24 with fixture data, drive keys, tab clicks, row

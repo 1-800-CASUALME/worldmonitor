@@ -9,7 +9,7 @@ import { createClient } from '../src/tui/data/client.mjs';
 import { Store } from '../src/tui/data/store.mjs';
 import { loadCatalog } from '../src/tui/index.mjs';
 import { createViews } from '../src/tui/views/index.mjs';
-import { THEME_IDS } from '../src/tui/ui/theme.mjs';
+import { THEME_IDS, getTheme } from '../src/tui/ui/theme.mjs';
 
 const bootstrap = JSON.parse(readFileSync(new URL('./fixtures/bootstrap.json', import.meta.url), 'utf8'));
 const digest = JSON.parse(readFileSync(new URL('./fixtures/digest.json', import.meta.url), 'utf8'));
@@ -174,6 +174,13 @@ describe('App input', () => {
     const x = header.indexOf(app.theme.label);
     app.handleEvent({ type: 'mouse', kind: 'down', button: 0, x: x + 1, y: 0 });
     assert.equal(app.theme.id, THEME_IDS[3]);
+  });
+  it('shows each theme tagline in full beside its colour swatches', () => {
+    const { app } = makeApp();
+    app.handleEvent({ type: 'key', name: 'T', ch: 'T', shift: true });
+    app.render();
+    const frame = text(app);
+    for (const id of THEME_IDS) assert.ok(frame.includes(getTheme(id).tagline), `tagline for ${id} is cut off`);
   });
   it('previews themes without saving them and restores the original on Esc', () => {
     const { app, saved } = makeApp();

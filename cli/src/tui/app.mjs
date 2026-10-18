@@ -395,12 +395,15 @@ export class App {
       const th = getTheme(id);
       return `${id === this.theme.id ? '▸' : ' '} ${th.label.padEnd(14)} ${th.tagline}`;
     });
-    const box = overlay(ctx, full, 'THEMES  (↑↓ preview · Enter keep · Esc back)', lines);
+    // Pad each line so the box leaves room for the colour swatches drawn at its
+    // right edge, and clip the text before them.
+    const SWATCH_GAP = 9;
+    const box = overlay(ctx, full, 'THEMES  (↑↓ preview · Enter keep · Esc back)', lines.map((l) => l + ' '.repeat(SWATCH_GAP)));
     THEME_IDS.forEach((id, i) => {
       const th = getTheme(id);
       const y = box.y + 2 + i;
       if (y >= box.y + box.h - 1) return;
-      s.text(box.x + 2, y, lines[i], { fg: i === this.themePickerIndex ? t.selText : t.text, bg: i === this.themePickerIndex ? t.borderFocus : t.sel }, box.w - 4);
+      s.text(box.x + 2, y, lines[i].padEnd(box.w - 4 - SWATCH_GAP), { fg: i === this.themePickerIndex ? t.selText : t.text, bg: i === this.themePickerIndex ? t.borderFocus : t.sel }, box.w - 4 - SWATCH_GAP);
       ['bg', 'accent', 'accent2', 'good', 'warn', 'bad'].forEach((k, j) => s.put(box.x + box.w - 10 + j, y, '█', { fg: th[k], bg: t.sel }));
       hit(ctx, rect(box.x, y, box.w, 1), {
         onClick: () => {

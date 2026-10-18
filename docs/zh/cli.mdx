@@ -3,7 +3,7 @@ title: "命令行客户端"
 description: "使用官方 worldmonitor npm CLI 直接从 shell 脚本化调用国家简报、风险评分、监视列表与已注册 MCP 工具，无需编写任何自定义 API 集成代码即可完成自动化，非常适合运维脚本、CI/CD 流水线、本地情报工作流与临时数据分析。"
 ---
 
-[`worldmonitor`](https://www.npmjs.com/package/worldmonitor) 是 World Monitor 全球情报 API 的官方命令行客户端。它是对 [MCP 服务器](/zh/mcp-overview)（推荐的智能体接口）的一层轻薄、**无依赖**封装，并带有 REST 备用通道，因此你无需编写一行 HTTP 底层代码，即可从 shell 脚本或智能体拉取简报、风险评分以及冲突/网络/市场/新闻数据源。它以 ESM 形式发布，运行于 **Node 18+**。
+[`worldmonitor`](https://www.npmjs.com/package/worldmonitor) 是 World Monitor 全球情报 API 的官方命令行客户端。不带参数运行时，它会打开完整的[**终端仪表盘**](/zh/cli-dashboard)，显示与网页仪表盘相同的实时数据，支持鼠标与配色主题，无需 API 密钥。它是对 [MCP 服务器](/zh/mcp-overview)（推荐的智能体接口）的一层轻薄、**无依赖**封装，并带有 REST 备用通道，因此你无需编写一行 HTTP 底层代码，即可从 shell 脚本或智能体拉取简报、风险评分以及冲突/网络/市场/新闻数据源。它以 ESM 形式发布，运行于 **Node 18+**。
 
 源码位于主仓库的 [`cli/`](https://github.com/koala73/worldmonitor/tree/main/cli)，并在每个 `cli-v*` 发布标签上发布到 npm。
 维护者在发布新的 npm 版本时可遵循 [CLI 发布手册](/zh/releasing-cli)。
@@ -21,30 +21,16 @@ npx worldmonitor tools
 
 ```sh
 worldmonitor          # 打开终端仪表盘（等同于 worldmonitor tui）
-worldmonitor web      # 打开原版网页仪表盘
+worldmonitor web      # 打开网页仪表盘
 ```
 
-不带参数运行 `worldmonitor` 会打开一个完整的终端仪表盘：新闻、市场、冲突、军机与海运、网络威胁、气候、预测、直播新闻频道与网络摄像头、情报以及平台健康状况，支持鼠标点击、六套配色主题和动画效果，无需 API 密钥。数据来自与网页版相同的公开 bootstrap 层（`/api/bootstrap?tier=fast&public=1`、`?tier=slow&public=1`）和公开新闻摘要；军机与船舶快照使用与浏览器相同的匿名会话令牌。设置了 `WORLDMONITOR_API_KEY` 时会改为发送该密钥。
+<Frame caption="终端仪表盘的 Overview 视图。">
+  <img src="/images/tui/overview.webp" alt="World Monitor 终端仪表盘的 Overview 视图" />
+</Frame>
 
-| 按键 | 视图 | 内容 |
-|---|---|---|
-| `1` | Overview | 盲文世界地图（实时事件标记与雷达扫描）、AI 世界简报、热点新闻排名、市场行情、战区态势 |
-| `2` | News | 18 个新闻板块，按重要性与威胁等级排序，含详情面板 |
-| `3` | Markets | 指数、大宗商品、外汇、加密货币（含迷你走势图）、板块热力图、宏观信号、恐惧贪婪指数、ETF 资金流、海湾市场 |
-| `4` | Conflict | 国家不稳定指数排名、UCDP 武装冲突事件、骚乱信号、战区态势、关联卡片 |
-| `5` | Air & Sea | 地图上的实时军机、机场延误、航运咽喉点、船舶密度、航运压力 |
-| `6` | Cyber | 威胁指标、DDoS 构成、服务状态、互联网中断与流量异常 |
-| `7` | Climate | 地震、灾害与疫情、气象预警、气候异常、地球体征 |
-| `8` | Predict | 按领域划分的预测市场与 AI 情景预测 |
-| `9` | Live | 仪表盘的直播新闻频道与网络摄像头，在终端内播放 |
-| `0` | Intel | GDELT 主题、制裁压力、旅行建议、社交热度、政府支出 |
-| `Tab` | System | 平台健康、各数据源新鲜度、主题选择、播放器状态 |
+在交互式终端中运行 `worldmonitor` 会打开全屏仪表盘，显示与网页版相同的实时数据：世界地图、新闻、市场、冲突、军机与航运、网络威胁、气候、预测市场、直播电视与平台健康状况。它无需 API 密钥，支持鼠标与配色主题。在管道或脚本中，不带命令的 `worldmonitor` 会打印帮助信息，因此自动化不受影响。
 
-**操作。** `Tab` / `Shift+Tab` 或数字键切换视图；`←` `→` 在面板间移动；`↑` `↓` 在列表中移动；`Enter` 打开所选项；`o` 在浏览器中打开链接；`t` 切换主题，`T` 打开主题选择器；`a` 开关动画；`r` 刷新；`?` 帮助；`q` 退出。所有标签、行和按钮均可点击，滚轮可滚动列表。
-
-**直播视频。** 通过 [mpv](https://mpv.io)（YouTube 需要 `yt-dlp`）播放：`Enter` 在终端内播放（Ghostty、Kitty、WezTerm 使用 Kitty 图形协议，其他终端使用真彩色字符），`w` 打开 mpv 窗口，`b` 在浏览器中打开。未安装 mpv 时自动使用浏览器。
-
-**`worldmonitor web`。** 在仓库检出目录内运行时启动 Vite 开发服务器并打开本地地址；其他情况下打开 `https://www.worldmonitor.app/dashboard`。参数：`--hosted`、`--port <n>`、`--no-open`、`--url <url>`。
+所有视图、按键、主题、选项与直播视频设置见 **[终端仪表盘](/zh/cli-dashboard)**。
 
 ## 首次调用——无需密钥
 
@@ -137,6 +123,8 @@ worldmonitor list cyber                   # list documented REST operations from
 | `--base-url <url>` | REST 基础地址（默认 `https://api.worldmonitor.app`） |
 | `--args <json>` | 工具调用的有类型参数对象 |
 | `--timeout <ms>` | 请求超时（默认 `30000`） |
+| `--theme <id>`、`--no-anim`、`--fps <n>` | 仅用于终端仪表盘（[选项](/zh/cli-dashboard#选项)）；其他命令会将其传给 API |
+| `--hosted`、`--port <n>`、`--no-open`、`--url <url>` | 仅用于 `web` 命令；其他命令会将其传给 API |
 | `--raw` | 原样打印响应体 |
 | `--compact` | 打印单行 JSON |
 | `-h, --help` · `-v, --version` | 帮助/版本 |

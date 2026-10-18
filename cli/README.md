@@ -17,7 +17,9 @@ same public bootstrap tiers the web app reads, so it needs no API key; the
 scripting commands are a thin wrapper over the
 [MCP server](https://worldmonitor.app/mcp) with a REST escape hatch.
 
-📖 **Full documentation:** [worldmonitor.app/docs/cli](https://worldmonitor.app/docs/cli)
+📖 **Full documentation:** [Terminal dashboard](https://www.worldmonitor.app/docs/cli-dashboard) · [Command-line client](https://www.worldmonitor.app/docs/cli)
+
+![World Monitor terminal dashboard](https://raw.githubusercontent.com/koala73/worldmonitor/main/docs/images/tui/overview.webp)
 
 ## Install
 
@@ -34,12 +36,12 @@ worldmonitor            # open the dashboard (same as `worldmonitor tui`)
 worldmonitor web        # open the original web dashboard instead
 ```
 
-The dashboard boots in a couple of seconds and shows eleven views:
+The dashboard boots in a couple of seconds. Views:
 
 | Key | View | What it shows |
 |---|---|---|
 | `1` | Overview | Braille world map with live blips and a radar sweep, AI world brief, ranked top stories, market strip, theater posture |
-| `2` | News | 18 digest sections, ranked and classified headlines, story detail |
+| `2` | News | Digest sections, ranked and classified headlines, story detail |
 | `3` | Markets | Indices, commodities, FX, crypto with sparklines, sector heatmap, macro signals, fear & greed, ETF flows, Gulf markets |
 | `4` | Conflict | Country instability ranking, UCDP armed-conflict events, unrest signals, posture, correlation cards |
 | `5` | Air & Sea | Live military aircraft on the map, airport delays, chokepoints, vessel density, shipping stress |
@@ -54,6 +56,8 @@ Controls: `Tab` / `Shift+Tab` switch views, `←` `→` move between panes, `↑
 move in lists, `Enter` opens, `o` opens the selected link in the browser, `t`
 cycles themes (`T` picks one), `a` toggles animations, `r` refreshes, `?` shows
 help, `q` quits. Everything is also clickable, and the wheel scrolls lists.
+The [dashboard guide](https://www.worldmonitor.app/docs/cli-dashboard) has
+screenshots of every view, all keys, options and troubleshooting.
 
 Themes: Neon Horizon, Matrix, Amber CRT, Red Alert, Glacier, Synthwave. The
 choice persists in `$XDG_CONFIG_HOME/worldmonitor/tui.json`. Flags:
@@ -136,8 +140,10 @@ See the [JMESPath guide](https://worldmonitor.app/docs/mcp-jmespath) for worked 
 - `--base-url <url>` — REST base (default `https://api.worldmonitor.app`)
 - `--args <json>` — typed arguments object for a tool call
 - `--timeout <ms>` — request timeout (default 30000)
-- `--theme <id>`, `--no-anim`, `--fps <n>` — dashboard appearance
-- `--hosted`, `--port <n>`, `--no-open`, `--url <url>` — `web` command
+- `--theme <id>`, `--no-anim`, `--fps <n>` — dashboard only; other commands
+  pass them to the API as parameters
+- `--hosted`, `--port <n>`, `--no-open`, `--url <url>` — `web` only; other
+  commands pass them to the API as parameters
 - `--raw` — print the response body verbatim
 - `--compact` — print single-line JSON
 - `-h, --help` / `-v, --version`
