@@ -100,6 +100,7 @@ import { buildMicrostateCoverageStoryContent } from '../scripts/microstate-cover
 import { buildSourceCatalog, sourceProviderDisplayName } from '../scripts/crawlable-sources-page.mjs';
 import { resolveSourceOrigin, sourceOriginLabel } from '../scripts/source-origin.mjs';
 import { USE_CASES_CONTENT_VERSION } from '../scripts/build-use-cases.mjs';
+import { COVERAGE_CONTENT_VERSION } from '../scripts/build-coverage-catalog.mjs';
 import { RELATED_READING_PATH } from '../scripts/related-reading.mjs';
 import { MAX_RELATED_COUNTRIES } from '../scripts/country-related-links.mjs';
 import { ACCURACY_CONTENT_VERSION } from '../scripts/build-accuracy-page.mjs';
@@ -2333,6 +2334,8 @@ describe('crawlable corpus generator', () => {
         ...manifest.sections.research.routes,
         manifest.sections.useCases.index,
         ...manifest.sections.useCases.routes,
+        manifest.sections.coverage.index,
+        ...manifest.sections.coverage.routes,
         manifest.sections.accuracy.index,
         ...manifest.sections.accuracy.routes,
         manifest.sections.comparisons.index,
@@ -5950,6 +5953,13 @@ describe('live-pulse snapshot injection (#7533)', () => {
           ['useCases', [
             laterDate(USE_CASES_CONTENT_VERSION, gitFileLastmod(repoRoot, data.sources.useCases)),
             pageFor(manifest.sections.useCases.index),
+          ]],
+          ['coverage', [
+            laterDate(
+              COVERAGE_CONTENT_VERSION,
+              ...data.sources.coverageInputs.map((path) => gitFileLastmod(repoRoot, path)),
+            ),
+            pageFor(manifest.sections.coverage.index),
           ]],
           ['accuracy', [
             laterDate(

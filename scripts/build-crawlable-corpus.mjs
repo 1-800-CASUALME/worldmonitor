@@ -40,6 +40,13 @@ import {
   writeAccuracySection,
 } from './build-accuracy-page.mjs';
 import { buildSourceCatalog, buildSourcePages, renderSourcesIndex, sourceCardAnchors } from './crawlable-sources-page.mjs';
+import {
+  COVERAGE_CONTENT_VERSION,
+  COVERAGE_INPUT_PATHS,
+  COVERAGE_PAGE_PATH,
+  loadCoverageCatalog,
+  writeCoverageSection,
+} from './build-coverage-catalog.mjs';
 import { sourceOriginFilterValue } from './source-origin.mjs';
 import {
   attachCoverageToCatalog,
@@ -1961,6 +1968,14 @@ export async function loadCorpusData({
     USE_CASES_CONTENT_VERSION,
     gitFileLastmod(rootDir, 'scripts/build-use-cases.mjs'),
   );
+  const coverageCatalog = await loadCoverageCatalog({
+    importModule: (relativePath) => importRepoModule(rootDir, relativePath),
+    readJson: (relativePath) => readJson(rootDir, relativePath),
+  });
+  const coverageLastmod = laterDate(
+    COVERAGE_CONTENT_VERSION,
+    ...COVERAGE_INPUT_PATHS.map((path) => gitFileLastmod(rootDir, path)),
+  );
   // The pulse folds in because the scorecard the page publishes is captured by
   // the same freeze: a new capture changes every number on the page.
   const accuracyLastmod = laterDate(
@@ -2018,6 +2033,7 @@ export async function loadCorpusData({
       countryCentroids: COUNTRY_CENTROIDS_PATH,
       researchReports: RESEARCH_REPORTS_INDEX_PATH,
       useCases: 'scripts/build-use-cases.mjs',
+      coverageInputs: [...COVERAGE_INPUT_PATHS],
       accuracy: ACCURACY_PAGE_SOURCE_PATH,
       comparisons: 'scripts/build-comparison-pages.mjs',
       sourceAttributionManifest: SOURCE_ATTRIBUTION_MANIFEST_PATH,
@@ -2038,12 +2054,14 @@ export async function loadCorpusData({
       crises: crisesLastmod,
       research: researchLastmod,
       useCases: useCasesLastmod,
+      coverage: coverageLastmod,
       accuracy: accuracyLastmod,
       comparisons: comparisonsLastmod,
       sources: sourcesLastmod,
     },
     sourceStats,
     sourceCatalog,
+    coverageCatalog,
     resilience,
     resilienceCoverage,
     ciiRanking,
@@ -2210,6 +2228,7 @@ function pageDocument({
     .map((entry) => withSpeakableAndGraph(entry, { canonical, breadcrumbId }))
     .map((entry) => withSchemaContext(entry));
   const renderedNav = headerNav || `        <a href="/">World Monitor</a>
+        <a href="/reference/coverage/">Coverage</a>
         <a href="/sources/">Sources</a>
         <a href="/compare/">Compare</a>
         <a href="/countries/">Countries</a>
@@ -5315,6 +5334,11 @@ function buildManifest({ data, baseUrl, changelogPageCount }) {
         index: '/use-cases/',
         routes: USE_CASE_PAGES.map((page) => page.path),
       },
+      coverage: {
+        count: 1,
+        index: COVERAGE_PAGE_PATH,
+        routes: [],
+      },
       accuracy: {
         count: 1,
         index: ACCURACY_PAGE_PATH,
@@ -5597,6 +5621,14 @@ export async function buildCorpus({
     outDir,
     baseUrl,
     lastmod: data.lastmod.useCases,
+    tpl: { escapeHtml, absoluteUrl, breadcrumbLd, pageDocument },
+  });
+
+  writeCoverageSection({
+    outDir,
+    baseUrl,
+    lastmod: data.lastmod.coverage,
+    catalog: data.coverageCatalog,
     tpl: { escapeHtml, absoluteUrl, breadcrumbLd, pageDocument },
   });
 
