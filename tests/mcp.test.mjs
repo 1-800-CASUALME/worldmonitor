@@ -3106,7 +3106,7 @@ describe('api/mcp.ts — PRO MCP Server', () => {
     assert.equal(body.error?.code, -32603, 'all-9-null reads must surface as -32603 cache_all_null');
   });
 
-  it('get_supply_chain_data still returns its 3 slices unchanged (regression — U6 must not touch get_supply_chain_data._cacheKeys)', async () => {
+  it('get_supply_chain_data preserves legacy slices and declares missing freight and GSCPI without chokepoint data', async () => {
     process.env.UPSTASH_REDIS_REST_URL = 'https://fake.upstash.io';
     process.env.UPSTASH_REDIS_REST_TOKEN = 'fake_token';
 
@@ -3117,8 +3117,7 @@ describe('api/mcp.ts — PRO MCP Server', () => {
 
     globalThis.fetch = async (url) => {
       const u = url.toString();
-      // U6 chokepoint keys MUST NOT be queried by get_supply_chain_data — if they are,
-      // the supply-chain tool was modified, violating the CRITICAL constraint.
+      // Chokepoint data belongs to get_chokepoint_status.
       if (
         u.includes(`/get/${encodeURIComponent('supply_chain:transit-summaries:v1')}`) ||
         u.includes(`/get/${encodeURIComponent('supply_chain:chokepoint_transits:v1')}`) ||
@@ -3161,8 +3160,9 @@ describe('api/mcp.ts — PRO MCP Server', () => {
     assert.deepEqual(payload.data['shipping_stress'], shippingStressPayload, 'get_supply_chain_data._cacheKeys must still include supply_chain:shipping_stress:v1');
     assert.deepEqual(payload.data['customs-revenue'], customsRevenuePayload, 'get_supply_chain_data._cacheKeys must still include trade:customs-revenue:v1');
     assert.deepEqual(payload.data['flows'], comtradeFlowsPayload, 'get_supply_chain_data._cacheKeys must still include comtrade:flows:v1');
-    // Exactly 3 slices — no chokepoint keys leaked in.
-    assert.equal(Object.keys(payload.data).length, 3, 'get_supply_chain_data must return exactly 3 slices (U6 must not add to it)');
+    assert.deepEqual(Object.keys(payload.data).sort(), ['customs-revenue', 'flows', 'freight-rates', 'gscpi', 'shipping_stress']);
+    assert.equal(payload.data['freight-rates'], null, 'missing freight seed remains null');
+    assert.equal(payload.data.gscpi, null, 'missing GSCPI seed remains null');
   });
 
   // --- get_airspace ---

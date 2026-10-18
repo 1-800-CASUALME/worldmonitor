@@ -433,3 +433,25 @@ describe('derived downstream fan-out', () => {
     );
   });
 });
+
+describe('maritime view accounting', () => {
+  it('uses exactly one signed downstream fetch and weight 2 for either view', async () => {
+    const tool = TOOL_REGISTRY.find(t => t.name === 'get_maritime_activity');
+    const savedFetch = globalThis.fetch;
+    try {
+      for (const view of [undefined, 'traffic', 'ports']) {
+        let calls = 0;
+        globalThis.fetch = async (url, init) => {
+          calls++;
+          assert.equal(new Headers(init.headers).get('X-WorldMonitor-Key'), 'weight-test');
+          assert.equal(new URL(url).pathname, view === 'ports'
+            ? '/api/intelligence/v1/get-country-port-activity' : '/api/maritime/v1/get-vessel-snapshot');
+          return Response.json(view === 'ports' ? { available: false, ports: [], fetchedAt: '' } : { snapshot: {} });
+        };
+        await tool._execute({ country_code: 'NL', ...(view ? { view } : {}) }, 'https://example.test', { kind: 'env_key', apiKey: 'weight-test' });
+        assert.equal(calls, 1);
+        assert.equal(toolWeight(tool), 2);
+      }
+    } finally { globalThis.fetch = savedFetch; }
+  });
+});

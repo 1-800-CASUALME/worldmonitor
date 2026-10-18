@@ -1,3 +1,4 @@
+import { projectSupplyChainData } from './_shipping-freight';
 import ISO2_TO_ISO3 from '../../../shared/iso2-to-iso3.js';
 import { MARKET_ASSET_CLASSES } from '../../../shared/panel-admission';
 import { normalizeSocialVelocity } from '../../_social-velocity.js';
@@ -3044,17 +3045,17 @@ export const CACHE_TOOLS: ToolDef[] = [
   },
   {
     name: 'get_supply_chain_data',
-    title: 'Shipping stress and trade flows',
+    title: 'Freight rates, supply-chain pressure and trade flows',
     _subscriptionOnly: true,
     _outputBudgetBytes: 131072,
-    description: 'Return the seeded supply-chain pressure bundle: the dry-bulk shipping stress index with per-carrier detail, monthly customs revenue flows and UN COMTRADE bilateral trade flows by reporter and HS commodity. Trade flows are monthly official statistics (customs revenue is flagged stale after 2 days), not live shipment tracking. Requires a paid plan (the COMTRADE flows are licensed for subscribers); seeded-cache read with no live fetch, weight 1 on API plans. dataset selects shipping_stress, customs-revenue or flows; commodity matches an HS code exactly or a description substring; reporter matches a numeric reporter code or name; limit caps each list (default 30, 0 for no cap).',
+    description: 'Return seeded supply-chain pressure and trade data: freight-rate indices, the NY Fed GSCPI, a BDRY and carrier-equity shipping-stress proxy, monthly customs revenue and UN COMTRADE flows. Freight includes FRED levels and history, plus SSE change percentages, direction and z-scores against stored prior observations, with at least 12 baseline points. SSE raw levels and Baltic indices are excluded. GSCPI is monthly, in standard deviations, and subject to revision. Customs revenue is stale after 2 days; freight after 7 hours; GSCPI after 2 days. Requires a paid plan; no live fetch, weight 1 on API plans. dataset selects shipping_stress, customs-revenue, flows, freight-rates or gscpi; commodity and reporter filter flows. limit caps lists, with newest GSCPI months kept chronological (default 30, 0 for no cap).',
     inputSchema: {
       type: 'object',
       properties: {
         dataset: {
           type: 'array',
-          items: { type: 'string', enum: ['shipping_stress', 'customs-revenue', 'flows'] },
-          description: 'Restrict the response to one or more sub-datasets (dry-bulk shipping stress / customs revenue / COMTRADE flows). Omit for all.',
+          items: { type: 'string', enum: ['shipping_stress', 'customs-revenue', 'flows', 'freight-rates', 'gscpi'] },
+          description: 'Restrict the response to one or more sub-datasets (equity shipping-stress proxy, customs revenue, COMTRADE flows, freight rates, GSCPI). Omit for all.',
         },
         commodity: {
           type: 'string',
@@ -3064,7 +3065,7 @@ export const CACHE_TOOLS: ToolDef[] = [
           type: 'string',
           description: 'Filter COMTRADE flows to one reporter by numeric reporter code or reporter name (e.g. "156" or "China").',
         },
-        limit: { type: 'number', description: 'Cap each list dataset (carriers, months, flows) to at most this many items (default 30, pass 0 for no cap).' },
+        limit: { type: 'number', description: 'Cap each list dataset (carriers, months, flows, freight indices and GSCPI observations) to at most this many items (default 30, pass 0 for no cap).' },
       },
       required: [],
     },
@@ -3088,6 +3089,45 @@ export const CACHE_TOOLS: ToolDef[] = [
           partner: { type: 'string' }, value: { type: ['number', 'null'] },
         } } } },
       },
+      'freight-rates': {
+        type: ['object', 'null'],
+        properties: {
+          fetchedAt: { type: ['string', 'null'] },
+          indices: { type: 'array', items: {
+            type: 'object',
+            properties: {
+              indexId: { type: 'string', enum: ['PCU483111483111', 'TSIFRGHT', 'SCFI', 'CCFI'] },
+              name: { type: 'string' }, source: { type: 'string' }, unit: { type: 'string' },
+              frequency: { type: 'string', enum: ['monthly', 'weekly'] },
+              observationDate: { type: ['string', 'null'] },
+              periodChangePct: { type: ['number', 'null'] },
+              periodChangeBasis: { type: ['string', 'null'] }, priorPeriodDate: { type: ['string', 'null'] },
+              zScore: { type: ['number', 'null'], description: 'Population z-score against stored observations excluding the latest. Null with fewer than 12 baseline points or zero variance.' },
+              baselinePoints: { type: 'integer' }, baselineStart: { type: ['string', 'null'] },
+              direction: { type: ['string', 'null'], enum: ['up', 'down', 'flat', null] },
+              currentValue: { type: ['number', 'null'], description: 'FRED series only.' },
+              history: { type: 'array', description: 'FRED series only.', items: { type: 'object', properties: {
+                date: { type: 'string' }, value: { type: 'number' },
+              } } },
+            },
+            required: ['indexId', 'source', 'frequency', 'observationDate', 'periodChangePct', 'zScore', 'baselinePoints', 'baselineStart', 'direction'],
+            additionalProperties: false,
+          } },
+        },
+      },
+      gscpi: {
+        type: ['object', 'null'],
+        description: 'Federal Reserve Bank of New York Global Supply Chain Pressure Index. Monthly values are subject to revision.',
+        properties: {
+          source: { type: 'string' }, sourceUrl: { type: 'string' },
+          series: { type: 'object', properties: {
+            series_id: { type: 'string' }, title: { type: 'string' }, units: { type: 'string' }, frequency: { type: 'string' },
+            observations: { type: 'array', items: { type: 'object', properties: {
+              date: { type: 'string' }, value: { type: 'number' },
+            } } },
+          } },
+        },
+      },
     }),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     _postFilter: (data, params) => {
@@ -3103,17 +3143,32 @@ export const CACHE_TOOLS: ToolDef[] = [
       capNested(data, 'shipping_stress', 'carriers', limit);
       capNested(data, 'customs-revenue', 'months', limit);
       capNested(data, 'flows', 'flows', limit);
+      capNested(data, 'freight-rates', 'indices', limit);
+      const series = (data.gscpi as { series?: { observations?: unknown[] } } | null)?.series;
+      if (series?.observations && limit > 0) {
+        const count = Math.floor(limit);
+        series.observations = count > 0 ? series.observations.slice(-count) : [];
+      }
       return selectDatasets(data, argStrList(params.dataset));
     },
+    _project: projectSupplyChainData,
+    _cacheLabels: { 'supply_chain:shipping:v2': 'freight-rates', 'economic:fred:v1:GSCPI:0': 'gscpi' },
     _cacheKeys: [
       'supply_chain:shipping_stress:v1',
       'trade:customs-revenue:v1',
       'comtrade:flows:v1',
+      'supply_chain:shipping:v2',
+      'economic:fred:v1:GSCPI:0',
     ],
-    _freshnessChecks: [{ key: 'seed-meta:trade:customs-revenue', maxStaleMin: 2880 }],
+    _freshnessChecks: [
+      { key: 'seed-meta:trade:customs-revenue', maxStaleMin: 2880 },
+      { key: 'seed-meta:supply_chain:shipping', maxStaleMin: 420, honorContentAge: true },
+      { key: 'seed-meta:economic:gscpi', maxStaleMin: 2880 },
+    ],
     _apiPaths: [
       "GET /api/supply-chain/v1/get-shipping-stress",
       "GET /api/trade/v1/get-customs-revenue",
+      "GET /api/supply-chain/v1/get-shipping-rates",
     ],
   },
   {
@@ -3200,7 +3255,7 @@ export const CACHE_TOOLS: ToolDef[] = [
     name: 'get_chokepoint_status',
     title: 'Maritime chokepoint status',
     _outputBudgetBytes: 131072,
-    description: 'Return the seeded maritime chokepoint snapshot: per-chokepoint vessel transit counts at 10-minute cadence, rolling transit summaries, per-port activity, oil and gas flow aggregates, baselines and the canonical 13-chokepoint registry (Suez, Hormuz, Malacca, Bab-el-Mandeb, Panama and others). Transit data is flagged stale after 30 minutes. Seeded-cache read with no live fetch: weight 1 on API plans, included in the signed-in free allowance. chokepoint narrows transit-summaries, chokepoint_transits, chokepoint-baselines and chokepoint-flows by case-insensitive substring ("hormuz"), leaving ref and _countries unfiltered; dataset selects sub-datasets; limit caps the baselines list and _countries index (default 30, 0 for no cap) while keyed maps are not capped. Paid openings use one chokepoint panel allocation; repeat views reuse it, refresh with a request_id UUID spends a new one and the same UUID retries it. API and free accounts retain per-tool accounting.',
+    description: 'Return the seeded maritime chokepoint snapshot: per-chokepoint vessel transit counts at 10-minute cadence, rolling transit summaries, a port-country coverage index, oil and gas flow aggregates, baselines and the canonical 13-chokepoint registry (Suez, Hormuz, Malacca, Bab-el-Mandeb, Panama and others). Transit data is flagged stale after 30 minutes. Seeded-cache read with no live fetch: weight 1 on API plans, included in the signed-in free allowance. chokepoint narrows transit-summaries, chokepoint_transits, chokepoint-baselines and chokepoint-flows by case-insensitive substring ("hormuz"), leaving ref and _countries unfiltered; dataset selects sub-datasets; limit caps the baselines list and _countries index (default 30, 0 for no cap) while keyed maps are not capped. Paid openings use one chokepoint panel allocation; repeat views reuse it, refresh with a request_id UUID spends a new one and the same UUID retries it. API and free accounts retain per-tool accounting.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3413,7 +3468,6 @@ export const CACHE_TOOLS: ToolDef[] = [
       { key: 'seed-meta:energy:chokepoint-flows',          maxStaleMin: 720 },            // 6h cron; 12h = 2× interval
     ],
     _apiPaths: [
-      "GET /api/intelligence/v1/get-country-port-activity",
       "GET /api/supply-chain/v1/get-chokepoint-status",
     ],
   },

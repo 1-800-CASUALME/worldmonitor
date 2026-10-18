@@ -873,6 +873,7 @@ export interface PortActivityEntry {
   importTankerDwt: number;
   exportTankerDwt: number;
   anomalySignal: boolean;
+  prevTankerCalls30d?: number;
 }
 
 export interface GetChinaDecisionSignalsRequest {

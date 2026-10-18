@@ -333,8 +333,6 @@ const EXCLUDED_FROM_MCP_PARITY = new Map([
     "deferred-to-future-tool: pure-read but no MCP tool exposes - yet — bundle into a future expanded-domain tool"],
   ["GET /api/supply-chain/v1/get-china-corridor-control-towers",
     "deferred-to-future-tool: pure-read corridor composition has no MCP supply-chain comparison tool yet — bundle into a future expanded-domain tool"],
-  ["GET /api/supply-chain/v1/get-shipping-rates",
-    "deferred-to-future-tool: pure-read but no MCP tool exposes supply_chain:shipping:v2 yet — bundle into a future expanded-domain tool"],
   ["GET /api/supply-chain/v1/list-vulnerability-rankings",
     "deferred-to-future-tool: issue #6449 deliberately exposes country and chokepoint MCP tools only; keep the global ranking RPC available to REST and UI clients until a bounded ranking-tool contract is approved"],
   ["GET /api/trade/v1/get-trade-barriers",

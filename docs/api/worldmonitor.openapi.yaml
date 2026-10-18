@@ -49035,6 +49035,10 @@ components:
                     format: double
                 anomalySignal:
                     type: boolean
+                prevTankerCalls30d:
+                    type: integer
+                    format: int32
+                    description: Absent on older cached payloads. Zero means no calls in the prior window.
         worldmonitor_intelligence_v1_GetChinaDecisionSignalsRequest:
             type: object
         worldmonitor_intelligence_v1_GetChinaDecisionSignalsResponse:

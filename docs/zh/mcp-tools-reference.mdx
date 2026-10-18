@@ -54,7 +54,7 @@ MCP 覆盖是有意精选的。某些 OpenAPI 操作仅限 REST，因为它们�
     "content": [
       {
         "type": "text",
-        "text": "{\"name\":\"get_chokepoint_status\",\"description\":\"Live maritime chokepoint status: per-chokepoint vessel transit counts (10-min cadence), rolling transit summaries, per-port activity, plus static reference data and flow aggregates. Covers Suez, Hormuz, Malacca, Bab-el-Mandeb, Panama, etc.\",\"inputSchema\":{ /* full properties with full descriptions */ },\"outputSchema\":{ /* … */ },\"annotations\":{\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"_meta\":{ /* … */ }}"
+        "text": "{\"name\":\"get_chokepoint_status\",\"description\":\"Live maritime chokepoint status: per-chokepoint vessel transit counts (10-min cadence), rolling transit summaries, a port-country coverage index, plus static reference data and flow aggregates. Covers Suez, Hormuz, Malacca, Bab-el-Mandeb, Panama, etc.\",\"inputSchema\":{ /* full properties with full descriptions */ },\"outputSchema\":{ /* … */ },\"annotations\":{\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"_meta\":{ /* … */ }}"
       }
     ],
     "structuredContent": { "name": "get_chokepoint_status", "description": "…", "inputSchema": {}, "outputSchema": {}, "annotations": {}, "_meta": {} }
@@ -1639,7 +1639,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `get_chokepoint_status`
 
-实时海上咽喉状态：每个咽喉的船只通行计数（10 分钟节奏）、滚动通行汇总、按港口的活动，以及静态参考数据（咽喉几何、规范 13 咽喉注册表）和流量汇总。覆盖苏伊士、霍尔木兹、马六甲、曼德海峡、巴拿马等。
+实时海上咽喉状态：每个咽喉的船只通行计数（10 分钟节奏）、滚动通行汇总、港口国家覆盖索引，以及静态参考数据（咽喉几何、规范 13 咽喉注册表）和流量汇总。覆盖苏伊士、霍尔木兹、马六甲、曼德海峡、巴拿马等。
 
 **参数（工具特定）：**
 
@@ -1652,7 +1652,7 @@ curl -s https://worldmonitor.app/mcp \
 | `dataset` | `array<string: transit-summaries / chokepoint_transits / _countries / chokepoint-baselines / ref / chokepoint-flows>` | 将响应限制为一个或多个子数据集。省略则返回完整捆绑包。 |
 | `limit` | number | 将 chokepoint-baselines 列表和 _countries ISO2 索引限制为最多这么多项（默认 30，传 0 表示不限）。键控对象映射（transit-summaries、chokepoint_transits、ref、chokepoint-flows）有意不做限制 — 请改用 `chokepoint` 筛选。 |
 
-- **API 端点：** `GET /api/intelligence/v1/get-country-port-activity`, `GET /api/supply-chain/v1/get-chokepoint-status`
+- **API 端点：** `GET /api/supply-chain/v1/get-chokepoint-status`
 - **类型：** 缓存读取 — 来自 Redis 引导缓存的亚秒级响应。
 - **新鲜度预算（按切片）：** 当任意贡献切片超过其单独预算时标记 `stale: true` — 实时通行汇总（中继）**30 分钟**、PortWatch 港口活动 **36 小时**、咽喉流量 **12 小时**、PortWatch 咽喉参考 **14 天**，静态咽喉注册表/地理基准线最多 **~400 天**。捆绑包的 `cached_at` 反映最旧的贡献种子；`stale: true` 并不意味着所有数据都过时。
 - **按国家的内容新鲜度（PortWatch 切片）：** 当决策关键国家（`CN`/`HK`）自身的观测超过 **10 天**时，`stale: true` 同样会被标记 —— 即使该次运行的心跳是新鲜的、且全部 174 个国家均已发布。只要上游 `max(date)` 未推进，seeder 就会复用缓存的国家载荷，因此传输时效与记录数都显示健康，而某个国家的数据已过时数日。这与 `/api/health` 对同一 seed 键给出的 `STALE_CONTENT` 判定一致 —— 参见[健康检查端点](/zh/health-endpoints)。`stale` 仍是单一布尔值，不会说明是哪个维度触发；指名过时国家的是 `/api/health`。
@@ -1928,15 +1928,16 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `get_maritime_activity`
 
-某国海域的实时船舶交通和海上中断。返回 AIS 密度区（每日船只数、强度评分）、暗船事件和来自 AIS 追踪的咽喉拥堵。
+按国家查询海上活动。`view: "traffic"` 为默认视图，返回实时 AIS 密度和中断。`view: "ports"` 返回最多 25 个港口的 30 天油轮到访量、进口与出口载重吨，以及相对前 30 天的变化。前期到访量为零或未知时 `trend_delta_pct` 为 null。未覆盖或过期数据返回 `available:false`。PortWatch 数据按计划采集，可能滞后于实时，`fetched_at` 为抓取时间。两个视图均需订阅，API 权重均为 2，且各调用一次下游接口。
 
 **参数：**
 
 | 名称 | 类型 | 必填 | 描述 |
 |------|------|---------:|-------------|
 | `country_code` | string | **是** | ISO 3166-1 alpha-2 国家代码（例如 "AE"、"SA"、"JP"、"EG"） |
+| `view` | `traffic / ports` | 否 | 默认 `traffic`；`ports` 为定期采集的港口油轮活动。 |
 
-- **API 端点：** `GET /api/maritime/v1/get-vessel-snapshot`
+- **API 端点：** `GET /api/maritime/v1/get-vessel-snapshot`, `GET /api/intelligence/v1/get-country-port-activity`
 - **类型：** 实时 RPC — 每次调用代理对 WorldMonitor API 的请求。Edge 运行时超时：**8.0s**。
 
 <CodeGroup>
@@ -1948,7 +1949,7 @@ curl -s https://worldmonitor.app/mcp \
   -d '{
     "jsonrpc":"2.0","id":1,
     "method":"tools/call",
-    "params":{"name":"get_maritime_activity","arguments":{"country_code":"US"}}
+    "params":{"name":"get_maritime_activity","arguments":{"country_code":"NL","view":"ports"}}
   }'
 ```
 
@@ -1956,20 +1957,22 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `get_supply_chain_data`
 
-干散货航运压力指数、海关收入流和 COMTRADE 双边贸易数据。追踪全球供应链压力和贸易中断。
+返回运价指数、纽约联储 GSCPI、基于 BDRY 和航运公司股票的压力代理指标、海关收入及 COMTRADE 贸易流。仅限订阅用户，API 权重为 1。FRED 指数包含原始值和历史；SSE 仅含变化百分比、方向和 z 分数，不返回 Baltic 指数。GSCPI 单位为标准差，月度值可能修订。
 
 **参数（工具特定）：**
 
 | 名称 | 类型 | 描述 |
 |------|------|-------------|
-| `dataset` | `array<string: shipping_stress / customs-revenue / flows>` | 将响应限制为一个或多个子数据集（干散货航运压力 / 海关收入 / COMTRADE 流）。省略则返回全部。 |
+| `dataset` | `array<string: shipping_stress / customs-revenue / flows / freight-rates / gscpi>` | 将响应限制为一个或多个子数据集（股票航运压力代理指标 / 海关收入 / COMTRADE 流 / 运价 / GSCPI）。省略则返回全部。 |
 | `commodity` | string | 将 COMTRADE 流筛选为一种大宗商品 — 精确匹配 HS 代码或按子串匹配大宗商品描述（例如 "2709" 或 "crude"）。 |
 | `reporter` | string | 按数字报告方代码或报告方名称筛选 COMTRADE 流（例如 "156" 或 "China"）。 |
-| `limit` | number | 将每个列表数据集（承运商、月份、流）限制为最多这么多项（默认 30，传 0 表示不限）。 |
+| `limit` | number | 将每个列表数据集（承运商、月份、贸易流、运价指数、GSCPI 观测值）限制为最多这么多项（默认 30，传 0 表示不限）。 |
 
-- **API 端点：** `GET /api/supply-chain/v1/get-shipping-stress`, `GET /api/trade/v1/get-customs-revenue`
+- **API 端点：** `GET /api/supply-chain/v1/get-shipping-stress`, `GET /api/trade/v1/get-customs-revenue`, `GET /api/supply-chain/v1/get-shipping-rates`
 - **类型：** 缓存读取 — 来自 Redis 引导缓存的亚秒级响应。
-- **新鲜度预算：** 标记 `stale: true` 前最多 **2 天**（由 seeder cron 的预期间隔设定）。
+- **新鲜度预算：** 运价为 **7 小时**，GSCPI 与海关收入为 **2 天**。
+
+`freight-rates.indices[]` 包含来源、频率、观测日期、期间变化和基线统计。z 分数使用除最新点外的历史均值和总体标准差；少于 12 个基线点或方差为零时为 null。SSE 每周历史上限为 56 点，仅从后续采集累积，不能回填。`gscpi.series.observations` 保留最新 `limit` 个月并按时间升序排列。数据来源为 Federal Reserve Bank of New York，值可能修订。
 
 <CodeGroup>
 
@@ -1980,7 +1983,7 @@ curl -s https://worldmonitor.app/mcp \
   -d '{
     "jsonrpc":"2.0","id":1,
     "method":"tools/call",
-    "params":{"name":"get_supply_chain_data","arguments":{}}
+    "params":{"name":"get_supply_chain_data","arguments":{"dataset":["freight-rates","gscpi"],"limit":12}}
   }'
 ```
 

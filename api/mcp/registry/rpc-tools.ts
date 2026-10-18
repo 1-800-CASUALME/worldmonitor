@@ -2739,12 +2739,13 @@ export const RPC_TOOLS: ToolDef[] = [
   },
   {
     name: 'get_maritime_activity',
-    title: 'Live vessel traffic for a country',
+    title: 'Vessel traffic and tanker port activity for a country',
     _outputBudgetBytes: 262144,
-    description: 'Return live vessel traffic inside one country\'s bounding box from the AIS snapshot: density_zones (name, intensity, ships_per_day, delta_pct) and disruptions (dark-ship events and chokepoint congestion with severity, dark_ships, vessel_count), plus snapshot_at and the bounding_box used. Results change minute to minute; the snapshot is filtered server-side to the country box with a 3-degree pad. A country without a bounding box in the dataset returns an error field. Requires a paid plan; one live fetch, weight 2 on API plans. country_code accepts alpha-2, alpha-3 or an English name. Read-only.',
+    description: 'Return country-scoped maritime activity. view=traffic (default) returns live AIS density_zones (intensity, ships_per_day, delta_pct), disruptions (dark-ship events and chokepoint congestion), snapshot_at and bounding_box, filtered to the country box with a 3-degree pad. A missing traffic bounding box returns an error. view=ports returns up to 25 ports with 30-day tanker calls, import/export tanker deadweight tonnage and change against the prior 30 days; trend_delta_pct is null when prior calls are zero or unknown. PortWatch port data is scheduled, can lag real time, and returns available=false for uncovered or expired data. fetched_at is the retrieval time. Requires a paid plan; one downstream fetch for either view, weight 2 on API plans. country_code accepts alpha-2, alpha-3 or an English name. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
+        view: { type: 'string', enum: ['traffic', 'ports'], default: 'traffic', description: 'Live AIS traffic or scheduled PortWatch tanker activity by port.' },
         country_code: {
           type: 'string',
           description: 'ISO 3166-1 alpha-2 code (e.g. "IQ"), alpha-3 code ("IRQ"), or English country name ("Iraq")',
@@ -2756,6 +2757,18 @@ export const RPC_TOOLS: ToolDef[] = [
       type: 'object',
       properties: {
         country_code: { type: 'string' },
+        available: { type: 'boolean' }, fetched_at: { type: 'string' },
+        ports: { type: 'array', maxItems: 25, items: {
+          type: 'object',
+          properties: {
+            port_id: { type: 'string' }, port_name: { type: 'string' },
+            lat: { type: 'number' }, lon: { type: 'number' }, tanker_calls_30d: { type: 'number' },
+            trend_delta_pct: { type: ['number', 'null'], description: 'Null if prior 30-day calls are zero or unknown.' },
+            import_tanker_dwt_30d: { type: 'number' }, export_tanker_dwt_30d: { type: 'number' },
+          },
+          required: ['port_id', 'port_name', 'lat', 'lon', 'tanker_calls_30d', 'trend_delta_pct', 'import_tanker_dwt_30d', 'export_tanker_dwt_30d'],
+          additionalProperties: false,
+        } },
         bounding_box: { type: 'object', properties: {
           sw_lat: { type: 'number' }, sw_lon: { type: 'number' },
           ne_lat: { type: 'number' }, ne_lon: { type: 'number' },
@@ -2782,9 +2795,10 @@ export const RPC_TOOLS: ToolDef[] = [
       if (!code) {
         return { error: `Could not resolve ${JSON.stringify(echoCountryInput(params.country_code))} to a country. ${COUNTRY_ARG_HINT}` };
       }
+      const portsView = params.view === 'ports';
       const bbox = COUNTRY_BBOXES[code];
-      if (!bbox) return { error: `No maritime coverage for ${code}: that country has no bounding box in the dataset.` };
-      const [sw_lat, sw_lon, ne_lat, ne_lon] = bbox;
+      if (!portsView && !bbox) return { error: `No maritime coverage for ${code}: that country has no bounding box in the dataset.` };
+      const [sw_lat, sw_lon, ne_lat, ne_lon] = bbox ?? [0, 0, 0, 0];
       // Deliberately NO bbox on the inner fetch: the handler rejects any bbox
       // dimension >10° (BboxValidationError → HTTP 400), and 67 of the 167
       // COUNTRY_BBOXES exceed that (US, JP, AU, BR, …) — WORLDMONITOR-T8.
@@ -2792,7 +2806,10 @@ export const RPC_TOOLS: ToolDef[] = [
       // (bbox only scopes tanker/candidate reports, which this tool never
       // requests), so we take the cached global snapshot and filter to the
       // country bbox here using each item's coordinates.
-      const url = `${base}/api/maritime/v1/get-vessel-snapshot`;
+      const endpoint = portsView ? 'get-country-port-activity' : 'get-vessel-snapshot';
+      const url = portsView
+        ? `${base}/api/intelligence/v1/get-country-port-activity?country_code=${code}`
+        : `${base}/api/maritime/v1/get-vessel-snapshot`;
       const auth = await buildAuthHeaders(context, 'GET', url, null);
 
       // Wire shape is the generated sebuf JSON — camelCase field names with
@@ -2800,6 +2817,10 @@ export const RPC_TOOLS: ToolDef[] = [
       // density_zones was permanently empty).
       type VesselLoc = { latitude?: number; longitude?: number };
       type VesselResp = {
+        available?: boolean; fetchedAt?: string;
+        ports?: { portId?: string; portName?: string; lat?: number; lon?: number;
+          tankerCalls30d?: number; prevTankerCalls30d?: number; trendDeltaPct?: number;
+          importTankerDwt?: number; exportTankerDwt?: number }[];
         snapshot?: {
           snapshotAt?: number;
           densityZones?: { name?: string; location?: VesselLoc; intensity?: number; shipsPerDay?: number; deltaPct?: number; note?: string }[];
@@ -2812,11 +2833,24 @@ export const RPC_TOOLS: ToolDef[] = [
         signal: AbortSignal.timeout(8_000),
       }, execution);
       if (!res.ok) {
-        throwIfBillingDenial(res, 'get-vessel-snapshot');
+        throwIfBillingDenial(res, endpoint);
         const detail = (await res.text().catch(() => '')).slice(0, 200);
-        throw new Error(`get-vessel-snapshot HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+        throw new Error(`${endpoint} HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
       }
       const data = await res.json() as VesselResp;
+      if (portsView) {
+        const available = data.available === true;
+        return {
+          country_code: code, available, fetched_at: data.fetchedAt ?? '',
+          ports: available ? (data.ports ?? []).slice(0, 25).map(p => ({
+            port_id: p.portId ?? '', port_name: p.portName ?? '', lat: p.lat ?? 0, lon: p.lon ?? 0,
+            tanker_calls_30d: p.tankerCalls30d ?? 0,
+            trend_delta_pct: typeof p.prevTankerCalls30d === 'number' && p.prevTankerCalls30d > 0
+              && typeof p.trendDeltaPct === 'number' && Number.isFinite(p.trendDeltaPct) ? p.trendDeltaPct : null,
+            import_tanker_dwt_30d: p.importTankerDwt ?? 0, export_tanker_dwt_30d: p.exportTankerDwt ?? 0,
+          })) : [],
+        };
+      }
       const snap = data.snapshot ?? {};
 
       // 3° pad: maritime zones sit offshore, outside land bboxes (e.g. the
@@ -2866,6 +2900,7 @@ export const RPC_TOOLS: ToolDef[] = [
     },
     _apiPaths: [
       "GET /api/maritime/v1/get-vessel-snapshot",
+      "GET /api/intelligence/v1/get-country-port-activity",
     ],
   },
   {
