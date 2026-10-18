@@ -41,6 +41,10 @@ const {
 
 function analysis(headlines: Array<Record<string, unknown>> = []) {
   return {
+    available: true,
+    fallback: false,
+    provider: 'openrouter',
+    model: '',
     ratingSummary: 'Rating summary',
     summary: 'Summary',
     newsSentiment: 0.25,
@@ -200,6 +204,83 @@ describe('stock research overlay overlapping opens', () => {
     await first;
     expect(analyzeSection()?.textContent).toContain('SECOND');
     expect(analyzeSection()?.textContent).not.toContain('FIRST');
+  });
+});
+
+describe('stock research overlay discloses AI-vs-template provenance (#5498)', () => {
+  const provenance = () => analyzeSection()?.querySelector('[data-analysis-provenance]') as HTMLElement | null;
+
+  it('labels a rules-based fallback template as such, above the summary', async () => {
+    analyzeStock.mockResolvedValue({ ...analysis(), provider: 'rules', fallback: true, model: '' });
+    await openStockResearchOverlay('AAPL');
+
+    expect(analyzeSection()?.dataset.analysisProvenance).toBe('rules-fallback');
+    expect(provenance()?.dataset.analysisProvenance).toBe('rules-fallback');
+    expect(provenance()?.textContent).toContain('Rules-based template');
+    // The disclosure precedes the prose it qualifies.
+    const section = analyzeSection()!;
+    const order = [...section.querySelectorAll('p')].map((p) => p.textContent ?? '');
+    expect(order.findIndex((t) => t.includes('Rules-based template'))).toBeLessThan(order.findIndex((t) => t.includes('Rating summary')));
+  });
+
+  it('treats provider "rules" as a fallback even if the flag is missing', async () => {
+    analyzeStock.mockResolvedValue({ ...analysis(), provider: 'rules', fallback: undefined });
+    await openStockResearchOverlay('AAPL');
+    expect(analyzeSection()?.dataset.analysisProvenance).toBe('rules-fallback');
+  });
+
+  it('labels model-generated commentary with its provider and model', async () => {
+    analyzeStock.mockResolvedValue({ ...analysis(), provider: 'openrouter', model: 'meta-llama/llama-3.3-70b', fallback: false });
+    await openStockResearchOverlay('AAPL');
+
+    expect(analyzeSection()?.dataset.analysisProvenance).toBe('model');
+    expect(provenance()?.textContent).toContain('AI commentary');
+    expect(provenance()?.textContent).toContain('openrouter');
+    expect(provenance()?.textContent).toContain('meta-llama/llama-3.3-70b');
+    expect(analyzeSection()?.textContent).not.toContain('Rules-based template');
+  });
+
+  it('escapes provider and model strings', async () => {
+    analyzeStock.mockResolvedValue({ ...analysis(), provider: '<img src=x onerror=alert(1)>', model: '</p><script>1</script>', fallback: false });
+    await openStockResearchOverlay('AAPL');
+
+    expect(analyzeSection()?.querySelector('img, script')).toBeNull();
+    expect(provenance()?.textContent).toContain('<img src=x onerror=alert(1)>');
+  });
+
+  it('renders an unavailable state, not a template label, when the server computed nothing', async () => {
+    // buildEmptyAnalysisResponse: Yahoo history timeout, a no-history symbol,
+    // or an empty symbol. It carries fallback: true, but no indicators were
+    // computed, so "assembled from the indicators" would be false.
+    analyzeStock.mockResolvedValue({
+      available: false,
+      fallback: true,
+      provider: '',
+      model: '',
+      summary: '',
+      ratingSummary: '',
+      headlines: [],
+    });
+    await openStockResearchOverlay('AAPL');
+
+    expect(analyzeSection()?.dataset.analyzeState).toBe('unavailable');
+    expect(analyzeSection()?.dataset.analysisProvenance).toBeUndefined();
+    expect(document.querySelector('[data-analysis-provenance]')).toBeNull();
+    expect(analyzeSection()?.textContent).not.toContain('Rules-based template');
+    expect(analyzeSection()?.textContent).not.toContain('No analysis summary.');
+    expect(analyzeSection()?.textContent).toContain('No analysis is available for AAPL right now.');
+  });
+
+  it('renders no provenance line in the locked or error states', async () => {
+    hasPremiumAccess.mockReturnValue(false);
+    await openStockResearchOverlay('AAPL');
+    expect(document.querySelector('[data-analysis-provenance]')).toBeNull();
+    closeStockResearchOverlay();
+
+    hasPremiumAccess.mockReturnValue(true);
+    analyzeStock.mockRejectedValue(new Error('boom'));
+    await openStockResearchOverlay('AAPL');
+    expect(document.querySelector('[data-analysis-provenance]')).toBeNull();
   });
 });
 
