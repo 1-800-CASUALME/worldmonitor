@@ -8,24 +8,30 @@ import { THEME_IDS, getTheme, nextThemeId } from './ui/theme.mjs';
 import { bootScreen, overlay, pulse, wipe } from './ui/fx.mjs';
 import { hit, tabs, ticker } from './ui/widgets.mjs';
 import { tickerSegments } from './data/select.mjs';
+import { drawDetail } from './ui/detail.mjs';
 import { openExternal } from './video.mjs';
 
 const HELP_LINES = [
   'Tab / Shift+Tab   next / previous view        1..9, 0   jump to a view',
   '← →  or  h l      move between panes          ↑ ↓ j k   move in a list',
-  'PgUp PgDn g G     page / first / last         Enter     open the selected item',
+  'PgUp PgDn g G     page / first / last         Enter     expand the selected item',
   'o                 open selected link in browser',
   't / T             next theme / theme picker   a         toggle animations',
   'r                 refresh this view now       W         open the web dashboard',
   '?                 this help                   q         quit',
   '',
-  'Mouse: click tabs, rows and buttons · wheel scrolls · click a selected row to open it',
+  'Mouse: click tabs, rows and buttons · wheel scrolls · click a selected row to expand it',
+  'Map: drag pan · wheel zoom · hover highlights a layer · click pins · Enter details',
+  '     g globe/flat · s satellite · i imagery · d day/night · L layers · / search · 0 reset',
+  'Brief: ↑↓ story lines · → related sources & news · Enter expand · o open',
   'Live view: Enter plays in the terminal (mpv), w opens an mpv window, b the browser',
 ];
 
 export class App {
-  constructor({ store, catalog, prefs, savePrefs, env = {}, out, cols, rows, depth = 24, now = () => Date.now(), createViews, player, apiKeyPresent = false }) {
+  constructor({ store, catalog, prefs, savePrefs, env = {}, out, cols, rows, depth = 24, now = () => Date.now(), createViews, player, apiKeyPresent = false, fetchImpl = null }) {
     this.store = store;
+    this.fetchImpl = fetchImpl;
+    this.detail = null;
     this.catalog = catalog;
     this.prefs = prefs;
     this.savePrefs = savePrefs || (() => {});
@@ -117,6 +123,66 @@ export class App {
     this.markDirty();
   }
 
+  // Open the detail overlay for any record (see ui/detail.mjs).
+  openDetail(spec) {
+    if (!spec) return;
+    this.detail = { spec, scroll: 0 };
+    this.markDirty();
+  }
+
+  closeDetail() {
+    this.detail = null;
+    this.markDirty();
+  }
+
+  handleDetailKey(ev) {
+    const d = this.detail;
+    switch (ev.name) {
+      case 'escape':
+      case 'q':
+      case 'enter':
+      case 'backspace':
+        return this.closeDetail();
+      case 'up':
+      case 'k':
+        d.scroll = Math.max(0, d.scroll - 1);
+        return;
+      case 'down':
+      case 'j':
+        d.scroll = Math.min(d.maxScroll ?? Infinity, d.scroll + 1);
+        return;
+      case 'pageup':
+        d.scroll = Math.max(0, d.scroll - 10);
+        return;
+      case 'pagedown':
+        d.scroll = Math.min(d.maxScroll ?? Infinity, d.scroll + 10);
+        return;
+      case 'home':
+      case 'g':
+        d.scroll = 0;
+        return;
+      case 'end':
+      case 'G':
+        d.scroll = d.maxScroll ?? 0;
+        return;
+      case 'o':
+        if (d.spec.url) {
+          openExternal(d.spec.url);
+          this.toast(`opening ${truncate(d.spec.url, 60)}`);
+        } else this.toast('no link for this item', 1500, 'warn');
+        return;
+      case 'm':
+        if (d.spec.onCenter) {
+          this.closeDetail();
+          this.switchView(this.views.findIndex((v) => v.id === 'map'));
+          d.spec.onCenter();
+        }
+        return;
+      default:
+        return;
+    }
+  }
+
   // Needs a frame soon: during boot, wipes, toasts, or when the view animates.
   animating() {
     if (!this.boot.done) return true;
@@ -146,6 +212,7 @@ export class App {
     if (ev.type === 'mouse') return this.handleMouse(ev);
     if (ev.type !== 'key') return;
     if (ev.ctrl && ev.name === 'c') return this.quit();
+    if (this.detail) return this.handleDetailKey(ev);
     if (this.themePicker) return this.handleThemePickerKey(ev);
     if (this.help) {
       if (['escape', '?', 'q', 'enter'].includes(ev.name)) this.help = false;
@@ -217,6 +284,35 @@ export class App {
   }
 
   handleMouse(ev) {
+    // Hover / drag go to the view first (the map uses them); nothing else needs motion.
+    if (ev.kind === 'move' || ev.kind === 'drag' || ev.kind === 'up') {
+      if (this.detail || this.help || this.themePicker) {
+        this.dirty = false;
+        return;
+      }
+      if (this.view.onMouse && this.view.onMouse(ev)) return;
+      if (ev.kind !== 'up') this.dirty = false; // plain motion over other views: no redraw needed
+      return;
+    }
+    if (this.detail && ev.kind === 'down') {
+      // Clicks inside the overlay hit its buttons; outside closes it.
+      for (let i = this.hits.length - 1; i >= 0; i--) {
+        const h = this.hits[i];
+        if (h.onClick && h.detail && ev.x >= h.x && ev.y >= h.y && ev.x < h.x + h.w && ev.y < h.y + h.h) {
+          h.onClick(ev);
+          return;
+        }
+      }
+      const box = this.detail.box;
+      if (!box || ev.x < box.x || ev.y < box.y || ev.x >= box.x + box.w || ev.y >= box.y + box.h) this.closeDetail();
+      return;
+    }
+    if (this.detail && (ev.kind === 'wheelup' || ev.kind === 'wheeldown')) {
+      const d = this.detail;
+      d.scroll = Math.max(0, Math.min(d.maxScroll ?? Infinity, d.scroll + (ev.kind === 'wheelup' ? -3 : 3)));
+      return;
+    }
+    if (this.view.onMouse && (ev.kind === 'down' || ev.kind === 'wheelup' || ev.kind === 'wheeldown') && this.view.onMouse(ev)) return;
     if (ev.kind === 'wheelup' || ev.kind === 'wheeldown') {
       const dir = ev.kind === 'wheelup' ? -1 : 1;
       for (let i = this.hits.length - 1; i >= 0; i--) {
@@ -319,8 +415,19 @@ export class App {
     this.drawStatus(ctx, status);
     if (this.help) overlay(ctx, full, 'KEYS', HELP_LINES);
     if (this.themePicker) this.drawThemePicker(ctx, full);
+    if (this.detail) this.drawDetail(ctx, full);
     this.frame += 1;
     return this.flush();
+  }
+
+  drawDetail(ctx, full) {
+    const d = this.detail;
+    const before = this.hits.length;
+    d.onOpen = () => this.handleDetailKey({ name: 'o' });
+    d.onCenter = () => this.handleDetailKey({ name: 'm' });
+    d.onClose = () => this.closeDetail();
+    d.box = drawDetail(ctx, full, d.spec, d);
+    for (let i = before; i < this.hits.length; i++) this.hits[i].detail = true;
   }
 
   flush() {

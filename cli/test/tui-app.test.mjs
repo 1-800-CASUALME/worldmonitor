@@ -102,17 +102,17 @@ describe('App input', () => {
     const { app, saved } = makeApp();
     app.render();
     app.handleEvent({ type: 'key', name: 'tab' });
-    assert.equal(app.view.id, 'news');
+    assert.equal(app.view.id, 'map');
     app.handleEvent({ type: 'key', name: 'tab', shift: true });
     assert.equal(app.view.id, 'overview');
     app.handleEvent({ type: 'key', name: '9', ch: '9' });
-    assert.equal(app.view.id, 'live');
+    assert.equal(app.view.id, 'climate');
     app.handleEvent({ type: 'key', name: '0', ch: '0' });
-    assert.equal(app.view.id, 'intel');
-    assert.equal(saved[saved.length - 1].view, 'intel');
+    assert.equal(app.view.id, 'predict');
+    assert.equal(saved[saved.length - 1].view, 'predict');
     app.render();
     const tabRow = app.screen.toLines()[1];
-    const x = tabRow.indexOf('3:Markets');
+    const x = tabRow.indexOf('5:Markets');
     app.handleEvent({ type: 'mouse', kind: 'down', button: 0, x: x + 1, y: 1 });
     assert.equal(app.view.id, 'markets');
   });
@@ -197,15 +197,18 @@ describe('App input', () => {
     assert.equal(saved.length, 0);
     assert.equal(app.prefs.theme, original);
   });
-  it('opens the selected link on Enter in views without a detail pane', () => {
+  it('expands the selected row on Enter and opens its link with o from the overlay', () => {
     const { app, show } = makeApp();
     show('climate');
     app.render();
-    const opened = [];
-    app.openSelected = () => opened.push(app.view.selectedUrl());
     assert.match(app.view.selectedUrl(), /^https:\/\/earthquake\.usgs\.gov\//);
     app.handleEvent({ type: 'key', name: 'enter' });
-    assert.equal(opened.length, 1);
+    assert.ok(app.detail, 'Enter expands the row into the detail overlay');
+    assert.match(app.detail.spec.url, /^https:\/\/earthquake\.usgs\.gov\//);
+    app.render();
+    assert.match(text(app), /Magnitude/);
+    app.handleEvent({ type: 'key', name: 'escape' });
+    assert.equal(app.detail, null);
   });
   it('toggles animations and help, and quits on q', () => {
     const { app, saved } = makeApp();

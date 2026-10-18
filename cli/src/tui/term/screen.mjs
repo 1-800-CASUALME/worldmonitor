@@ -52,6 +52,12 @@ export class Screen {
     return x >= c.x && y >= c.y && x < c.x + c.w && y < c.y + c.h;
   }
 
+  cellAt(x, y) {
+    if (x < 0 || y < 0 || x >= this.cols || y >= this.rows) return null;
+    const i = y * this.cols + x;
+    return { ch: this.ch[i], fg: this.fg[i], bg: this.bg[i], attr: this.attr[i] };
+  }
+
   put(x, y, ch, style = {}) {
     if (!this.inClip(x, y)) return;
     const i = y * this.cols + x;

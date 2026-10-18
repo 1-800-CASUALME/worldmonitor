@@ -1,0 +1,455 @@
+// Map engine and map/brief view tests: projections, world geometry, PNG
+// decoding, imagery cache, orbit propagation, layer features, hover picking,
+// pinning, search, satellite compositing, detail overlay and the brief view.
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { describe, it } from 'node:test';
+
+import { App } from '../src/tui/app.mjs';
+import { createClient } from '../src/tui/data/client.mjs';
+import { Store } from '../src/tui/data/store.mjs';
+import { loadCatalog } from '../src/tui/index.mjs';
+import { createViews } from '../src/tui/views/index.mjs';
+import { DotCanvas } from '../src/tui/map/canvas.mjs';
+import { dayFactor, defaultView, makeProjector, normalizeView, panBy, subsolarPoint, wrapLon, zoomAt } from '../src/tui/map/geo.mjs';
+import { ImageryCache, gibsUrl, latestDailyDate } from '../src/tui/map/imagery.mjs';
+import { LAYERS, buildFeatures, defaultLayerState, layerSources } from '../src/tui/map/layers.mjs';
+import { groundTrack, parseTle, propagate } from '../src/tui/map/orbit.mjs';
+import { decodePng, samplePixel } from '../src/tui/map/png.mjs';
+import { countryCentroidByA2, decodeWorld, renderWorld, worldMask } from '../src/tui/map/world.mjs';
+import { describeItem } from '../src/tui/ui/detail.mjs';
+import { getTheme } from '../src/tui/ui/theme.mjs';
+import { citations, relatedFor, tokens } from '../src/tui/views/brief.mjs';
+
+const bootstrap = JSON.parse(readFileSync(new URL('./fixtures/bootstrap.json', import.meta.url), 'utf8'));
+const digest = JSON.parse(readFileSync(new URL('./fixtures/digest.json', import.meta.url), 'utf8'));
+const png = readFileSync(new URL('./fixtures/gibs-bluemarble-32x16.png', import.meta.url));
+const catalog = loadCatalog();
+const world = decodeWorld(catalog.world);
+const theme = getTheme('neon');
+
+const pngResponse = () => ({ ok: true, status: 200, arrayBuffer: async () => png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength) });
+
+function makeApp({ cols = 170, rows = 48, anim = true, fetchImpl = async () => pngResponse() } = {}) {
+  const clock = { t: 1_792_300_000_000 };
+  const store = new Store(createClient({ fetch: async () => ({ ok: true, status: 200, text: async () => '{}', headers: new Map() }) }), { now: () => clock.t });
+  Object.assign(store.data, bootstrap.data);
+  store.raw.digest = digest;
+  store.raw.flights = {
+    flights: [{ id: 'adsb-1', callsign: 'RCH123', aircraftType: 'MILITARY_AIRCRAFT_TYPE_TRANSPORT', operator: 'MILITARY_OPERATOR_USAF', operatorCountry: 'USA', location: { latitude: 48.5, longitude: 8.0 }, altitude: 31000, heading: 90, speed: 420, lastSeenAt: clock.t - 60000, onGround: false }],
+  };
+  store.raw.satellites = { satellites: [{ id: '25544', name: 'TESTSAT', country: 'US', type: 'optical', line1: '1 25544U 98067A   26291.50000000  .00016717  00000-0  10270-3 0  9005', line2: '2 25544  51.6400 208.9163 0006703 130.5360 325.0288 15.49560000500000' }] };
+  const saved = [];
+  const app = new App({
+    store,
+    catalog,
+    prefs: { theme: 'neon', animations: anim, view: 'map' },
+    savePrefs: (p) => saved.push(JSON.parse(JSON.stringify(p))),
+    out: () => {},
+    cols,
+    rows,
+    createViews,
+    now: () => clock.t,
+    player: { mpv: null, ytdlp: null, vo: 'tct' },
+    fetchImpl,
+  });
+  app.boot.done = true;
+  app.view.mount();
+  clock.t += 500;
+  return { app, store, clock, saved, map: app.views.find((v) => v.id === 'map') };
+}
+
+const text = (app) => app.screen.toLines().join('\n');
+const mouse = (app, kind, x, y, button = kind === 'move' ? 3 : 0) => app.handleEvent({ type: 'mouse', kind, x, y, button });
+
+describe('geo projections', () => {
+  it('wraps longitudes and round-trips the flat projection', () => {
+    assert.equal(wrapLon(190), -170);
+    assert.equal(wrapLon(-181), 179);
+    const view = normalizeView({ ...defaultView(), lon: 10, lat: 20, zoom: 4 }, 340, 160);
+    const p = makeProjector(view, 340, 160);
+    const [x, y] = p.toDot(12.5, 21);
+    const g = p.fromDot(x, y);
+    assert.ok(Math.abs(g.lon - 12.5) < 0.05 && Math.abs(g.lat - 21) < 0.05);
+  });
+  it('round-trips the globe projection and hides the far side', () => {
+    const p = makeProjector({ mode: 'globe', lon: 0, lat: 0, zoom: 1 }, 340, 160);
+    const [x, y, vis] = p.toDot(20, 10);
+    assert.ok(vis);
+    const g = p.fromDot(x, y);
+    assert.ok(Math.abs(g.lon - 20) < 0.1 && Math.abs(g.lat - 10) < 0.1);
+    assert.equal(p.toDot(170, 0)[2], false);
+    assert.equal(p.fromDot(0, 0), null);
+  });
+  it('zooms around an anchor and clamps panning at the poles', () => {
+    const view = normalizeView({ ...defaultView(), zoom: 2 }, 340, 160);
+    const p = makeProjector(view, 340, 160);
+    const anchor = p.fromDot(100, 40);
+    const zoomed = zoomAt(view, 340, 160, 2, 100, 40);
+    const after = makeProjector(zoomed, 340, 160).fromDot(100, 40);
+    assert.ok(Math.abs(after.lon - anchor.lon) < 0.2 && Math.abs(after.lat - anchor.lat) < 0.2);
+    const far = panBy(view, 340, 160, 0, 100000);
+    assert.ok(far.lat <= 90);
+    assert.ok(normalizeView({ ...view, zoom: 10000 }, 340, 160).zoom <= 160);
+  });
+  it('computes a plausible subsolar point and day factor', () => {
+    const sun = subsolarPoint(Date.UTC(2026, 5, 21, 12, 0, 0)); // June solstice, noon UTC
+    assert.ok(sun.lat > 22 && sun.lat < 24.5, `declination ${sun.lat}`);
+    assert.ok(Math.abs(sun.lon) < 5, `subsolar lon ${sun.lon}`);
+    assert.equal(dayFactor(sun.lat, sun.lon, sun), 1);
+    assert.equal(dayFactor(-sun.lat, wrapLon(sun.lon + 180), sun), 0);
+  });
+});
+
+describe('world geometry', () => {
+  it('decodes the packed arcs into countries with centroids', () => {
+    assert.ok(world.arcs.length > 1500);
+    assert.ok(world.countries.length > 200);
+    const us = countryCentroidByA2(world, 'US');
+    assert.ok(us && us.lat > 35 && us.lat < 45 && us.lon < -90 && us.lon > -110, JSON.stringify(us));
+    const ru = countryCentroidByA2(world, 'RU');
+    assert.ok(ru.lon > 60 && ru.lon < 120, 'Russia centroid stays on the mainland side of the antimeridian');
+  });
+  it('rasterizes land in both projections and the mask knows countries', () => {
+    const mask = worldMask(world);
+    assert.equal(world.countries[mask.get(2.3, 48.8) - 1].a2, 'FR');
+    assert.equal(mask.get(-30, 30), 0); // Atlantic
+    for (const mode of ['flat', 'globe']) {
+      const c = new DotCanvas(100, 30);
+      const p = makeProjector(normalizeView({ ...defaultView(), mode, zoom: 1 }, c.w, c.h), c.w, c.h);
+      renderWorld(c, p, world, { fillColor: () => '#224466', coast: '#44aaff', border: '#224488', outline: '#fff' });
+      const lit = c.code.reduce((a, v) => a + (v ? 1 : 0), 0);
+      assert.ok(lit > 500, `${mode}: ${lit} cells drawn`);
+    }
+  });
+  it('handles the antimeridian without streaks at high zoom', () => {
+    const c = new DotCanvas(120, 30);
+    const p = makeProjector(normalizeView({ ...defaultView(), lon: 179.5, lat: -17.5, zoom: 24 }, c.w, c.h), c.w, c.h);
+    renderWorld(c, p, world, { fillColor: () => '#224466', coast: '#44aaff', border: '#224488' });
+    // No row may be completely filled: that would be a wrap streak.
+    for (let cy = 0; cy < c.rows; cy++) {
+      let full = 0;
+      for (let cx = 0; cx < c.cols; cx++) if (c.code[cy * c.cols + cx] === 0xff) full++;
+      assert.ok(full < c.cols * 0.9, `row ${cy} is a streak`);
+    }
+  });
+});
+
+describe('png + imagery', () => {
+  it('decodes the GIBS fixture tile', () => {
+    const img = decodePng(png);
+    assert.equal(img.width, 32);
+    assert.equal(img.height, 16);
+    const ocean = samplePixel(img, 0.45, 0.5);
+    const sahara = samplePixel(img, 0.55, 0.38);
+    assert.ok(ocean[2] > ocean[0], 'ocean is blue');
+    assert.ok(sahara[0] > 150, 'the Sahara is bright');
+  });
+  it('builds WMS urls with lat/lon ordered boxes and caches by request', async () => {
+    const url = gibsUrl({ layer: 'X', bbox: [-10, 20, 30, 40], width: 100, height: 50, time: '2026-01-02' });
+    assert.match(url, /BBOX=20%2C-10%2C40%2C30/);
+    assert.match(url, /TIME=2026-01-02/);
+    assert.match(latestDailyDate(Date.UTC(2026, 9, 18, 12)), /^2026-10-1[67]$/);
+    let calls = 0;
+    const cache = new ImageryCache({ fetch: async () => { calls++; return pngResponse(); }, now: () => 1000 });
+    const req = { layer: 'X', bbox: [-180, -90, 180, 90], width: 32, height: 16 };
+    const e1 = cache.get(req);
+    assert.equal(e1.status, 'loading');
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(cache.get(req).status, 'ready');
+    assert.equal(cache.get(req).image.width, 32);
+    assert.equal(calls, 1);
+  });
+  it('drops superseded requests and records errors', async () => {
+    const cache = new ImageryCache({ fetch: async (u) => (u.includes('LAYERS=bad') ? { ok: false, status: 500 } : pngResponse()), now: () => 1000, concurrency: 1 });
+    cache.get({ layer: 'a', bbox: [0, 0, 10, 10], width: 8, height: 8 });
+    cache.get({ layer: 'b', bbox: [0, 0, 10, 10], width: 8, height: 8 });
+    cache.get({ layer: 'c', bbox: [0, 0, 10, 10], width: 8, height: 8 });
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(cache.peek({ layer: 'b', bbox: [0, 0, 10, 10], width: 8, height: 8 }), null, 'b was superseded by c before it started');
+    assert.equal(cache.peek({ layer: 'c', bbox: [0, 0, 10, 10], width: 8, height: 8 }).status, 'ready');
+    const bad = cache.get({ layer: 'bad', bbox: [0, 0, 10, 10], width: 8, height: 8 }, 'other');
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(bad.status, 'error');
+    assert.match(bad.error, /HTTP 500/);
+  });
+});
+
+describe('orbit', () => {
+  it('parses a TLE and propagates to a low-earth-orbit altitude', () => {
+    const tle = parseTle('1 25544U 98067A   26291.50000000  .00016717  00000-0  10270-3 0  9005', '2 25544  51.6400 208.9163 0006703 130.5360 325.0288 15.49560000500000');
+    assert.ok(tle);
+    const p = propagate(tle, tle.epoch + 3600e3);
+    assert.ok(p.altKm > 350 && p.altKm < 500, `alt ${p.altKm}`);
+    assert.ok(Math.abs(p.lat) <= 51.7);
+    assert.ok(p.periodMin > 90 && p.periodMin < 95);
+    const track = groundTrack(tle, tle.epoch, { ahead: 10, stepMin: 1 });
+    assert.equal(track.length, 11);
+    assert.equal(parseTle('bad', 'bad'), null);
+  });
+});
+
+describe('layers', () => {
+  const ctx = () => ({ catalog, data: bootstrap.data, raw: { flights: { flights: [] }, vessels: {}, satellites: { satellites: [] } }, t: theme, now: 1_792_300_000_000, world });
+  it('builds features for every static and live layer in the fixtures', () => {
+    const all = Object.fromEntries(LAYERS.map((l) => [l.id, true]));
+    const { features, counts } = buildFeatures(ctx(), all);
+    assert.ok(features.length > 1500, `features ${features.length}`);
+    for (const id of ['cables', 'pipelines', 'nuclear', 'bases', 'ports', 'airports', 'datacenters', 'earthquakes', 'unrest', 'ucdp', 'weather', 'outages', 'cyber', 'hotspots', 'conflictZones', 'waterways', 'tradeRoutes', 'exchanges', 'mining', 'techHQs']) {
+      assert.ok(counts[id] > 0, `${id} has features`);
+    }
+    for (const f of features) {
+      assert.ok(Number.isFinite(f.lat) && Number.isFinite(f.lon), `${f.id} has a position`);
+      assert.ok(f.name, `${f.id} has a name`);
+      assert.ok(Array.isArray(f.info), `${f.id} has info rows`);
+    }
+    const cable = features.find((f) => f.layer === 'cables');
+    assert.ok(cable.points.length > 2 && cable.from && cable.to);
+    const suez = features.find((f) => f.id === 'cp:suez');
+    assert.match(suez.info.find(([k]) => k === 'Status')[1], /yellow/);
+  });
+  it('reports lazy sources only for enabled layers', () => {
+    const state = defaultLayerState();
+    assert.ok(layerSources(state).includes('flights'));
+    state.flights = false;
+    state.satellites = false;
+    assert.ok(!layerSources(state).includes('flights'));
+    state.storage = true;
+    assert.ok(layerSources(state).includes('storageFacilities'));
+  });
+});
+
+describe('map view', () => {
+  it('renders the map with a layer sidebar and toolbar', () => {
+    const { app } = makeApp();
+    app.render();
+    const t = text(app);
+    assert.match(t, /WORLD MAP · TACTICAL/);
+    assert.match(t, /LAYERS/);
+    assert.match(t, /Undersea cables/);
+    assert.match(t, /SAT OFF/);
+    assert.doesNotMatch(t, /view error/);
+  });
+  it('hovers features, pins on click and opens the detail overlay on Enter', () => {
+    const { app, map } = makeApp();
+    app.render();
+    const r = map.mapRect;
+    const cable = map.drawn.lines.find((l) => l.f.layer === 'cables');
+    assert.ok(cable, 'a cable was drawn');
+    const [x0, y0] = cable.segs[Math.floor(cable.segs.length / 2)];
+    const cx = r.x + Math.floor(x0 / 2);
+    const cy = r.y + Math.floor(y0 / 4);
+    mouse(app, 'move', cx, cy);
+    assert.equal(map.hovered && map.hovered.layer, 'cables');
+    app.render();
+    assert.match(text(app), new RegExp(map.hovered.name.slice(0, 10)));
+    mouse(app, 'down', cx, cy);
+    mouse(app, 'up', cx, cy);
+    assert.equal(map.pinned, map.hovered);
+    app.handleEvent({ type: 'key', name: 'enter' });
+    assert.ok(app.detail);
+    app.render();
+    const t = text(app);
+    assert.match(t, /UNDERSEA CABLES/);
+    assert.match(t, /From:/);
+    assert.match(t, /Length: [\d,]+ km/);
+    app.handleEvent({ type: 'key', name: 'escape' });
+    assert.equal(app.detail, null);
+    app.handleEvent({ type: 'key', name: 'c' });
+    assert.equal(map.pinned, null);
+  });
+  it('identifies the country under the cursor when nothing else is there', () => {
+    const { app, map } = makeApp();
+    map.toggleLayer('cii', true);
+    app.render();
+    const p = map.proj;
+    const [x, y] = p.toDot(123, -25); // Western Australian desert: no fixture features
+    mouse(app, 'move', map.mapRect.x + Math.floor(x / 2), map.mapRect.y + Math.floor(y / 4));
+    assert.ok(map.hovered);
+    assert.equal(map.hovered.layer, 'country');
+    assert.equal(map.hovered.name, 'Australia');
+    assert.ok(map.hovered.info.some(([k, v]) => k === 'ISO' && v === 'AU'));
+    const [rx, ry] = p.toDot(99, 62); // central Siberia (fixture fires live there, so ask the country lookup directly)
+    const ru = map.countryAt(rx, ry);
+    assert.equal(ru.name, 'Russia');
+    assert.ok(ru.info.some(([k]) => k === 'CII score'), 'choropleth info is attached');
+  });
+  it('drags to pan, wheels to zoom and resets', () => {
+    const { app, map } = makeApp();
+    app.render();
+    const r = map.mapRect;
+    const before = { ...map.view };
+    mouse(app, 'down', r.x + 40, r.y + 10);
+    mouse(app, 'drag', r.x + 50, r.y + 10);
+    mouse(app, 'up', r.x + 50, r.y + 10);
+    assert.ok(map.view.lon < before.lon, 'dragging right moves the view west');
+    mouse(app, 'wheelup', r.x + 40, r.y + 10, -1);
+    assert.ok(map.view.zoom > before.zoom);
+    app.handleEvent({ type: 'key', name: '0', ch: '0' });
+    assert.equal(map.view.zoom, 1);
+    app.handleEvent({ type: 'key', name: '+', ch: '+' });
+    app.handleEvent({ type: 'key', name: '+', ch: '+' });
+    assert.ok(map.view.zoom > 2);
+    app.render();
+    assert.match(text(app), /zoom ×2\.2|zoom ×2/);
+  });
+  it('switches to the globe, turns on satellite imagery and composites half blocks', async () => {
+    const { app, map, clock } = makeApp();
+    app.handleEvent({ type: 'key', name: 'g', ch: 'g' });
+    app.render();
+    assert.equal(map.view.mode, 'globe');
+    assert.match(text(app), /GLOBE/);
+    app.handleEvent({ type: 'key', name: 's', ch: 's' });
+    app.render();
+    await new Promise((r) => setTimeout(r, 30));
+    clock.t += 2000;
+    app.render();
+    assert.equal(map.imageryStatus, 'BLUE MARBLE');
+    const lines = app.screen.toLines();
+    assert.ok(lines.some((l) => l.includes('▀')), 'half-block imagery cells are drawn');
+    assert.equal(map.imageryCache.stats().requests, 2, 'day and night images requested');
+    app.handleEvent({ type: 'key', name: 'i', ch: 'i' });
+    assert.equal(map.imagery, 'truecolor');
+    app.handleEvent({ type: 'key', name: 'd', ch: 'd' });
+    assert.equal(map.layers.dayNight, false);
+  });
+  it('toggles layers from the sidebar, by group and in bulk, and persists them', () => {
+    const { app, map, saved } = makeApp();
+    app.render();
+    const before = map.features.length;
+    map.toggleLayer('nuclear', false);
+    app.render();
+    assert.ok(map.features.length < before);
+    assert.equal(saved[saved.length - 1].map.layers.nuclear, false);
+    const lines = app.screen.toLines();
+    const y = lines.findIndex((l) => l.includes('Nuclear sites'));
+    const x = lines[y].indexOf('Nuclear sites');
+    mouse(app, 'down', x, y);
+    assert.equal(map.layers.nuclear, true);
+    map.setAllLayers(false);
+    app.render();
+    assert.ok(map.features.length < 5, `features after NONE: ${map.features.length}`);
+    map.toggleGroup('infra');
+    assert.ok(map.layers.cables && map.layers.ports);
+    map.resetLayers();
+    assert.deepEqual(Object.keys(map.layers).filter((k) => map.layers[k]).sort(), Object.keys(defaultLayerState()).filter((k) => defaultLayerState()[k]).sort());
+    app.handleEvent({ type: 'key', name: 'L', ch: 'L', shift: true });
+    assert.equal(map.focus, 'map');
+    app.handleEvent({ type: 'key', name: 'L', ch: 'L', shift: true });
+    assert.equal(map.sidebar, false);
+  });
+  it('searches features and countries and jumps to the result', () => {
+    const { app, map } = makeApp();
+    app.render();
+    app.handleEvent({ type: 'key', name: '/', ch: '/' });
+    for (const ch of 'hormuz') app.handleEvent({ type: 'key', name: ch, ch });
+    app.render();
+    assert.ok(map.search.results.length >= 1);
+    assert.match(text(app), /SEARCH/);
+    app.handleEvent({ type: 'key', name: 'enter' });
+    assert.equal(map.search, null);
+    assert.ok(map.pinned && /hormuz/i.test(map.pinned.name));
+    assert.ok(Math.abs(map.view.lon - 56.5) < 1);
+    app.handleEvent({ type: 'key', name: '/', ch: '/' });
+    for (const ch of 'japan') app.handleEvent({ type: 'key', name: ch, ch });
+    app.handleEvent({ type: 'key', name: 'enter' });
+    assert.ok(map.view.lon > 130 && map.view.lon < 145);
+  });
+  it('moves aircraft by dead reckoning and draws satellite ground tracks when focused', () => {
+    const { app, map, clock } = makeApp();
+    app.render();
+    const ac = map.drawn.points.find((p) => p.f.layer === 'flights');
+    assert.ok(ac, 'aircraft drawn');
+    clock.t += 5 * 60000;
+    app.render();
+    const later = map.drawn.points.find((p) => p.f.layer === 'flights');
+    assert.ok(later.x > ac.x, 'heading 090 moves east over time');
+    const sat = map.features.find((f) => f.layer === 'satellites');
+    assert.ok(sat && sat.tle);
+    map.pin(sat);
+    app.render();
+    assert.doesNotMatch(text(app), /view error/);
+  });
+  it('keeps every theme and animation mode free of view errors', () => {
+    for (const id of ['matrix', 'synthwave']) {
+      const { app, map } = makeApp({ anim: id === 'matrix' });
+      app.setTheme(id);
+      app.render();
+      app.handleEvent({ type: 'key', name: 'g', ch: 'g' });
+      app.render();
+      map.toggleLayer('sanctions', true);
+      app.render();
+      assert.doesNotMatch(text(app), /view error/);
+    }
+  });
+  it('fits a small terminal without crashing', () => {
+    const { app } = makeApp({ cols: 80, rows: 24 });
+    app.render();
+    assert.doesNotMatch(text(app), /view error/);
+  });
+});
+
+describe('detail overlay', () => {
+  it('describes arbitrary records and formats enums, timestamps and nested objects', () => {
+    const d = describeItem({ title: 'Quake', magnitude: 5.1, location: { latitude: 1.5, longitude: 2.25 }, occurredAt: Date.now() - 3600e3, severity: 'THREAT_LEVEL_HIGH', sourceUrl: 'https://example.com/q', description: 'A long description.', tags: ['a', 'b'] });
+    assert.equal(d.title, 'Quake');
+    assert.equal(d.url, 'https://example.com/q');
+    assert.ok(d.rows.some(([k, v]) => k === 'Severity' && v === 'high'));
+    assert.ok(d.rows.some(([k, v]) => k === 'Location' && v === '1.50, 2.25'));
+    assert.ok(d.rows.some(([k, v]) => k === 'Occurred at' && /1h.*ago/.test(v)));
+    assert.equal(d.body, 'A long description.');
+  });
+  it('expands list rows in other views and closes with Escape or a click outside', () => {
+    const { app, clock } = makeApp();
+    app.switchView(app.views.findIndex((v) => v.id === 'climate'));
+    clock.t += 500;
+    app.render();
+    app.handleEvent({ type: 'key', name: 'enter' });
+    assert.ok(app.detail, 'climate quake expands');
+    app.render();
+    assert.match(text(app), /Magnitude/);
+    app.handleEvent({ type: 'key', name: 'escape' });
+    assert.equal(app.detail, null);
+    app.switchView(app.views.findIndex((v) => v.id === 'news'));
+    app.render();
+    assert.equal(app.view.focusedPane, 'items');
+    app.handleEvent({ type: 'key', name: 'enter' });
+    assert.ok(app.detail, 'news headline expands');
+    app.render();
+    mouse(app, 'down', 0, 3);
+    assert.equal(app.detail, null, 'click outside closes');
+  });
+});
+
+describe('brief view', () => {
+  it('extracts citations and keywords and finds related coverage', () => {
+    assert.deepEqual(citations('Something happened [1] and more [3].'), [1, 3]);
+    assert.ok(tokens('Protesters clashed with police in Belgium').includes('belgium'));
+    const ins = bootstrap.data.insights;
+    const rel = relatedFor(ins.briefStoryLines[0], ins, digest);
+    assert.ok(rel.length >= 1);
+    assert.equal(rel[0].kind, 'cited');
+    assert.equal(rel[0].n, 1);
+    assert.ok(rel[0].link);
+  });
+  it('renders the brief with story lines and a related pane, and expands items', () => {
+    const { app, clock } = makeApp();
+    app.switchView(app.views.findIndex((v) => v.id === 'brief'));
+    clock.t += 500; // past the tab wipe
+    app.render();
+    const t = text(app);
+    assert.match(t, /AI WORLD BRIEF/);
+    assert.match(t, /STORY LINES|story lines/);
+    assert.match(t, /What line 1 is about/i);
+    app.handleEvent({ type: 'key', name: 'enter' });
+    assert.equal(app.view.focusedPane, 'related');
+    app.handleEvent({ type: 'key', name: 'enter' });
+    assert.ok(app.detail);
+    assert.match(app.detail.spec.subtitle, /cited source/);
+    app.handleEvent({ type: 'key', name: 'escape' });
+    app.handleEvent({ type: 'key', name: 'left' });
+    app.handleEvent({ type: 'key', name: 'down' });
+    app.render();
+    assert.match(text(app), /What line 2 is about/i);
+  });
+});

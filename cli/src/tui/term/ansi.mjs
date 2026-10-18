@@ -9,9 +9,9 @@ export const SEQ = {
   altScreenOff: `${CSI}?1049l`,
   cursorHide: `${CSI}?25l`,
   cursorShow: `${CSI}?25h`,
-  // Button events + motion while pressed + SGR extended coordinates.
-  mouseOn: `${CSI}?1000h${CSI}?1002h${CSI}?1006h`,
-  mouseOff: `${CSI}?1006l${CSI}?1002l${CSI}?1000l`,
+  // Button events + motion (any-event, for hover) + SGR extended coordinates.
+  mouseOn: `${CSI}?1000h${CSI}?1002h${CSI}?1003h${CSI}?1006h`,
+  mouseOff: `${CSI}?1006l${CSI}?1003l${CSI}?1002l${CSI}?1000l`,
   clear: `${CSI}2J${CSI}H`,
   reset: `${CSI}0m`,
   bracketedPasteOn: `${CSI}?2004h`,
