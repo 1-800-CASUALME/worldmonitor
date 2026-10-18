@@ -3229,16 +3229,22 @@ export async function runSeed(domain, resource, canonicalKey, fetchFn, opts = {}
           const metaExtra = typeof ek.metaExtra === 'function'
             ? ek.metaExtra(ekData, data)
             : ek.metaExtra;
-          const wroteMeta = await writeSeedMeta(
-            ek.key,
-            ekEnvelope?.recordCount ?? 0,
-            ek.metaKey,
-            // Same data TTL the writeExtraKey above just used, so a long-lived
-            // extra key can't outlive the meta that reports on it.
-            resolveSeedMetaTtl(ek.metaTtlSeconds, ek.ttl || ttlSeconds),
-            ek.coverage,
-            metaExtra,
-          );
+          let wroteMeta = false;
+          try {
+            wroteMeta = await writeSeedMeta(
+              ek.key,
+              ekEnvelope?.recordCount ?? 0,
+              ek.metaKey,
+              // Same data TTL the writeExtraKey above just used, so a long-lived
+              // extra key can't outlive the meta that reports on it.
+              resolveSeedMetaTtl(ek.metaTtlSeconds, ek.ttl || ttlSeconds),
+              ek.coverage,
+              metaExtra,
+            );
+          } catch (err) {
+            if (ek.metaCritical) throw err;
+            console.warn(`  Extra key ${ek.key}: seed-meta ${ek.metaKey} write failed; freshness will age: ${err.message}`);
+          }
           if (!wroteMeta && ek.metaCritical) throw new Error(`Extra key ${ek.key}: seed-meta ${ek.metaKey} write failed`);
         }
       }

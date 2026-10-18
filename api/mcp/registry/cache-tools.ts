@@ -28,7 +28,7 @@ import {
 } from '../../../server/_shared/corroboration';
 import { getSourceTier } from '../../../server/_shared/source-tiers';
 import { FLOW_SOURCE_WIRE_VALUES, narrowFlowSource } from '../../../server/_shared/flow-source';
-import { selectMarketAlertScorecard, selectScorecardFields } from '../../../server/worldmonitor/forecast/v1/scorecard-fields';
+import { RECEIPT_FIELDS, selectMarketAlertScorecard, selectScorecardFields } from '../../../server/worldmonitor/forecast/v1/scorecard-fields';
 import { hasRedistributableProviderAttribution } from '../../../shared/provider-redistribution';
 import { torontoSafetySourceById } from '../../../shared/toronto-safety.js';
 import { accuracyAuditOverride, forecastAccuracyAudit, type ForecastAccuracyAudit } from '../../../shared/forecast-accuracy-audit.js';
@@ -657,7 +657,7 @@ export function forecastReliability(data: Record<string, unknown>, domains: stri
   };
 }
 
-const FORECAST_SCORECARD_DESCRIPTION = 'It grades published forecasts after they resolve: calibration, Brier/log score with Brier 95% intervals, domain and generation-origin breakdowns, the matured-to-scored funnel, pending/judged resolution counts, receipts for the newest resolved forecasts, familyOutcomes (the recent outcomes of each live forecast id), and horizonGrades (grades of the 24h/7d/30d projections, which are not probabilities). From schemaVersion 3, totals and funnel count published forecasts only; shadow bets appear in byGenerationOrigin. Past accuracy only: no open forecasts, current probabilities or case files, and nothing about countries. Flagged stale after 36 hours. Seeded-cache read: weight 1 on API plans, included in the signed-in free allowance. Takes no filters.';
+const FORECAST_SCORECARD_DESCRIPTION = 'It grades published forecasts after they resolve: calibration, Brier/log score with Brier 95% intervals, domain and generation-origin breakdowns, the matured-to-scored funnel, pending/judged resolution counts, receipts for the newest resolved forecasts, familyOutcomes (the recent outcomes of each live forecast id), and horizonGrades (grades of the 24h/7d/30d projections, which are not probabilities). From schemaVersion 3, totals and funnel count published forecasts only; shadow bets appear in byGenerationOrigin. Past accuracy only: no open forecasts, current probabilities or case files, and nothing about countries. Flagged stale after 36 hours. Seeded-cache read: weight 1 on API plans, included in the signed-in free allowance. view=archive lists resolved forecasts; domain, outcome, forecast_id, before and limit filter/page it. Trajectories require forecast_id.';
 
 /**
  * The first sentence is the one tools/list keeps, so it names the tool's
@@ -682,6 +682,97 @@ export function projectForecastScorecard(data: Record<string, unknown>, audit: F
     scorecard: isRecord ? selectScorecardFields(scorecard as Record<string, unknown>, { extended: true }) : null,
     marketAlerts: selectMarketAlertScorecard(data.marketAlerts) ?? null,
   };
+}
+
+function forecastRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function forecastPoints(value: unknown, limit: number): [string, number][] {
+  return Array.isArray(value) ? value.filter((p): p is [string, number] => Array.isArray(p) && p.length === 2
+    && typeof p[0] === 'string' && Number.isFinite(Date.parse(p[0])) && typeof p[1] === 'number'
+    && Number.isFinite(p[1]) && p[1] >= 0 && p[1] <= 1).slice(-limit) : [];
+}
+
+function attachForecastHistory(data: Record<string, unknown>, includeHistory: boolean) {
+  const node = forecastRecord(data.predictions);
+  if (!Array.isArray(node?.predictions)) return;
+  const trail = forecastRecord(data.probabilityTrail);
+  const segments = trail?.generatedAt === node.generatedAt ? forecastRecord(trail?.forecasts) : null;
+  node.predictions = node.predictions.map(value => {
+    const row = forecastRecord(value);
+    if (!row) return value;
+    const segment = forecastRecord(segments?.[String(row.id)]);
+    const matching = segment?.region === row.region ? segment : null;
+    const points = forecastPoints(matching?.points, 120);
+    const now = Number(node.generatedAt);
+    const change = (days: number) => {
+      const prior = [...points].reverse().find(([at]) => Date.parse(at) <= now - days * 86_400_000);
+      return prior && typeof row.probability === 'number' && Number.isFinite(row.probability)
+        ? Math.round((row.probability - prior[1]) * 1e6) / 1e6 : null;
+    };
+    const { history: _history, ...published } = row;
+    return { ...published, firstSeenAt: matching?.firstSeenAt ?? null, firstSeenProbability: matching?.firstSeenProbability ?? null,
+      change24h: change(1), change7d: change(7), ...(includeHistory ? { history: points } : {}) };
+  });
+}
+
+function projectForecastArchive(value: unknown, metaValue: unknown) {
+  const archive = forecastRecord(value);
+  if (!Array.isArray(archive?.rows)) return null;
+  const meta = forecastRecord(metaValue);
+  const fetchedAt = Number(meta?.fetchedAt);
+  const fields = [...RECEIPT_FIELDS, 'forecastId', 'domain', 'region', 'lane', 'deadline', 'firstSeenAt', 'lastSeenAt'];
+  return { generatedAt: archive.generatedAt, rollingWindowDays: archive.rollingWindowDays,
+    stale: !Number.isFinite(fetchedAt) || fetchedAt <= 0 || Date.now() - fetchedAt > 2160 * 60_000 || meta?.status === 'error',
+    rows: archive.rows.flatMap(value => {
+      const row = forecastRecord(value);
+      if (!row || !['YES', 'NO', 'VOID'].includes(String(row.outcome)) || typeof row.resolvedAt !== 'number') return [];
+      const safe: Record<string, unknown> = {};
+      for (const field of fields) if (row[field] === null || ['string', 'number'].includes(typeof row[field])) safe[field] = row[field];
+      const evidence = forecastRecord(row.evidence);
+      if (evidence && Number.isInteger(evidence.selectionVersion)) safe.evidence = { selectionVersion: evidence.selectionVersion };
+      if (Array.isArray(row.trajectory)) safe.trajectory = forecastPoints(row.trajectory, 30);
+      return [safe];
+    }) };
+}
+
+function filterForecastScorecard(data: Record<string, unknown>, params: Record<string, unknown>) {
+  const { forecastArchive, ...summary } = data;
+  if (params.view === undefined || params.view === 'summary') return summary;
+  if (params.view !== 'archive') throw new RpcValidationError('get_forecast_scorecard', [{ field: 'view', description: 'Expected summary or archive.' }]);
+  const limit = params.limit ?? 25;
+  const continuation = typeof params.before === 'string' ? /^(\d+):(\d+)$/.exec(params.before) : null;
+  const before = continuation ? Number(continuation[1]) : params.before;
+  const offset = continuation ? Number(continuation[2]) : 0;
+  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 50
+    || before !== undefined && (typeof before !== 'number' || !Number.isFinite(before))
+    || !Number.isSafeInteger(offset) || offset < 0
+    || params.outcome !== undefined && !['YES', 'NO', 'VOID'].includes(String(params.outcome))) {
+    throw new RpcValidationError('get_forecast_scorecard', [{ field: 'before', description: 'Use a resolvedAt timestamp or nextBefore cursor, limit 1-50 and outcome YES, NO or VOID.' }]);
+  }
+  const archive = forecastArchive as ReturnType<typeof projectForecastArchive>;
+  if (!archive) return { underAudit: data.underAudit, archive: null };
+  const rows = archive.rows.filter(row => (!params.domain || argStr(row.domain) === argStr(params.domain))
+    && (!params.outcome || row.outcome === params.outcome) && (!params.forecast_id || row.forecastId === params.forecast_id)
+    && (before === undefined || Number(row.resolvedAt) < Number(before) || !!continuation && row.resolvedAt === before))
+    .sort((a, b) => Number(b.resolvedAt) - Number(a.resolvedAt) || String(a.forecastId).localeCompare(String(b.forecastId))
+      || Number(a.deadline) - Number(b.deadline) || Number(a.firstSeenAt) - Number(b.firstSeenAt) || String(a.question).localeCompare(String(b.question)))
+    .filter((row, index) => !continuation || row.resolvedAt !== before || index >= offset);
+  const page = rows.slice(0, limit).map(row => {
+    const { trajectory, ...receipt } = row;
+    return params.forecast_id ? { ...receipt, ...(trajectory === undefined ? {} : { trajectory }) } : receipt;
+  });
+  const result = { underAudit: data.underAudit, archive: { generatedAt: archive.generatedAt, rollingWindowDays: archive.rollingWindowDays, stale: archive.stale,
+    rows: page, nextBefore: null as string | null } };
+  // Leave envelope room inside the fixed tool budget, including family trajectories.
+  while (page.length > 1 && utf8ByteLength(JSON.stringify(result)) > 60_000) page.pop();
+  if (page.length < rows.length) {
+    const at = page[page.length - 1]!.resolvedAt;
+    const seen = page.filter(row => row.resolvedAt === at).length + (continuation && at === before ? offset : 0);
+    result.archive.nextBefore = `${at}:${seen}`;
+  }
+  return result;
 }
 
 export const CACHE_TOOLS: ToolDef[] = [
@@ -3454,13 +3545,14 @@ export const CACHE_TOOLS: ToolDef[] = [
     title: 'Published forecast list (cached)',
     _uiResourceUri: FORECASTS_UI_URI,
     _outputBudgetBytes: 131072,
-    description: 'Return the current published forecast list straight from the seeded cache, the lowest-cost read of open forecasts (paid panel openings also attach per-domain reliability and recent familyOutcomes, not the full accuracy scorecard): each forecast with id, domain, region, probability, scenario text and, for API readers, its case file. Flagged stale after 90 minutes; AI assessments, not guarantees. Seeded-cache read: weight 1 on API plans, included in the signed-in free allowance. domain filters exactly (conflict, market, supply_chain, political, military, cyber, infrastructure), region by case-insensitive substring, limit caps the list (default 30, 0 for no cap). Paid interactive openings return the compact list with case files stripped (hasCaseFile marks them) plus a signed panelRequest; repeat openings reuse the five-minute admission and refresh needs a fresh request_id.',
+    description: 'Return the current published forecast list from the seeded cache (paid panel openings also attach per-domain reliability and recent familyOutcomes, not the full accuracy scorecard): each forecast with id, domain, region, probability, scenario text and, for API readers, its case file. Flagged stale after 90 minutes; AI assessments, not guarantees. Rows include firstSeenAt, firstSeenProbability, change24h and change7d. include_history adds up to 30 days of probability points and caps the list at 10. Seeded-cache read: weight 1 on API plans, included in the signed-in free allowance. domain filters exactly (conflict, market, supply_chain, political, military, cyber, infrastructure), region by case-insensitive substring, limit caps the list (default 30, 0 for no cap). Paid interactive openings return the compact list with case files stripped (hasCaseFile marks them) plus a signed panelRequest; repeat openings reuse the five-minute admission and refresh needs a fresh request_id.',
     inputSchema: {
       type: 'object',
       properties: {
         domain: { type: 'string', description: 'Filter to one forecast domain (exact, case-insensitive): conflict, market, supply_chain, political, military, cyber, infrastructure.' },
         region: { type: 'string', description: 'Filter to one region/theater (case-insensitive substring).' },
         limit: { type: 'number', description: 'Paid interactive panel: integers 1–30, default 30. Ordinary API readers may use 0 for no cap.' },
+        include_history: { type: 'boolean', description: 'Attach up to 120 probability points per forecast, up to 30 days. Caps rows at 10. Omitted in panel openings.' },
         refresh: { type: 'boolean', description: 'Request a new paid panel snapshot; requires a fresh request_id.' },
         request_id: { type: 'string', description: 'Unique idempotency identifier for an explicit refresh.' },
         panel_request: { type: 'string', description: 'Signed forecast panel receipt for a bounded internal list replay.' },
@@ -3483,6 +3575,9 @@ export const CACHE_TOOLS: ToolDef[] = [
         properties: { predictions: { type: 'array', items: { type: 'object', properties: {
           domain: { type: 'string' }, region: { type: 'string' },
           probability: { type: ['number', 'null'] }, title: { type: 'string' },
+          firstSeenAt: { type: ['string', 'null'] }, firstSeenProbability: { type: ['number', 'null'] },
+          change24h: { type: ['number', 'null'] }, change7d: { type: ['number', 'null'] },
+          history: { type: 'array', maxItems: 120, items: { type: 'array', prefixItems: [{ type: 'string' }, { type: 'number' }], minItems: 2, maxItems: 2 } },
         } } } },
       },
       }) as { properties: Record<string, unknown> };
@@ -3494,7 +3589,11 @@ export const CACHE_TOOLS: ToolDef[] = [
       const region = argStr(params.region);
       if (domain) narrowNested(data, 'predictions', 'predictions', (p) => argStr(p.domain) === domain);
       if (region) narrowNested(data, 'predictions', 'predictions', (p) => ciIncludes(p.region, region));
-      capNested(data, 'predictions', 'predictions', (argNum(params.limit) ?? DEFAULT_LIST_LIMIT));
+      const panelOpening = execution?.panelScope === 'forecasts' || !!(execution?.panelRequest && 'panel' in execution.panelRequest && execution.panelRequest.panel === 'forecasts');
+      const includeHistory = params.include_history === true && !panelOpening;
+      const requestedLimit = argNum(params.limit) ?? DEFAULT_LIST_LIMIT;
+      capNested(data, 'predictions', 'predictions', includeHistory ? Math.min(requestedLimit > 0 ? requestedLimit : 10, 10) : requestedLimit);
+      attachForecastHistory(data, includeHistory);
       if (execution?.panelScope === 'forecasts' || execution?.panelRequest && 'panel' in execution.panelRequest && execution.panelRequest.panel === 'forecasts') {
         const source = data.predictions;
         if (source && typeof source === 'object' && !Array.isArray(source)) {
@@ -3523,11 +3622,15 @@ export const CACHE_TOOLS: ToolDef[] = [
         const familyOutcomes = forecastFamilyOutcomes(data, ids);
         return { predictions: data.predictions, reliability: forecastReliability(data, domains), ...(familyOutcomes === undefined ? {} : { familyOutcomes }) };
       }
+      const rows = forecastRecord(data.predictions)?.predictions;
+      if (includeHistory && Array.isArray(rows)) {
+        while (rows.length > 1 && utf8ByteLength(JSON.stringify({ predictions: data.predictions })) > 128_000) rows.pop();
+      }
       return { predictions: data.predictions };
     },
-    _cacheKeys: ['forecast:predictions:v2', 'forecast:scorecard:v1', 'seed-meta:forecast:scorecard'],
-    _cacheLabels: { 'forecast:predictions:v2': 'predictions', 'forecast:scorecard:v1': 'scorecard', 'seed-meta:forecast:scorecard': 'scorecardMeta' },
-    _freshnessChecks: [{ key: 'seed-meta:forecast:predictions', maxStaleMin: 90 }],
+    _cacheKeys: ['forecast:predictions:v2', 'forecast:scorecard:v1', 'seed-meta:forecast:scorecard', 'forecast:probability-trail:v1'],
+    _cacheLabels: { 'forecast:predictions:v2': 'predictions', 'forecast:scorecard:v1': 'scorecard', 'seed-meta:forecast:scorecard': 'scorecardMeta', 'forecast:probability-trail:v1': 'probabilityTrail' },
+    _freshnessChecks: [{ key: 'seed-meta:forecast:predictions', maxStaleMin: 90 }, { key: 'seed-meta:forecast:probability-trail', maxStaleMin: 90 }],
     _apiPaths: [
       "GET /api/forecast/v1/get-forecasts",
     ],
@@ -3577,10 +3680,23 @@ export const CACHE_TOOLS: ToolDef[] = [
     description: forecastScorecardDescription(),
     inputSchema: {
       type: 'object',
-      properties: {},
+      properties: {
+        view: { type: 'string', enum: ['summary', 'archive'], description: 'Summary by default, or resolved forecast archive.' },
+        domain: { type: 'string', description: 'Exact forecast domain for archive rows.' },
+        outcome: { type: 'string', enum: ['YES', 'NO', 'VOID'], description: 'Archive outcome filter.' },
+        forecast_id: { type: 'string', minLength: 1, maxLength: 160, description: 'Exact family ID; includes its trajectories.' },
+        before: { type: ['number', 'string'], description: 'Exclusive resolvedAt timestamp in milliseconds, or the nextBefore continuation from the previous page.' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, description: 'Maximum archive rows, default 25; output budget may shorten a page.' },
+      },
       required: [],
     },
     outputSchema: cacheEnvelope({
+      archive: { type: ['object', 'null'], properties: {
+        generatedAt: { type: 'number' }, rollingWindowDays: { type: 'number' },
+        stale: { type: 'boolean' },
+        rows: { type: 'array', maxItems: 50, items: { type: 'object' } },
+        nextBefore: { type: ['string', 'null'] },
+      } },
       underAudit: {
         type: ['object', 'null'],
         description: 'Set while the accuracy record is under audit: the scores below are unreliable and must not be quoted as a verdict. Without a manual override, it clears once the headline is measurable and the scorecard is fresh.',
@@ -3628,9 +3744,10 @@ export const CACHE_TOOLS: ToolDef[] = [
     }),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     // The seed-meta clock decides staleness, and a stale scorecard holds the audit (#8990).
-    _cacheKeys: ['forecast:scorecard:v1', 'correlation:market-alerts:scorecard:v1', 'seed-meta:forecast:scorecard'],
-    _cacheLabels: { 'correlation:market-alerts:scorecard:v1': 'marketAlerts', 'seed-meta:forecast:scorecard': 'scorecardMeta' },
-    _project: (data) => projectForecastScorecard(data),
+    _cacheKeys: ['forecast:scorecard:v1', 'correlation:market-alerts:scorecard:v1', 'seed-meta:forecast:scorecard', 'forecast:archive:v1', 'seed-meta:forecast:archive'],
+    _cacheLabels: { 'correlation:market-alerts:scorecard:v1': 'marketAlerts', 'seed-meta:forecast:scorecard': 'scorecardMeta', 'forecast:archive:v1': 'forecastArchive', 'seed-meta:forecast:archive': 'archiveMeta' },
+    _project: (data) => ({ ...projectForecastScorecard(data), ...(data.forecastArchive ? { forecastArchive: projectForecastArchive(data.forecastArchive, data.archiveMeta) } : {}) }),
+    _postFilter: filterForecastScorecard,
     _freshnessChecks: [{ key: 'seed-meta:forecast:scorecard', maxStaleMin: 2160 }],
     _apiPaths: [
       "GET /api/forecast/v1/get-forecast-scorecard",

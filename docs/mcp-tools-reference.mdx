@@ -2954,9 +2954,12 @@ AI-generated geopolitical and economic forecasts from WorldMonitor's predictive 
 | `domain` | string | Filter to one forecast domain (exact, case-insensitive): conflict, market, supply_chain, political, military, cyber, infrastructure. |
 | `region` | string | Filter to one region/theater (case-insensitive substring). |
 | `limit` | number | Paid interactive panel: integers 1–30, default 30. Ordinary API readers may use 0 for no cap. |
+| `include_history` | boolean | Attach up to 120 probability points per forecast, up to 30 days. Caps rows at 10. Omitted in panel openings. |
 | `refresh` | boolean | Request a new paid panel snapshot; requires a fresh request_id. |
 | `request_id` | string | Unique idempotency identifier for an explicit refresh. |
 | `panel_request` | string | Signed forecast panel receipt for a bounded internal list replay. |
+
+Rows also carry `firstSeenAt` (ISO time), `firstSeenProbability`, `change24h` and `change7d` (absolute probability changes). Missing or short trails return null. A region change starts a new segment; the first seed backfills only the retained history, so firstSeenAt can postdate the original publication. History points are `[isoTime, probability]` and can have sampling gaps.
 
 - **API endpoints:** `GET /api/forecast/v1/get-forecasts`
 - **Access:** `free-account` — callable by any signed-in account; free accounts spend the daily free allowance, Pro calls spend the daily quota. Accepts the universal `summary` argument.
@@ -3015,7 +3018,18 @@ Read the latest original simulation theater summaries. Dedicated MCP plans read 
 
 Forecast resolution scorecard with calibration, Brier/log score, domain and generation-origin breakdowns, and pending/judged resolution counts.
 
-**Parameters (tool-specific):** none
+**Parameters (tool-specific):**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `view` | string: summary / archive | Summary by default, or resolved forecast archive. |
+| `domain` | string | Exact forecast domain for archive rows. |
+| `outcome` | string: YES / NO / VOID | Archive outcome filter. |
+| `forecast_id` | string | Exact family ID; includes its trajectories. |
+| `before` | number / string | Exclusive resolvedAt timestamp in milliseconds, or the nextBefore continuation from the previous page. |
+| `limit` | integer | Maximum archive rows, default 25; output budget may shorten a page. |
+
+Archive responses carry `underAudit` from the stored scorecard, `archive.stale` from the archive seed-meta (36-hour budget), and `nextBefore` (null at the end). Summary responses retain their original shape. Trajectories appear only with `forecast_id`; missing trajectories are not reconstructed from other subjects. Rows use the public receipt whitelist, with no raw ledger, judge rationale, news archive items or metric paths. Most historical resolutions may be VOID. The archive does not establish forecast skill.
 
 - **API endpoints:** `GET /api/forecast/v1/get-forecast-scorecard`
 - **Access:** `free-account` — callable by any signed-in account; free accounts spend the daily free allowance, Pro calls spend the daily quota. Accepts the universal `summary` argument.

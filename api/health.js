@@ -687,6 +687,8 @@ const STANDALONE_KEYS = {
   digestNotifications:           'digest:last-run',
   webcams:                       'webcam:cameras:active',
   forecastResolutions:           'forecast:resolutions:v1',
+  forecastProbabilityTrail:      'forecast:probability-trail:v1',
+  forecastArchive:               'forecast:archive:v1',
   forecastScorecard:             'forecast:scorecard:v1',
   forecastCalibrationMap:        'forecast:calibration-map:v1',
   marketAlertLedger:             'correlation:market-alerts:ledger:v1',
@@ -1237,6 +1239,16 @@ const SEED_META = {
   xFeed:            { key: 'seed-meta:intelligence:x-feed:v1', maxStaleMin: 45 }, // Fixed 15min List slots; 45min = 3 missed slots. Freshness advances only after an accepted page is published.
   digestNotifications: { key: 'seed-meta:digest:last-run',          maxStaleMin: 90 }, // Railway digest-notifications cron runs every 30min; 90 = 3x cadence and detects a dead cron before daily digests are missed.
   forecasts:        { key: 'seed-meta:forecast:predictions',       maxStaleMin: 90 },
+  forecastProbabilityTrail: {
+    key: 'seed-meta:forecast:probability-trail', maxStaleMin: 90,
+    activationKey: 'seed-activated:forecast:probability-trail',
+    cutover: { mode: 'activation-marker', fromKey: null, issue: 9353, activationKey: 'seed-activated:forecast:probability-trail' },
+  },
+  forecastArchive: {
+    key: 'seed-meta:forecast:archive', maxStaleMin: 2160,
+    activationKey: 'seed-activated:forecast:archive',
+    cutover: { mode: 'activation-marker', fromKey: null, issue: 9353, activationKey: 'seed-activated:forecast:archive' },
+  },
   forecastsBootstrap: { key: 'seed-meta:forecast:predictions-bootstrap', maxStaleMin: 90 }, // Same cron. Monitored separately: the fast tier now hydrates from the dashboard list, and a transform/write failure there must not hide behind a healthy canonical key (#5300).
   forecastResolutions: { key: 'seed-meta:forecast:resolutions',     maxStaleMin: 2160 }, // daily Bet-2 resolver; 36h catches a missed cron without flapping on normal daily jitter
   forecastScorecard:   { key: 'seed-meta:forecast:scorecard',       maxStaleMin: 2160 }, // scorecard extra key written by seed-forecast-resolutions
@@ -2185,6 +2197,8 @@ const ON_DEMAND_KEYS = new Set([
   // is pending, not CRIT. GTA Update is not registered: writer disabled.
   'tpsMci',
   'tpsCallsAttended',
+  'forecastProbabilityTrail',
+  'forecastArchive',
 ]);
 
 // Legacy broad empty-data exemptions. classifyKey uses this set in both the
@@ -2236,6 +2250,8 @@ const ACTIVATION_MARKERS = {
   scorecardFiveFactor: SEED_META.scorecardFiveFactor.activationKey,
   imdCycloneMarine: SEED_META.imdCycloneMarine.activationKey,
   forecastCalibrationMap: SEED_META.forecastCalibrationMap.activationKey,
+  forecastProbabilityTrail: SEED_META.forecastProbabilityTrail.activationKey,
+  forecastArchive: SEED_META.forecastArchive.activationKey,
   marketAlertLedger: SEED_META.marketAlertLedger.activationKey,
   marketAlertScorecard: SEED_META.marketAlertScorecard.activationKey,
   supplyVulnerability: SEED_META.supplyVulnerability.activationKey,
@@ -2600,6 +2616,7 @@ const MISSING_DATA_IS_FAILURE_KEYS = new Set([
 // key itself must still exist. Do not use this set in the missing-key branch.
 const ZERO_RECORD_DATA_OK_KEYS = new Set([
   ...EMPTY_DATA_OK_KEYS,
+  'forecastArchive',
   'naturalEvents',
   // A current List query can validly return no Posts. The relay still writes
   // the canonical snapshot, so a missing xFeed key remains a hard failure.

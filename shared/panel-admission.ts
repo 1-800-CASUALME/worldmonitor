@@ -10,6 +10,7 @@ export const forecastPanelReadSchema = z.object({
   domain: z.string().trim().max(80).default(''),
   region: z.string().trim().max(80).default(''),
   limit: z.number().int().min(1).max(30).default(30),
+  include_history: z.boolean().optional().transform(() => undefined),
 }).strict();
 export const forecastPanelViewSchema = forecastPanelReadSchema.extend({
   refresh: z.boolean().default(false), request_id: z.string().uuid().optional(),

@@ -2394,9 +2394,12 @@ curl -s https://worldmonitor.app/mcp \
 | `domain` | string | 筛选为一个预测领域（精确、不区分大小写 — 例如 "shipping"、"energy"、"macro"）。 |
 | `region` | string | 筛选为一个地区/战区（不区分大小写的子串）。 |
 | `limit` | number | 付费面板接受 1–30 的整数。普通 API 调用保留现有的上限规则。 |
+| `include_history` | boolean | 附加最近 30 天的概率轨迹，每项最多 120 个点，列表最多 10 项。交互面板不返回轨迹。 |
 | `refresh` | boolean | 付费面板打开请求：设为 `true` 时启动新的准入，需要新的 `request_id`。 |
 | `request_id` | string | 可选 UUID，用于复用显式的付费面板打开请求。 |
 | `panel_request` | string | 签名的预测准入凭证，用于有界的已加载列表重放。 |
+
+每项还包含 `firstSeenAt`（ISO 时间）、`firstSeenProbability`、`change24h` 和 `change7d`（概率绝对变化）。轨迹缺失或不足时返回 null。地区变化会开始新片段；首次写入只回填仍保留的历史，因此 firstSeenAt 可能晚于最初发布时间。历史点为 `[isoTime, probability]`，采样可能有空档。
 
 - **API 端点：** `GET /api/forecast/v1/get-forecasts`
 - **类型：** 缓存读取 — 来自 Redis 引导缓存的亚秒级响应。
@@ -2454,7 +2457,18 @@ curl -s https://worldmonitor.app/mcp \
 
 预测结算记分卡，含校准、Brier/对数分数、领域和生成来源细分，以及待判/已判结算计数。
 
-**参数（工具特定）：** 无
+**参数（工具专用）：**
+
+| 名称 | 类型 | 说明 |
+|------|------|------|
+| `view` | string | `summary`（默认，输出不变）或 `archive`（180 天内已结算的公开预测）。 |
+| `domain` | string | 精确筛选归档领域。 |
+| `outcome` | string | 筛选 YES、NO 或 VOID。 |
+| `forecast_id` | string | 精确的预测族 ID，附加结算时保存的轨迹，最多 30 个点。 |
+| `before` | number or string | 排除该 resolvedAt 时间戳（毫秒）及之后的记录，或传入上一页的 `nextBefore`。续页时保留相同筛选条件。 |
+| `limit` | integer | 归档每页最多 1–50 项，默认 25；响应预算可能缩短页面。 |
+
+归档返回当前评分卡的 `underAudit`、归档 seed-meta 的 `archive.stale`（36 小时预算）以及 `nextBefore`（末页为 null）。摘要形状保持不变。仅指定 `forecast_id` 时返回轨迹，不会借用其他地区的轨迹。归档使用公开凭证字段白名单，不含原始账本、评审理由、新闻归档内容或内部指标路径。历史结算可能大多为 VOID；归档本身不能证明预测能力。
 
 - **API 端点：** `GET /api/forecast/v1/get-forecast-scorecard`
 - **类型：** 缓存读取 — 来自 Redis 引导缓存的亚秒级响应。

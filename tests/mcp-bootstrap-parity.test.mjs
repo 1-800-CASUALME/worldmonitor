@@ -188,7 +188,7 @@ const EXCLUDED_FROM_MCP = new Map([
   ['forecast:simulation-outcome:latest',
     'on-demand: written by writeSimulationOutcome after simulation runs (matches api/health.js:467 ON_DEMAND_KEYS rationale). Internal pipeline artifact, not a queryable slice.'],
   ['forecast:resolutions:v1',
-    'operational: persistent forecast resolution working ledger with raw per-forecast evidence and audit receipt state. Exposed through health and summarized by get_forecast_scorecard; raw ledger MCP access deferred until a filtered/sliced tool exists.'],
+    'operational: persistent forecast resolution working ledger with raw per-forecast evidence and audit receipt state. Exposed through health and the sanitized get_forecast_scorecard archive view; raw ledger access remains private.'],
   ['forecast:calibration-map:v1',
     'operational: calibration map (#7070) written by seed-forecast-resolutions and read by seed-forecasts while its activation gate is eligible; the published probabilities reach MCP through the forecast tools, and its forward evaluation is internal to the scorecard, so no MCP tool.'],
   ['correlation:market-alerts:ledger:v1',

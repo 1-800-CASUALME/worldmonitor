@@ -1019,7 +1019,7 @@ describe('forecast panel transport through production cache reads', () => {
       if (!parsed.pathname.startsWith('/get/')) return Response.json({ result: [9999, 10000] });
       const key = decodeURIComponent(parsed.pathname.slice('/get/'.length));
       sourceReads.push(key);
-      assert.ok(['forecast:predictions:v2', 'seed-meta:forecast:predictions'].includes(key), key);
+      assert.ok(['forecast:predictions:v2', 'seed-meta:forecast:predictions', 'forecast:probability-trail:v1', 'seed-meta:forecast:probability-trail'].includes(key), key);
       return Response.json({ result: JSON.stringify(key === 'forecast:predictions:v2' ? canonical : { fetchedAt: Date.now() }) });
     };
     handler = (await import('../api/mcp.ts')).mcpHandler;
@@ -1090,7 +1090,7 @@ describe('forecast panel transport through production cache reads', () => {
   it('preserves the original full forecast shape and weighted per-tool accounting for API plans', async () => {
     const { deps, pipe } = makeProDeps({ getEntitlements: async () => ({ planKey: 'api-starter', features: { tier: 1, mcpAccess: true, apiAccess: true, planLimits: { apiCallsPerDay: 1000, mcpCallsPerDay: 'shared-api-budget' } }, validUntil: Date.now() + 86400000 }) });
     const result = await invoke(deps, 'get_forecast_predictions', { limit: 1 });
-    assert.deepEqual(result.body.result.structuredContent.data.predictions.predictions, [canonical.predictions[0]]);
+    assert.deepEqual(result.body.result.structuredContent.data.predictions.predictions, [{ ...canonical.predictions[0], firstSeenAt: null, firstSeenProbability: null, change24h: null, change7d: null }]);
     assert.equal(result.body.result.structuredContent.panelRequest, undefined);
     await invoke(deps, 'get_forecast_predictions', { limit: 1 });
     const { TOOL_REGISTRY, toolWeight } = await import('../api/mcp/registry/index.ts');
@@ -1431,8 +1431,8 @@ describe('public forecast reliability cache and completed output', () => {
     const invoke = async args => { const body = await (await mcpHandler(proReq('POST', callBody('get_forecast_predictions', args)), deps)).json(); return body.result ?? { isError: true, error: body.error }; };
     return { invoke, pipe, reads, values, advance: ms => { clock += ms; } };
   }
-  const values = () => ({ 'forecast:predictions:v2': predictions, 'seed-meta:forecast:predictions': { fetchedAt: now }, 'forecast:scorecard:v1': scorecard, 'seed-meta:forecast:scorecard': { fetchedAt: now } });
-  it('uses four distinct production cache identities and preserves an optional outage in one signed replay', async testContext => {
+  const values = () => ({ 'forecast:predictions:v2': predictions, 'seed-meta:forecast:predictions': { fetchedAt: now }, 'forecast:probability-trail:v1': { generatedAt: now, forecasts: {} }, 'seed-meta:forecast:probability-trail': { fetchedAt: now }, 'forecast:scorecard:v1': scorecard, 'seed-meta:forecast:scorecard': { fetchedAt: now } });
+  it('uses distinct production cache identities and preserves an optional outage in one signed replay', async testContext => {
     const fixtureContext = await fixture(testContext, { ...values(), 'forecast:scorecard:v1': 'unreadable' });
     const first = await fixtureContext.invoke({});
     assert.deepEqual([...new Set(fixtureContext.reads)].sort(), Object.keys(values()).sort(), 'opening must read predictions and independent optional scorecard data/meta');
