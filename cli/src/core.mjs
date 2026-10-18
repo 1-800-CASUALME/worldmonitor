@@ -9,7 +9,7 @@
 // user API key. A small REST escape hatch (`health`, `get <path>`) and an
 // OpenAPI listing (`list`) round it out for host-relative and self-hosted use.
 
-export const VERSION = '0.1.3';
+export const VERSION = '0.2.0';
 
 // Cloudflare's WAF challenges generic library User-Agents (node, curl,
 // python-requests, empty) on the API edge, so we always identify ourselves.
@@ -107,9 +107,17 @@ const VALUE_FLAGS = new Map([
   ['args', 'args'],
   ['arg-json', 'args'],
   ['timeout', 'timeout'],
+  ['theme', 'theme'],
+  ['fps', 'fps'],
+  ['port', 'port'],
+  ['url', 'url'],
 ]);
 
 const BOOL_FLAGS = new Map([
+  ['no-anim', 'noAnim'],
+  ['no-animations', 'noAnim'],
+  ['hosted', 'hosted'],
+  ['no-open', 'noOpen'],
   ['raw', 'raw'],
   ['compact', 'compact'],
   ['help', 'help'],
@@ -346,7 +354,17 @@ export function renderListing(rows) {
 export const HELP = `worldmonitor — command-line client for the World Monitor global-intelligence API
 
 USAGE
+  worldmonitor                       Open the terminal dashboard (TUI)
+  worldmonitor web                   Open the original web dashboard
   worldmonitor <command> [arguments] [--flags]
+
+DASHBOARD
+  tui                      Interactive terminal dashboard: news, markets, conflict,
+                           cyber, climate, predictions, live TV, intel, system
+                           (--theme <id>, --no-anim, --fps <n>; no key required)
+  web                      Original web dashboard: starts the Vite dev server in a
+                           repository checkout, otherwise opens worldmonitor.app
+                           (--hosted, --port <n>, --no-open, --url <url>)
 
 DATA COMMANDS (MCP tools/call — need --api-key except call get_sources)
   world                    Live global situation brief

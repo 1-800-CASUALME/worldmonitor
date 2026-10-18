@@ -359,3 +359,33 @@ describe('run', () => {
     assert.equal(plan.url, new URL(base + '/api/health').href);
   }
 });
+
+describe('dashboard dispatch', () => {
+  it('launches the TUI for a bare command on a TTY and for `tui`', async () => {
+    const launches = [];
+    const io = { isTTY: true, launchTui: async (args) => { launches.push(args); return 0; }, stdout() {}, stderr() {}, env: { WORLDMONITOR_API_KEY: 'wm_k' } };
+    assert.equal(await run([], io), 0);
+    assert.equal(await run(['tui', '--theme', 'matrix', '--no-anim'], io), 0);
+    assert.equal(launches.length, 2);
+    assert.equal(launches[1].options.theme, 'matrix');
+    assert.equal(launches[1].options.noAnim, true);
+    assert.equal(launches[1].config.apiKey, 'wm_k');
+  });
+  it('prints help for a bare command without a TTY and refuses `tui` there', async () => {
+    let out = '';
+    let err = '';
+    const io = { isTTY: false, env: {}, stdout: (s) => (out += s), stderr: (s) => (err += s), launchTui: async () => 0 };
+    assert.equal(await run([], io), 0);
+    assert.match(out, /USAGE/);
+    assert.equal(await run(['tui'], io), 2);
+    assert.match(err, /interactive terminal/);
+  });
+  it('routes `web` to the web launcher with its flags', async () => {
+    let got = null;
+    const io = { isTTY: true, env: {}, stdout() {}, stderr() {}, runWeb: async (args) => { got = args; return 0; } };
+    assert.equal(await run(['web', '--hosted', '--port', '4000', '--no-open'], io), 0);
+    assert.equal(got.options.hosted, true);
+    assert.equal(got.options.port, '4000');
+    assert.equal(got.options.noOpen, true);
+  });
+});

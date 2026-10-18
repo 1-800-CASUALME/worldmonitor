@@ -66,6 +66,22 @@ export async function run(argv, io = {}) {
     stdout(`${VERSION}\n`);
     return 0;
   }
+  // A bare `worldmonitor` on an interactive terminal opens the dashboard; in a
+  // pipe or script it keeps printing help so existing automation is unchanged.
+  const interactive = io.isTTY !== undefined ? io.isTTY : Boolean(process.stdout.isTTY && process.stdin.isTTY);
+  const wantsTui = command === 'tui' || command === 'dashboard' || (!command && interactive && !options.help);
+  if (wantsTui) {
+    if (!interactive && !env.WM_TUI_FORCE) {
+      stderr('The dashboard needs an interactive terminal. Run `worldmonitor tui` from a terminal, or see --help.\n');
+      return 2;
+    }
+    const launch = io.launchTui || (await import('./tui/index.mjs')).launchTui;
+    return launch({ options, config: resolveConfig(env), env, fetchImpl: io.fetch });
+  }
+  if (command === 'web') {
+    const runWeb = io.runWeb || (await import('./tui/web.mjs')).runWeb;
+    return runWeb({ options, stdout, stderr, env });
+  }
   if (options.help || !command || command === 'help') {
     stdout(`${HELP}\n`);
     return 0;

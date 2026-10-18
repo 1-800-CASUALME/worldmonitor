@@ -3,7 +3,7 @@ title: "Command-Line Client"
 description: "Script country briefs, risk scores, and registered MCP tools from your shell with the official worldmonitor npm CLI — no API integration to write."
 ---
 
-[`worldmonitor`](https://www.npmjs.com/package/worldmonitor) is the official command-line client for the World Monitor global-intelligence API. It's a thin, **dependency-free** wrapper over the [MCP server](/mcp-overview) (the recommended agent surface) with a REST escape hatch, so you can pull briefs, risk scores, and conflict / cyber / market / news feeds from a shell script or an agent without writing a single line of HTTP plumbing. It ships as ESM and runs on **Node 18+**.
+[`worldmonitor`](https://www.npmjs.com/package/worldmonitor) is the official command-line client for the World Monitor global-intelligence platform. Run it with no arguments and it opens a full **terminal dashboard**: the same news, markets, conflict, military, cyber, climate, prediction, live-video and intel data the web dashboard shows, with mouse support, six colour themes and animations, and no API key required. Its scripting commands are a thin, **dependency-free** wrapper over the [MCP server](/mcp-overview) (the recommended agent surface) with a REST escape hatch, so you can pull briefs, risk scores, and conflict / cyber / market / news feeds from a shell script or an agent without writing a single line of HTTP plumbing. It ships as ESM and runs on **Node 18+**.
 
 The source lives in [`cli/`](https://github.com/koala73/worldmonitor/tree/main/cli) in the main repository and is published to npm on every `cli-v*` release tag.
 Maintainers can follow the [CLI release runbook](/releasing-cli) when cutting a new npm version.
@@ -16,6 +16,37 @@ npm install -g worldmonitor    # installs the `worldmonitor` command (alias: `wm
 # or run ad-hoc without installing:
 npx worldmonitor tools
 ```
+
+## Terminal dashboard
+
+```sh
+worldmonitor          # open the dashboard (alias: worldmonitor tui)
+worldmonitor web      # open the original web dashboard
+```
+
+The dashboard reads the public bootstrap tiers (`/api/bootstrap?tier=fast&public=1`, `?tier=slow&public=1`), the public news digest and the compact health endpoint, so it works without a key. Military flights and vessel snapshots use an anonymous session token, exactly as the browser does. When `WORLDMONITOR_API_KEY` is set it is sent instead.
+
+| Key | View | Contents |
+|---|---|---|
+| `1` | Overview | Braille world map with live blips and a radar sweep, AI world brief, ranked top stories, market strip, theater posture |
+| `2` | News | 18 digest sections with ranked, threat-classified headlines and a story detail pane |
+| `3` | Markets | Indices, commodities, FX and crypto with sparklines, sector heatmap, macro signals, fear & greed, ETF flows, stablecoins, Gulf markets |
+| `4` | Conflict | Country instability (CII) ranking, UCDP armed-conflict events, unrest signals, theater posture, correlation cards and cross-source signals |
+| `5` | Air & Sea | Live military aircraft on the map, airport delays, chokepoints, vessel density zones, shipping stress and freight indices |
+| `6` | Cyber | Threat indicators, DDoS protocol and vector mix, service status, internet outages and traffic anomalies |
+| `7` | Climate | Earthquakes, hazards and disease outbreaks, weather alerts, climate anomalies, CO₂ / sea ice / sea level vitals |
+| `8` | Predict | Prediction markets by domain and AI scenario forecasts with cascades |
+| `9` | Live | The dashboard's live news channels and webcams, played in the terminal |
+| `0` | Intel | GDELT topic feeds, sanctions pressure, travel advisories, social velocity, US spending awards, tech events |
+| `Tab` | System | Platform health, per-source freshness and refresh, theme picker, player status |
+
+**Controls.** `Tab` / `Shift+Tab` or the number keys switch views; `←` `→` (or `h` `l`) move between panes; `↑` `↓` (or `j` `k`), `PgUp` / `PgDn`, `g` / `G` move in lists; `Enter` opens the selected item; `o` opens its link in the browser; `[` `]` change the News section or Live region; `t` cycles themes and `T` opens the picker; `a` toggles animations; `r` refreshes the current view; `W` opens the web dashboard; `?` shows help; `q` quits. Tabs, rows and buttons are clickable and the mouse wheel scrolls lists.
+
+**Themes.** Neon Horizon (default), Matrix, Amber CRT, Red Alert, Glacier and Synthwave. The choice and the animation toggle persist in `$XDG_CONFIG_HOME/worldmonitor/tui.json` (never credentials). Flags: `--theme <id>`, `--no-anim`, `--fps <n>` (default 20), `--base-url <url>`.
+
+**Live video.** Streams play through [mpv](https://mpv.io) (`brew install mpv yt-dlp`). `Enter` plays inside the terminal: pixel video through the Kitty graphics protocol on Ghostty, Kitty, WezTerm and Konsole, truecolor cells (`--vo=tct`) elsewhere and inside tmux. `w` opens an mpv window and `b` the browser; without mpv the browser is used. Sources follow the dashboard's catalog: the broadcaster's HLS stream first, then YouTube, with channel entries resolved through the `liveVideoResolved` key. `s` cycles sources.
+
+**`worldmonitor web`.** Inside a repository checkout it runs `npm run dev` and opens the printed local URL; elsewhere it opens `https://www.worldmonitor.app/dashboard`. Flags: `--hosted` (skip the checkout), `--port <n>`, `--no-open`, `--url <url>`.
 
 ## First call — no key needed
 
@@ -108,6 +139,8 @@ worldmonitor list cyber                   # list documented REST operations from
 | `--base-url <url>` | REST base (default `https://api.worldmonitor.app`) |
 | `--args <json>` | Typed arguments object for a tool call |
 | `--timeout <ms>` | Request timeout (default `30000`) |
+| `--theme <id>`, `--no-anim`, `--fps <n>` | Dashboard appearance (`tui`) |
+| `--hosted`, `--port <n>`, `--no-open`, `--url <url>` | `web` command options |
 | `--raw` | Print the response body verbatim |
 | `--compact` | Print single-line JSON |
 | `-h, --help` · `-v, --version` | Help / version |
