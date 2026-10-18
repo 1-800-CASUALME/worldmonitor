@@ -474,6 +474,43 @@ describe('api/mcp.ts — tools/list description budget (v1.34.0)', () => {
       assert.doesNotMatch(full.description, /energy storage/i);
     });
 
+    it('get_tariff_trends advertises price and debt indicators without a tariff series', async () => {
+      const tools = await getToolsList();
+      const listed = tools.find(t => t.name === 'get_tariff_trends').description;
+      assert.ok(mod.utf8ByteLength(listed) <= mod.TOOL_DESCRIPTION_MAX_BYTES);
+      assert.match(listed, /Big Mac/);
+      assert.match(listed, /FAO/);
+      assert.match(listed, /debt/i);
+      assert.match(listed, /No tariff rates/);
+      const full = await callDescribeTool('get_tariff_trends');
+      assert.match(full.description, /Big Mac/);
+      assert.match(full.description, /FAO/);
+      assert.match(full.description, /debt/i);
+      assert.match(full.description, /No tariff rates/);
+    });
+
+    for (const name of ['get_tariff_averages', 'get_bilateral_tariff']) {
+      it(`${name} describes its schedule coverage before the call without routing to another tool`, async () => {
+        const tools = await getToolsList();
+        const listed = tools.find(t => t.name === name).description;
+        assert.ok(mod.utf8ByteLength(listed) <= mod.TOOL_DESCRIPTION_MAX_BYTES);
+        assert.match(listed, /schedule/i);
+        assert.match(listed, /2023/);
+        assert.match(listed, /Section 301/);
+        const full = await callDescribeTool(name);
+        assert.match(full.description, /unilateral duties are NOT included/);
+        assert.doesNotMatch(full.description, /get_us_import_duty/);
+      });
+    }
+
+    it('get_us_import_duty says "current" and "Section 301" before the call', async () => {
+      const tools = await getToolsList();
+      const listed = tools.find(t => t.name === 'get_us_import_duty').description;
+      assert.ok(mod.utf8ByteLength(listed) <= mod.TOOL_DESCRIPTION_MAX_BYTES);
+      assert.match(listed, /current/i);
+      assert.match(listed, /Section 301/i);
+    });
+
     it('describe_tool({tool_name: "get_market_data"}) returns the same description tools/list ships', async () => {
       const tools = await getToolsList();
       const listed = tools.find(t => t.name === 'get_market_data');
