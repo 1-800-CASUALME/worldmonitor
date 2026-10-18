@@ -117,8 +117,12 @@ async function executeCacheTool(
   // key failed the whole tool as a raw TimeoutError (WORLDMONITOR-176/ZM/137),
   // while folding the failure into null would read an unreadable seed-meta as
   // "never seeded" and an unreadable data key as an empty section.
-  const reads = tool._cacheKeys.map((k) => settleRead((panel !== undefined ? readRawJsonFromUpstash : readJsonFromUpstash)(k, 3_000, !isAppOwnedRedisKey(k))));
-  const freshnessChecks = tool._freshnessChecks;
+  const historyMode = params.changes_since_days !== undefined;
+  const cacheKeys = tool.name === 'get_sanctions_data'
+    ? tool._cacheKeys.filter(key => (key === 'sanctions:changes:v1') === historyMode) : tool._cacheKeys;
+  const reads = cacheKeys.map((k) => settleRead((panel !== undefined ? readRawJsonFromUpstash : readJsonFromUpstash)(k, 3_000, !isAppOwnedRedisKey(k))));
+  const freshnessChecks = tool.name === 'get_sanctions_data'
+    ? tool._freshnessChecks.filter(check => (check.key === 'seed-meta:sanctions:changes') === historyMode) : tool._freshnessChecks;
   const metaReads = freshnessChecks.map((check) => settleRead(readJsonFromUpstash(check.key, 3_000, !isAppOwnedRedisKey(check.key))));
   // #6080 deployment-order grace. Only checks declaring a content contract pay
   // for this read, so it is one extra command on get_chokepoint_status and
@@ -152,7 +156,7 @@ async function executeCacheTool(
   // is what tells the caller the verdict rests on a read that failed.
   const metas = metaOutcomes.map((r) => (r.ok ? r.value : null));
   let freshnessUnknown = metaOutcomes.some((r) => !r.ok);
-  const labels = tool._cacheKeys.map((key) => cacheKeyLabel(tool, key));
+  const labels = cacheKeys.map((key) => cacheKeyLabel(tool, key));
   let unreadable = labels.filter((_, i) => !dataReads[i]!.ok);
   // Three-valued on purpose: only a marker we actually read and found ABSENT
   // earns the deployment-order grace. An unreadable marker stays out of the
@@ -206,7 +210,7 @@ async function executeCacheTool(
   // type). The all-null case is structurally distinguishable from "the
   // upstream returned an empty list" (which is a JSON value, not null).
   if (
-    tool._cacheKeys.length > 0 &&
+    cacheKeys.length > 0 &&
     results.every((v: unknown) => v === null || v === undefined)
   ) {
     // Nothing usable came back. If any of it was a failed read rather than a

@@ -43,10 +43,4 @@ OFAC 以不规律频率（每日到每周）发布列表更新。面板读取最
 ## API 参考
 
 - [Sanctions service](https://github.com/koala73/worldmonitor/blob/main/docs/api/SanctionsService.openapi.yaml) — 制裁压力 + 实体搜索 RPC。
-- 相关：`GET /api/sanctions/v1/lookup-sanction-entity?q=...` — 配置获授权的 API 密钥后通过 OpenSanctions 按名称搜索，并以本地索引作为后备。
-
-在服务器设置 `OPENSANCTIONS_API_KEY` 可启用 OpenSanctions `default` 数据集的认证查询。密钥仅保留在服务器，通过 `Authorization: ApiKey` 请求头发送。成功响应（包括零匹配）缓存一小时，返回 `source: "opensanctions"`。覆盖范围取决于 OpenSanctions 数据集，而非本地索引。
-
-未配置密钥时，此端点完全跳过 OpenSanctions。密钥被拒、限流、超时或上游故障时，也会回退到包含 OFAC SDN、OFAC Consolidated 和加拿大 SEMA 记录的本地索引。故障不会缓存为零匹配响应；共享缓存仅采用短暂的重试退避。
-
-回退时，`source` 根据所查询本地索引中的记录 ID 标明名单来源，即使没有匹配也会返回。合并记录保留主要来源 ID，因此该标签不保证某个名单的完整覆盖。空索引、索引不可用和未执行查询会分别标注。本地后备索引不直接查询英国、欧盟或联合国名单。英国和欧盟官方名单的直接接入属于 [#9352](https://github.com/koala73/worldmonitor/issues/9352) 所述的后续工作。
+- 相关：`GET /api/sanctions/v1/lookup-sanction-entity?q=...` — 在已缓存的 OFAC SDN、OFAC Consolidated 和加拿大 SEMA 索引中按名称、每个实体最多 10 个保留别名或精确 IMO 编号筛选。响应列出搜索的数据来源；查询长度不在 2–200 个字符内时返回 `seeded`，无有效索引记录时返回 `unavailable`。不会实时请求外部提供方。匹配结果是需向发布机构核实的线索，不构成法律建议。

@@ -1346,7 +1346,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `get_sanctions_data`
 
-读取 OFAC SDN、综合制裁名单、加拿大 SEMA 制裁和国家压力评分。`changes_since_days` 返回指定天数内观测到的新增、移除和制裁项目变更。匹配结果仅供进一步向发布机构核实，不构成法律意见。每次调用权重为 1，不在请求时获取外部来源。
+读取 OFAC SDN、OFAC Consolidated、加拿大 SEMA 制裁和国家压力评分。`screen` 支持名称、每个实体最多 10 个保留别名和精确 IMO 编号，返回 `score`、`matched_on`、`matched_text`；不要同时提供 `screen` 和 `changes_since_days`。`changes_since_days` 选择仅变更历史模式，返回指定天数内观测到的新增、移除和制裁项目变更。匹配结果仅供进一步向发布机构核实，不构成法律意见。每次调用权重为 1，不在请求时获取外部来源。
 
 **参数（工具特定）：**
 
@@ -1355,8 +1355,11 @@ curl -s https://worldmonitor.app/mcp \
 | `country` | string | 将制裁实体和压力评分筛选为一个 ISO 3166-1 alpha-2 国家代码。 |
 | `entity_type` | string | 筛选为一种实体类型（不区分大小写的子串，例如 "vessel"、"aircraft"、"person"、"entity"）。 |
 | `query` | string | 仅保留名称包含此文本的制裁实体（不区分大小写）。 |
-| `changes_since_days` | integer | 返回过去 1–90 天的变更事件和覆盖缺口。国家、实体类型、名称查询和条数限制适用于事件；缺口始终保留。 |
-| `limit` | number | 限制实体、近期压力条目和变更事件的数量（默认 30，传 0 表示不限）。 |
+| `screen` | string | 按名称、别名或 IMO 编号筛选，长度 2-200 字符；实体筛选时不要提供 `changes_since_days`。 |
+| `min_score` | number | 最低匹配分数 0-100，默认 70，仅与 `screen` 一起使用。 |
+| `changes_since_days` | integer | 仅返回过去 1–90 天的历史。国家、实体类型和名称查询筛选事件；每页均保留覆盖缺口。 |
+| `changes_cursor` | string | 使用上一页的 `changes.nextCursor` 继续，并保持相同筛选条件。种子历史变化后须重新开始。 |
+| `limit` | number | 默认 30。历史模式中，传 0 或大于 100 的值每页最多返回 100 个事件，并可能因响应预算而减少；其他模式中传 0 表示不限。 |
 
 - **API 端点：** `GET /api/sanctions/v1/list-sanctions-pressure`, `GET /api/sanctions/v1/lookup-sanction-entity`
 - **访问权限：** 仅限订阅用户（Pro/API）。
@@ -1372,13 +1375,15 @@ curl -s https://worldmonitor.app/mcp \
   -d '{
     "jsonrpc":"2.0","id":1,
     "method":"tools/call",
-    "params":{"name":"get_sanctions_data","arguments":{}}
+    "params":{"name":"get_sanctions_data","arguments":{"screen":"Northern Star","min_score":70}}
   }'
 ```
 
 </CodeGroup>
 
 变更记录最多保留 90 天或 10,000 个事件，按观测时间从新到旧返回。`at` 是观测时间（毫秒）；`effectiveAt` 是来源的生效时间字符串，未知时为 `"0"`。制裁项目集合变更产生 `amended` 和 `prevPr`。`gaps` 记录来源保留、不可用、缺少有效基线或单次移除超过 5% 的情况；这些区间不能证明没有变更。`truncatedBefore` 表示事件数量上限导致的历史截断边界。未提供 `changes_since_days` 时省略 `changes`。
+
+历史请求仅返回 `changes`，独立读取缓存并检查新鲜度。时间窗口以 `changes.fetchedAt` 为准。将 `changes.nextCursor` 作为 `changes_cursor` 继续，保持相同筛选条件，直至游标为空；`matchingEvents` 是筛选后的总数。新种子替换历史后，移除游标重新开始。每页均保留窗口内的覆盖缺口。历史缺失或无效时不会重置；当前实体和压力数据仍可继续更新。
 
 ### `get_social_velocity`
 

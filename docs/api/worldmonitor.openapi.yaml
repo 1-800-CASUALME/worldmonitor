@@ -28179,13 +28179,13 @@ paths:
                 - SanctionsService
             summary: LookupSanctionEntity
             description: |-
-                LookupSanctionEntity searches OpenSanctions by name when a licensed API key is configured.
-                 Otherwise, or on upstream failure, it searches the local OFAC and Canada SEMA index.
+                LookupSanctionEntity screens the seeded OFAC SDN, OFAC Consolidated and Canada SEMA lists
+                 by name, up to 10 retained aliases per entity, or an exact IMO identifier.
             operationId: LookupSanctionEntity
             parameters:
                 - name: q
                   in: query
-                  description: Search text for a sanctioned person, organization, vessel, or aircraft.
+                  description: Search a name, up to 10 retained aliases per entity, or an exact IMO identifier (2-200 characters).
                   required: false
                   example: "example"
                   schema:
@@ -56017,14 +56017,12 @@ components:
             properties:
                 q:
                     type: string
-                    description: Search text for a sanctioned person, organization, vessel, or aircraft.
+                    description: Search a name, up to 10 retained aliases per entity, or an exact IMO identifier (2-200 characters).
                 maxResults:
                     type: integer
                     format: int32
                     description: Maximum number of matching sanctioned entities to return.
-            description: |-
-                LookupSanctionEntityRequest searches OpenSanctions by name when a licensed API key is configured.
-                 Otherwise, or on upstream failure, it searches the local OFAC and Canada SEMA index.
+            description: LookupSanctionEntityRequest screens the seeded OFAC SDN, OFAC Consolidated and Canada SEMA index.
         worldmonitor_sanctions_v1_LookupSanctionEntityResponse:
             type: object
             properties:
@@ -56038,13 +56036,11 @@ components:
                 source:
                     type: string
                     description: |-
-                        "opensanctions" identifies an authenticated OpenSanctions search response, including cached or zero-match answers.
-                         On local fallback, lists are identified by primary record IDs in the searched index.
-                         Merged local records retain only their primary source ID; complete list coverage is not guaranteed.
-                         Empty, unavailable, and unsearched states are labelled separately.
+                        Comma-separated lists searched; "seeded" when q is rejected before lookup;
+                         "unavailable" when no valid index records are available.
             description: |-
-                LookupSanctionEntityResponse contains name matches from OpenSanctions or the local OFAC and Canada SEMA index.
-                 The source field identifies the searched provider or local lists.
+                LookupSanctionEntityResponse contains seeded matches ranked by token-set Jaro-Winkler score.
+                 A match is a lead to confirm with the issuing agency, not legal advice.
         worldmonitor_sanctions_v1_SanctionEntityMatch:
             type: object
             properties:
@@ -56062,7 +56058,7 @@ components:
                     type: array
                     items:
                         type: string
-            description: SanctionEntityMatch is a compact entity match from OpenSanctions or the local index.
+            description: SanctionEntityMatch is a compact entity match from the lookup index.
         worldmonitor_scenario_v1_RunScenarioRequest:
             type: object
             properties:

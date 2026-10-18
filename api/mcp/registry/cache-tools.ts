@@ -1,3 +1,4 @@
+import { screenSanctions } from '../../../server/_shared/sanctions-screen';
 import { projectSupplyChainData } from './_shipping-freight';
 import ISO2_TO_ISO3 from '../../../shared/iso2-to-iso3.js';
 import { MARKET_ASSET_CLASSES } from '../../../shared/panel-admission';
@@ -82,6 +83,15 @@ import {
   NEWS_INTELLIGENCE_UI_URI,
   PREDICTION_MARKETS_UI_URI,
 } from '../ui/registry';
+
+function sanctionsChangesCursor(value: unknown): { fetchedAt?: number; offset: number } {
+  if (value === undefined) return { offset: 0 };
+  const match = typeof value === 'string' && value.length <= 64 && /^([1-9]\d{0,15}):(0|[1-9]\d{0,4})$/.exec(value);
+  if (!match || !Number.isSafeInteger(Number(match[1])) || Number(match[2]) > 10000) {
+    throw new RpcValidationError('get_sanctions_data', [{ field: 'changes_cursor', description: 'Use nextCursor from the previous history page.' }]);
+  }
+  return { fetchedAt: Number(match[1]), offset: Number(match[2]) };
+}
 
 // Eurostat uses EL for Greece and also publishes these two non-country geos.
 function resolveEurostatCountryFilter(raw: unknown): string[] {
@@ -2300,15 +2310,18 @@ export const CACHE_TOOLS: ToolDef[] = [
     title: 'Sanctions lists and pressure scores',
     _subscriptionOnly: true,
     _outputBudgetBytes: 131072,
-    description: 'Read OFAC SDN and Consolidated lists, Canada SEMA sanctions and country pressure scores. Use query for primary-name substring lookup or changes_since_days (1-90) for observed additions, removals and program amendments. History includes coverage gaps, holds source diffs above 5% removals and keeps at most 10,000 events for 90 days; truncatedBefore marks cap loss. Seeded every 6 hours, stale after 12 hours, no request-time source fetch. Subscription required, weight 1. A match is a lead to confirm with the issuing agency, not legal advice.',
+    description: 'Screen OFAC SDN, OFAC Consolidated and Canada SEMA entities, or read country pressure and designation changes. screen matches names, up to 10 aliases and exact IMO IDs, returning score/matched_on/matched_text; query filters primary names. changes_since_days (1-90) selects history only, paged by changes_cursor, max 100 events/page. Gaps include held diffs above 5% removals; history keeps 90 days/10,000 events (truncatedBefore marks cap loss). Seeded every 6 hours, stale after 12 hours; no live fetch. Subscription required, weight 1. Matches are leads to confirm with the issuing agency, not legal advice.',
     inputSchema: {
       type: 'object',
       properties: {
         country: { type: 'string', description: 'Filter sanctioned entities and pressure scores to one ISO 3166-1 alpha-2 country code. Country names and alpha-3 codes are accepted; unresolved inputs return Invalid params.' },
         entity_type: { type: 'string', description: 'Filter to one entity type (case-insensitive substring, e.g. "vessel", "aircraft", "person", "entity").' },
         query: { type: 'string', description: 'Keep only sanctioned entities whose name contains this text (case-insensitive).' },
-        changes_since_days: { type: 'integer', minimum: 1, maximum: 90, description: 'Include observed designation changes and coverage gaps from the last 1-90 days. Country, entity_type, query and limit filter events; gaps remain visible.' },
-        limit: { type: 'number', description: 'Cap entities, recent pressure entries and change events (default 30, pass 0 for no cap).' },
+        screen: { type: 'string', minLength: 2, maxLength: 200, description: 'Screen a name, alias or IMO identifier against the seeded lists (2-200 characters). Omit changes_since_days for entity screening.' },
+        min_score: { type: 'number', minimum: 0, maximum: 100, default: 70, description: 'Minimum screening score from 0 to 100 (default 70); applies only with screen.' },
+        changes_since_days: { type: 'integer', minimum: 1, maximum: 90, description: 'Select history only for the last 1-90 days. Country, entity_type and query filter events; gaps remain visible on every page.' },
+        changes_cursor: { type: 'string', maxLength: 64, description: 'Continue from changes.nextCursor with the same filters. Restart if the seeded history changed.' },
+        limit: { type: 'number', description: 'List cap, default 30; 0 removes the cap except in history mode, where pages contain at most 100 events and may be smaller to fit the response budget.' },
       },
       required: [],
     },
@@ -2321,7 +2334,11 @@ export const CACHE_TOOLS: ToolDef[] = [
         items: { type: 'object', properties: {
           // Up to three ISO country codes per entity (scripts/seed-sanctions-pressure.mjs).
           name: { type: 'string' }, cc: { type: 'array', items: { type: 'string' } }, et: { type: 'string' },
-          addr: { type: 'string' },
+          id: { type: 'string' }, pr: { type: 'array', items: { type: 'string' } },
+          al: { type: 'array', maxItems: 10, items: { type: 'string' } },
+          ids: { type: 'array', items: { type: 'string' } }, sl: { type: 'array', items: { type: 'string' } },
+          score: { type: 'number', minimum: 0, maximum: 100 },
+          matched_on: { enum: ['name', 'alias', 'identifier'] }, matched_text: { type: 'string' },
         } },
       },
       pressure: {
@@ -2339,6 +2356,7 @@ export const CACHE_TOOLS: ToolDef[] = [
         type: ['object', 'null'],
         properties: {
           version: { type: 'number' }, fetchedAt: { type: 'number' }, truncatedBefore: { type: 'number' },
+          matchingEvents: { type: 'integer' }, nextCursor: { type: 'string', description: 'Continue with changes_cursor; empty when complete. Keep the same filters.' },
           events: { type: 'array', items: { type: 'object', properties: {
             at: { type: 'number' }, effectiveAt: { type: 'string' },
             op: { type: 'string', enum: ['added', 'removed', 'amended'] },
@@ -2355,17 +2373,33 @@ export const CACHE_TOOLS: ToolDef[] = [
     }),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     _postFilter: (data, params) => {
+      if (params.screen !== undefined && (typeof params.screen !== 'string'
+        || params.screen.trim().length < 2 || params.screen.trim().length > 200)) {
+        throw new RpcValidationError('get_sanctions_data', [{ field: 'screen', description: 'Expected 2-200 characters.' }]);
+      }
+      if (params.min_score !== undefined && (typeof params.min_score !== 'number'
+        || !Number.isFinite(params.min_score) || params.min_score < 0 || params.min_score > 100)) {
+        throw new RpcValidationError('get_sanctions_data', [{ field: 'min_score', description: 'Expected a score from 0 to 100.' }]);
+      }
       const countries = resolveCountryFilter(params.country, 'country');
       const etype = argStr(params.entity_type);
       const query = argStr(params.query);
       const limit = (argNum(params.limit) ?? DEFAULT_LIST_LIMIT);
       const days = params.changes_since_days;
+      if (days !== undefined && params.screen !== undefined) {
+        throw new RpcValidationError('get_sanctions_data', [{ field: 'screen', description: 'Use screen without changes_since_days; history supports query.' }]);
+      }
+      const cursor = sanctionsChangesCursor(params.changes_cursor);
+      if (days === undefined && params.changes_cursor !== undefined) {
+        throw new RpcValidationError('get_sanctions_data', [{ field: 'changes_cursor', description: 'Requires changes_since_days.' }]);
+      }
       if (days !== undefined && (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 90)) {
         throw new RpcValidationError('get_sanctions_data', [{ field: 'changes_since_days', description: 'Expected an integer from 1 to 90.' }]);
       }
       if (days === undefined) delete data.changes;
       else {
-        const since = Date.now() - (days as number) * 86400000;
+        const snapshotAt = (data.changes as { fetchedAt?: number } | null)?.fetchedAt;
+        const since = (snapshotAt ?? Date.now()) - (days as number) * 86400000;
         narrowNested(data, 'changes', 'events', e => typeof e.at === 'number' && e.at >= since
           && (!countries.length || matchesCode(e.cc, countries))
           && (!etype || ciIncludes(e.et, etype)) && (!query || ciIncludes(e.name, query)));
@@ -2375,9 +2409,22 @@ export const CACHE_TOOLS: ToolDef[] = [
           const log = changes as Record<string, unknown>;
           delete log.sourceFetchedAt;
           delete log.heldSources;
-          if (Array.isArray(log.events)) log.events.sort((a, b) => Number(b.at) - Number(a.at));
+          if (cursor.fetchedAt !== undefined && cursor.fetchedAt !== log.fetchedAt) {
+            throw new RpcValidationError('get_sanctions_data', [{ field: 'changes_cursor', description: 'History changed; restart without the cursor.' }]);
+          }
+          if (Array.isArray(log.events)) {
+            log.events.sort((a, b) => Number(b.at) - Number(a.at));
+            const total = log.events.length;
+            if (cursor.offset > total) {
+              throw new RpcValidationError('get_sanctions_data', [{ field: 'changes_cursor', description: 'Cursor is outside the filtered history.' }]);
+            }
+            const size = limit === 0 ? 100 : Math.max(1, Math.min(100, Math.trunc(limit)));
+            const page = log.events.slice(cursor.offset, cursor.offset + size);
+            log.events = page;
+            log.matchingEvents = total;
+            log.nextCursor = cursor.offset + page.length < total ? `${log.fetchedAt}:${cursor.offset + page.length}` : '';
+          }
         }
-        capNested(data, 'changes', 'events', limit);
       }
       if (countries.length > 0) {
         narrowArray(data, 'entities', (e) => matchesCode(e.cc, countries));
@@ -2389,9 +2436,25 @@ export const CACHE_TOOLS: ToolDef[] = [
         narrowNested(data, 'pressure', 'entries', (e) => ciIncludes(e.entityType, etype));
       }
       if (query) narrowArray(data, 'entities', (e) => ciIncludes(e.name, query));
+      if (typeof params.screen === 'string' && Array.isArray(data.entities)) {
+        data.entities = screenSanctions(data.entities, params.screen.trim(), argNum(params.min_score) ?? 70);
+      }
       capArrays(data, limit);
       capNested(data, 'pressure', 'entries', limit);
       return data;
+    },
+    _fitToBudget: (result, budgetBytes, args) => {
+      if (args.changes_since_days === undefined) return result;
+      const presented = structuredClone(result);
+      const data = presented.data as Record<string, unknown> | undefined;
+      const log = data?.changes as Record<string, unknown> | null | undefined;
+      if (!log || !Array.isArray(log.events)) return result;
+      const { offset } = sanctionsChangesCursor(args.changes_cursor);
+      while (log.events.length > 1 && utf8ByteLength(JSON.stringify(presented)) > budgetBytes) {
+        log.events.pop();
+        log.nextCursor = `${log.fetchedAt}:${offset + log.events.length}`;
+      }
+      return presented;
     },
     _cacheKeys: ['sanctions:entities:v1', 'sanctions:pressure:v1', 'sanctions:changes:v1'],
     _freshnessChecks: [

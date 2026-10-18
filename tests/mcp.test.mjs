@@ -4586,6 +4586,84 @@ describe('api/mcp.ts — U7 Pro-path', () => {
   });
 });
 
+describe('get_sanctions_data screening contract', () => {
+  const tool = TOOL_REGISTRY.find(t => t.name === 'get_sanctions_data');
+  const index = [
+    { id: 'SDN:1', name: 'Café Maritime LLC', et: 'vessel', cc: ['RU'], pr: ['SDN'], al: ['Northern Star'], ids: ['imo:1234567'], sl: ['SDN'] },
+    { id: 'SEMA:2', name: 'Northern Star Shipping', et: 'entity', cc: ['CA'], pr: ['SEMA'], sl: ['SEMA'] },
+  ];
+  it('advertises screening params and accurate output/freshness without changing weight or tier', () => {
+    assert.equal(tool.inputSchema.properties.screen.maxLength, 200);
+    assert.equal(tool.inputSchema.properties.min_score.default, 70);
+    const entity = tool.outputSchema.properties.data.properties.entities.items.properties;
+    assert.equal(entity.addr, undefined);
+    assert.deepEqual(entity.matched_on.enum, ['name', 'alias', 'identifier']);
+    assert.equal(tool._execute, undefined);
+    assert.equal(tool._subscriptionOnly, true);
+    assert.ok(tool._freshnessChecks.every(check => check.maxStaleMin === 720));
+    for (const key of ['seed-meta:sanctions:entities', 'seed-meta:sanctions:pressure']) {
+      assert.ok(tool._freshnessChecks.some(check => check.key === key));
+    }
+  });
+  it('screens aliases before limiting and composes country, type and primary-name filters', () => {
+    const data = { entities: index, pressure: { entries: [], countries: [] } };
+    const result = tool._postFilter(structuredClone(data), { screen: 'Northern Star', min_score: 100, country: 'RU', entity_type: 'vessel', limit: 1 });
+    assert.equal(result.entities.length, 1);
+    assert.equal(result.entities[0].matched_on, 'alias');
+    assert.equal(result.entities[0].matched_text, 'Northern Star');
+    assert.equal(tool._postFilter(structuredClone(data), { screen: 'IMO 1234567' }).entities[0].score, 100);
+    assert.deepEqual(tool._postFilter(structuredClone(data), { query: 'Northern Star', country: 'RU' }).entities, []);
+    assert.deepEqual(tool._postFilter(structuredClone(data), {}).entities, index);
+  });
+  it('serves scored aliases through the subscribed MCP transport using only seeded reads', async t => {
+    const previousEnv = { ...process.env };
+    const previousFetch = globalThis.fetch;
+    t.after(() => {
+      globalThis.fetch = previousFetch;
+      for (const key of Object.keys(process.env)) if (!(key in previousEnv)) delete process.env[key];
+      Object.assign(process.env, previousEnv);
+    });
+    process.env.MCP_INTERNAL_HMAC_SECRET = HMAC_SECRET;
+    process.env.UPSTASH_REDIS_REST_URL = 'https://sanctions.mcp.test';
+    process.env.UPSTASH_REDIS_REST_TOKEN = 'test';
+    process.env.MCP_TELEMETRY = 'false';
+    const cache = {
+      'sanctions:entities:v1': index,
+      'sanctions:pressure:v1': { entries: [], countries: [] },
+      'seed-meta:sanctions:entities': { fetchedAt: Date.now(), recordCount: 2 },
+      'seed-meta:sanctions:pressure': { fetchedAt: Date.now(), recordCount: 2 },
+    };
+    const requests = [];
+    globalThis.fetch = async input => {
+      const url = String(input);
+      requests.push(url);
+      assert.ok(url.startsWith('https://sanctions.mcp.test/get/'), url);
+      const key = decodeURIComponent(new URL(url).pathname.slice(5));
+      return new Response(JSON.stringify({ result: key in cache ? JSON.stringify(cache[key]) : null }));
+    };
+    const { mcpHandler } = await import('../api/mcp.ts');
+    const { deps } = makeProDeps();
+    const response = await mcpHandler(proReq('POST', callBody('get_sanctions_data', {
+      screen: 'Northern Star', country: 'RU', min_score: 100, limit: 1,
+    })), deps);
+    const body = await response.json();
+    assert.equal(body.error, undefined, JSON.stringify(body));
+    const envelope = JSON.parse(body.result.content[0].text);
+    assert.equal(envelope.data.entities[0].matched_on, 'alias');
+    assert.equal(envelope.data.entities[0].score, 100);
+    assert.equal(envelope.stale, false);
+    assert.ok(requests.length >= 4);
+    const invalid = await mcpHandler(proReq('POST', callBody('get_sanctions_data', { screen: 'x' }, 101)), deps);
+    assert.equal((await invalid.json()).error.code, -32602);
+  });
+  it('rejects invalid screening arguments and does not turn a missing cache into a valid empty list', () => {
+    for (const args of [{ screen: 'x' }, { screen: 123 }, { screen: 'x'.repeat(201) }, { min_score: -1 }, { min_score: 101 }, { min_score: '70' }]) {
+      assert.throws(() => tool._postFilter({ entities: index }, args), /./);
+    }
+    assert.equal(tool._postFilter({ entities: null }, { screen: 'Northern Star' }).entities, null);
+  });
+});
+
 describe('get_sanctions_data change feed contract', () => {
   const tool = TOOL_REGISTRY.find(t => t.name === 'get_sanctions_data');
   const now = Date.now();
@@ -4616,6 +4694,34 @@ describe('get_sanctions_data change feed contract', () => {
     for (const value of [0, 91, 1.5, '7', null]) {
       assert.throws(() => tool._postFilter(data(), { changes_since_days: value }));
     }
+    assert.throws(() => tool._postFilter(data(), { screen: 'Northern Star', changes_since_days: 7 }));
+  });
+  it('pages a stable history within the response budget without dropping events or coverage', () => {
+    const events = Array.from({ length: 250 }, (_, i) => ({ ...event, id: `SDN:${i}`, name: '船'.repeat(1000) }));
+    const history = { ...log, events };
+    let cursor;
+    const ids = [];
+    do {
+      const args = { changes_since_days: 7, limit: 0, ...(cursor ? { changes_cursor: cursor } : {}) };
+      const page = tool._postFilter({ changes: structuredClone(history) }, args);
+      const result = tool._fitToBudget({ data: page, stale: false, cached_at: now }, tool._outputBudgetBytes, args);
+      assert.ok(Buffer.byteLength(JSON.stringify(result)) <= tool._outputBudgetBytes);
+      assert.ok(result.data.changes.events.length > 0 && result.data.changes.events.length <= 100);
+      assert.equal(result.data.changes.matchingEvents, 250);
+      assert.deepEqual(result.data.changes.gaps, log.gaps);
+      ids.push(...result.data.changes.events.map(e => e.id));
+      cursor = result.data.changes.nextCursor;
+    } while (cursor);
+    assert.equal(ids.length, 250);
+    assert.equal(new Set(ids).size, 250);
+    assert.throws(() => tool._postFilter(data(), { changes_since_days: 7, changes_cursor: `${now - 1}:1` }));
+    assert.throws(() => tool._postFilter(data(), { changes_cursor: `${now}:1` }));
+  });
+  it('anchors the paged time window to the history snapshot', () => {
+    const cachedAt = now - 6 * 3600000;
+    const older = { ...event, at: now - 7 * 86400000 - 3600000 };
+    const result = tool._postFilter({ changes: { ...log, fetchedAt: cachedAt, events: [older] } }, { changes_since_days: 7 });
+    assert.deepEqual(result.changes.events, [older]);
   });
   it('serves changes and validates arguments through the subscribed MCP transport', async t => {
     const previousEnv = { ...process.env };
@@ -4631,14 +4737,24 @@ describe('get_sanctions_data change feed contract', () => {
     process.env.MCP_TELEMETRY = 'false';
     const cache = { 'sanctions:entities:v1': [], 'sanctions:pressure:v1': {}, 'sanctions:changes:v1': log,
       ...Object.fromEntries(['entities', 'pressure', 'changes'].map(key => [`seed-meta:sanctions:${key}`, { fetchedAt: now, recordCount: 4 }])) };
+    const reads = [];
     globalThis.fetch = async input => {
       const url = String(input);
       assert.ok(url.startsWith('https://sanctions.changes.test/get/'), url);
       const key = decodeURIComponent(new URL(url).pathname.slice(5));
+      reads.push(key);
       return new Response(JSON.stringify({ result: key in cache ? JSON.stringify(cache[key]) : null }));
     };
     const { mcpHandler } = await import('../api/mcp.ts');
     const { deps } = makeProDeps();
+    cache['seed-meta:sanctions:changes'] = { fetchedAt: now - 13 * 3600000, recordCount: 4 };
+    const ordinary = await mcpHandler(proReq('POST', callBody('get_sanctions_data', {}, 99)), deps);
+    const ordinaryBody = await ordinary.json();
+    assert.equal(ordinaryBody.error, undefined, JSON.stringify(ordinaryBody));
+    assert.equal(JSON.parse(ordinaryBody.result.content[0].text).stale, false);
+    assert.ok(!reads.some(key => key.includes('changes')));
+    reads.length = 0;
+    cache['seed-meta:sanctions:changes'] = { fetchedAt: now, recordCount: 4 };
     const response = await mcpHandler(proReq('POST', callBody('get_sanctions_data', { changes_since_days: 7, country: 'RU' })), deps);
     const body = await response.json();
     assert.equal(body.error, undefined, JSON.stringify(body));
@@ -4646,7 +4762,27 @@ describe('get_sanctions_data change feed contract', () => {
     assert.deepEqual(envelope.data.changes.events.map(e => e.op), ['added', 'amended']);
     assert.equal(envelope.data.changes.gaps.length, 1);
     assert.equal(envelope.stale, false);
+    assert.deepEqual(Object.keys(envelope.data), ['changes']);
+    assert.deepEqual(reads.sort(), ['sanctions:changes:v1', 'seed-meta:sanctions:changes'].sort());
     const invalid = await mcpHandler(proReq('POST', callBody('get_sanctions_data', { changes_since_days: 91 }, 102)), deps);
     assert.equal((await invalid.json()).error.code, -32602);
+    cache['sanctions:changes:v1'] = { ...log, events: Array.from({ length: 250 }, (_, i) => ({ ...event, id: `SDN:${i}`, name: '船'.repeat(1000) })) };
+    let cursor;
+    const ids = [];
+    do {
+      const args = { changes_since_days: 7, limit: 0, ...(cursor ? { changes_cursor: cursor } : {}) };
+      const pageResponse = await mcpHandler(proReq('POST', callBody('get_sanctions_data', args, 103 + ids.length)), deps);
+      const pageBody = await pageResponse.json();
+      assert.equal(pageBody.error, undefined, JSON.stringify(pageBody));
+      assert.equal(pageBody.result.isError, undefined, JSON.stringify(pageBody));
+      const text = pageBody.result.content[0].text;
+      assert.ok(Buffer.byteLength(text) <= tool._outputBudgetBytes);
+      const page = JSON.parse(text).data.changes;
+      assert.ok(page.events.length > 0);
+      ids.push(...page.events.map(e => e.id));
+      cursor = page.nextCursor;
+    } while (cursor);
+    assert.equal(ids.length, 250);
+    assert.equal(new Set(ids).size, 250);
   });
 });
