@@ -2282,14 +2282,15 @@ export const CACHE_TOOLS: ToolDef[] = [
     title: 'Sanctions lists and pressure scores',
     _subscriptionOnly: true,
     _outputBudgetBytes: 131072,
-    description: 'OFAC SDN sanctioned entities list and sanctions pressure scores by country. Useful for compliance screening and geopolitical pressure analysis.',
+    description: 'Read OFAC SDN and Consolidated lists, Canada SEMA sanctions and country pressure scores. Use query for primary-name substring lookup or changes_since_days (1-90) for observed additions, removals and program amendments. History includes coverage gaps, holds source diffs above 5% removals and keeps at most 10,000 events for 90 days; truncatedBefore marks cap loss. Seeded every 6 hours, stale after 12 hours, no request-time source fetch. Subscription required, weight 1. A match is a lead to confirm with the issuing agency, not legal advice.',
     inputSchema: {
       type: 'object',
       properties: {
         country: { type: 'string', description: 'Filter sanctioned entities and pressure scores to one ISO 3166-1 alpha-2 country code. Country names and alpha-3 codes are accepted; unresolved inputs return Invalid params.' },
         entity_type: { type: 'string', description: 'Filter to one entity type (case-insensitive substring, e.g. "vessel", "aircraft", "person", "entity").' },
         query: { type: 'string', description: 'Keep only sanctioned entities whose name contains this text (case-insensitive).' },
-        limit: { type: 'number', description: 'Cap the entity list and recent pressure entries to at most this many items (default 30, pass 0 for no cap).' },
+        changes_since_days: { type: 'integer', minimum: 1, maximum: 90, description: 'Include observed designation changes and coverage gaps from the last 1-90 days. Country, entity_type, query and limit filter events; gaps remain visible.' },
+        limit: { type: 'number', description: 'Cap entities, recent pressure entries and change events (default 30, pass 0 for no cap).' },
       },
       required: [],
     },
@@ -2316,6 +2317,23 @@ export const CACHE_TOOLS: ToolDef[] = [
           } } },
         },
       },
+      changes: {
+        type: ['object', 'null'],
+        properties: {
+          version: { type: 'number' }, fetchedAt: { type: 'number' }, truncatedBefore: { type: 'number' },
+          events: { type: 'array', items: { type: 'object', properties: {
+            at: { type: 'number' }, effectiveAt: { type: 'string' },
+            op: { type: 'string', enum: ['added', 'removed', 'amended'] },
+            list: { type: 'string' }, id: { type: 'string' }, name: { type: 'string' }, et: { type: 'string' },
+            cc: { type: 'array', items: { type: 'string' } }, pr: { type: 'array', items: { type: 'string' } },
+            prevPr: { type: 'array', items: { type: 'string' } },
+          } } },
+          gaps: { type: 'array', items: { type: 'object', properties: {
+            list: { type: 'string' }, from: { type: 'number' }, to: { type: 'number' },
+            reason: { type: 'string', enum: ['retained', 'unavailable', 'held', 'baseline-unavailable'] },
+          } } },
+        },
+      },
     }),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     _postFilter: (data, params) => {
@@ -2323,6 +2341,26 @@ export const CACHE_TOOLS: ToolDef[] = [
       const etype = argStr(params.entity_type);
       const query = argStr(params.query);
       const limit = (argNum(params.limit) ?? DEFAULT_LIST_LIMIT);
+      const days = params.changes_since_days;
+      if (days !== undefined && (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 90)) {
+        throw new RpcValidationError('get_sanctions_data', [{ field: 'changes_since_days', description: 'Expected an integer from 1 to 90.' }]);
+      }
+      if (days === undefined) delete data.changes;
+      else {
+        const since = Date.now() - (days as number) * 86400000;
+        narrowNested(data, 'changes', 'events', e => typeof e.at === 'number' && e.at >= since
+          && (!countries.length || matchesCode(e.cc, countries))
+          && (!etype || ciIncludes(e.et, etype)) && (!query || ciIncludes(e.name, query)));
+        narrowNested(data, 'changes', 'gaps', gap => typeof gap.to === 'number' && gap.to >= since);
+        const changes = data.changes;
+        if (changes && typeof changes === 'object' && !Array.isArray(changes)) {
+          const log = changes as Record<string, unknown>;
+          delete log.sourceFetchedAt;
+          delete log.heldSources;
+          if (Array.isArray(log.events)) log.events.sort((a, b) => Number(b.at) - Number(a.at));
+        }
+        capNested(data, 'changes', 'events', limit);
+      }
       if (countries.length > 0) {
         narrowArray(data, 'entities', (e) => matchesCode(e.cc, countries));
         narrowNested(data, 'pressure', 'entries', (e) => matchesCode(e.countryCodes, countries));
@@ -2337,8 +2375,12 @@ export const CACHE_TOOLS: ToolDef[] = [
       capNested(data, 'pressure', 'entries', limit);
       return data;
     },
-    _cacheKeys: ['sanctions:entities:v1', 'sanctions:pressure:v1'],
-    _freshnessChecks: [{ key: 'seed-meta:sanctions:entities', maxStaleMin: 1440 }],
+    _cacheKeys: ['sanctions:entities:v1', 'sanctions:pressure:v1', 'sanctions:changes:v1'],
+    _freshnessChecks: [
+      { key: 'seed-meta:sanctions:entities', maxStaleMin: 720 },
+      { key: 'seed-meta:sanctions:pressure', maxStaleMin: 720 },
+      { key: 'seed-meta:sanctions:changes', maxStaleMin: 720 },
+    ],
     _apiPaths: [
       "GET /api/sanctions/v1/list-sanctions-pressure",
       "GET /api/sanctions/v1/lookup-sanction-entity",

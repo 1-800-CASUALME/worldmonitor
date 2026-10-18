@@ -10,6 +10,8 @@ import { projectCountrySanctions } from './shared/country-sanctions-signals.mjs'
 
 import { loadEnvFile, runSeed, verifySeedKey, readSeedSnapshot, writeExtraKeyWithMeta } from './_seed-utils.mjs';
 import { fetchOfacSourceResponse } from './_sanctions-source.mjs';
+import { buildSanctionsChanges } from './_sanctions-changes.mjs';
+import { getOptionalUpstashCreds, upstashCommand } from './_upstash-rest.mjs';
 import { SANCTIONS_MAX_CONTENT_AGE_MIN, SANCTIONS_SOURCE_VERSION, SEMA_SOURCE, ingestSemaEntries, mergeSanctionEntries, ofacRegistrationToIdentifier, sanctionsListContentMeta } from './_sema-sanctions.mjs';
 
 loadEnvFile(import.meta.url);
@@ -24,6 +26,10 @@ const COUNTRY_COUNTS_KEY = 'sanctions:country-counts:v1';
 const COUNTRY_COUNTS_META_KEY = 'seed-meta:sanctions:country-counts';
 const SOURCE_SNAPSHOTS_KEY = 'sanctions:source-snapshots:v1';
 const SOURCE_SNAPSHOTS_META_KEY = 'seed-meta:sanctions:source-snapshots';
+const CHANGES_KEY = 'sanctions:changes:v1';
+const CHANGES_META_KEY = 'seed-meta:sanctions:changes';
+const CHANGES_ACTIVATION_KEY = 'seed-activated:sanctions:changes';
+const CHANGES_TTL = 100 * 86400;
 // OFAC's lists change slowly, and a Railway container can lose egress to
 // treasury.gov/S3 for several runs; 12h dropped ~20k OFAC entities on 2026-09-27.
 const SOURCE_RETAIN_MS = 48 * 60 * 60 * 1000;
@@ -636,6 +642,10 @@ async function fetchSanctionsPressure() {
   console.log(`  Previous state: ${hasPrevious ? `${previousIds.size} known IDs` : 'none (first run or expired)'}`);
 
   const previousSnapshots = decodeSourceSnapshots(await readSeedSnapshot(SOURCE_SNAPSHOTS_KEY, { strict: true }));
+  const previousChanges = await readSeedSnapshot(CHANGES_KEY, { strict: true });
+  if (previousChanges === null && await readSeedSnapshot(CHANGES_ACTIVATION_KEY, { strict: true }) !== null) {
+    throw new Error('SANCTIONS_CHANGES_HISTORY_MISSING');
+  }
   const outcomes = {};
   for (const source of OFAC_SOURCES) {
     try {
@@ -663,6 +673,11 @@ async function fetchSanctionsPressure() {
     _sourceSnapshots[source] = selected.snapshot;
     _sourceHealth[source] = selected.health;
   }
+  const eligiblePrevious = Object.fromEntries(Object.keys(outcomes).map(source => [source,
+    selectSanctionsSourceSnapshot(source, { error: 'baseline' }, previousSnapshots[source], now).snapshot,
+  ]));
+  const _changes = buildSanctionsChanges({ history: previousChanges, previous: eligiblePrevious,
+    current: _sourceSnapshots, health: _sourceHealth, now });
   // Quarantined rows are bounded by SEMA_MAX_QUARANTINE_SHARE and belong to this
   // run's ingest only; a retained snapshot must not claim them.
   if (_sourceHealth[SEMA_SOURCE].status === 'ok' && sema.quarantined?.length) {
@@ -744,6 +759,7 @@ async function fetchSanctionsPressure() {
     _entityIndex,
     _sourceSnapshots,
     _sourceHealth,
+    _changes,
     _countryCounts: buildCountryCounts(entries),
     _state: {
       observedAt: String(now),
@@ -780,7 +796,7 @@ runSeed('sanctions', 'pressure', CANONICAL_KEY, fetchSanctionsPressure, {
   // Strip internal-only fields before writing the main key so the pressure payload
   // does not include the entity index (~hundreds of KB) or state snapshot.
   publishTransform: (data) => {
-    const { _entityIndex: _ei, _state: _s, _countryCounts: _cc, _sourceSnapshots, _sourceHealth, pressureMetadata, ...rest } = data;
+    const { _entityIndex: _ei, _state: _s, _countryCounts: _cc, _sourceSnapshots, _sourceHealth, _changes, pressureMetadata, ...rest } = data;
     if (Array.isArray(rest.entries)) {
       rest.entries = rest.entries.map((entry) => {
         const { _aliases, _identifiers, _publishedAt, _regime, ...publicEntry } = entry;
@@ -797,8 +813,20 @@ runSeed('sanctions', 'pressure', CANONICAL_KEY, fetchSanctionsPressure, {
   },
   zeroIsValid: true,
   beforePublish: async (data) => {
+    const currentGaps = data._changes.gaps.filter(gap => gap.to === data._changes.fetchedAt
+      && gap.reason !== 'baseline-unavailable');
+    await writeExtraKeyWithMeta(CHANGES_KEY, data._changes, CHANGES_TTL, data._changes.events.length,
+      CHANGES_META_KEY, CHANGES_TTL, undefined, {
+        sourceState: currentGaps.length ? 'error' : 'ok',
+        errorCode: currentGaps.some(gap => gap.reason === 'held') ? 'SANCTIONS_CHANGES_HELD'
+          : currentGaps.length ? 'SANCTIONS_CHANGES_SOURCE_FAILED' : null,
+        failedSources: [...new Set(currentGaps.map(gap => gap.list))],
+      });
     const count = Object.values(data._sourceSnapshots).reduce((sum, snapshot) => sum + (snapshot?.records.length ?? 0), 0);
     await writeExtraKeyWithMeta(SOURCE_SNAPSHOTS_KEY, encodeSourceSnapshots(data._sourceSnapshots), SOURCE_SNAPSHOTS_TTL, count, SOURCE_SNAPSHOTS_META_KEY);
+    const creds = getOptionalUpstashCreds();
+    if (!creds) throw new Error('SANCTIONS_CHANGES_ACTIVATION_CREDENTIALS_MISSING');
+    await upstashCommand(creds, ['SET', CHANGES_ACTIVATION_KEY, '1']);
   },
   extraKeys: [
     {

@@ -1344,7 +1344,7 @@ curl -s https://worldmonitor.app/mcp \
 
 ### `get_sanctions_data`
 
-OFAC SDN 制裁实体列表和按国家分列的制裁压力评分。适用于合规筛选和地缘政治压力分析。
+读取 OFAC SDN、综合制裁名单、加拿大 SEMA 制裁和国家压力评分。`changes_since_days` 返回指定天数内观测到的新增、移除和制裁项目变更。匹配结果仅供进一步向发布机构核实，不构成法律意见。每次调用权重为 1，不在请求时获取外部来源。
 
 **参数（工具特定）：**
 
@@ -1353,11 +1353,13 @@ OFAC SDN 制裁实体列表和按国家分列的制裁压力评分。适用于�
 | `country` | string | 将制裁实体和压力评分筛选为一个 ISO 3166-1 alpha-2 国家代码。 |
 | `entity_type` | string | 筛选为一种实体类型（不区分大小写的子串，例如 "vessel"、"aircraft"、"person"、"entity"）。 |
 | `query` | string | 仅保留名称包含此文本的制裁实体（不区分大小写）。 |
-| `limit` | number | 将实体列表和近期压力条目限制为最多这么多项（默认 30，传 0 表示不限）。 |
+| `changes_since_days` | integer | 返回过去 1–90 天的变更事件和覆盖缺口。国家、实体类型、名称查询和条数限制适用于事件；缺口始终保留。 |
+| `limit` | number | 限制实体、近期压力条目和变更事件的数量（默认 30，传 0 表示不限）。 |
 
 - **API 端点：** `GET /api/sanctions/v1/list-sanctions-pressure`, `GET /api/sanctions/v1/lookup-sanction-entity`
+- **访问权限：** 仅限订阅用户（Pro/API）。
 - **类型：** 缓存读取 — 来自 Redis 引导缓存的亚秒级响应。
-- **新鲜度预算：** 标记 `stale: true` 前最多 **1 天**（由 seeder cron 的预期间隔设定）。
+- **新鲜度预算：** 标记 `stale: true` 前最多 **12 小时**（由 seeder cron 的预期间隔设定）。
 
 <CodeGroup>
 
@@ -1373,6 +1375,8 @@ curl -s https://worldmonitor.app/mcp \
 ```
 
 </CodeGroup>
+
+变更记录最多保留 90 天或 10,000 个事件，按观测时间从新到旧返回。`at` 是观测时间（毫秒）；`effectiveAt` 是来源的生效时间字符串，未知时为 `"0"`。制裁项目集合变更产生 `amended` 和 `prevPr`。`gaps` 记录来源保留、不可用、缺少有效基线或单次移除超过 5% 的情况；这些区间不能证明没有变更。`truncatedBefore` 表示事件数量上限导致的历史截断边界。未提供 `changes_since_days` 时省略 `changes`。
 
 ### `get_social_velocity`
 

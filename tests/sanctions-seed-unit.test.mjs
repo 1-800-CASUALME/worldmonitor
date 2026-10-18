@@ -1,3 +1,4 @@
+import { buildSanctionsChanges } from '../scripts/_sanctions-changes.mjs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -47,9 +48,9 @@ async function partialPublication({ sources = ['CONSOLIDATED'], cached = [], sna
   const context = vm.createContext({
     console: { log() {}, warn() {} },
     SEMA_SOURCE, SANCTIONS_SOURCE_VERSION, Buffer, gzipSync, gunzipSync,
-    mergeSanctionEntries,
+    mergeSanctionEntries, buildSanctionsChanges,
     verifySeedKey: async (key) => key === 'sanctions:pressure:v1' ? { entries: cached } : null,
-    readSeedSnapshot: async () => snapshots,
+    readSeedSnapshot: async key => key === 'sanctions:source-snapshots:v1' ? snapshots : null,
     ingestSemaEntries: semaJson === undefined
       ? async () => ({ records: [], publishedAtMs: 0, error: 'SEMA_INVALID_RECORD' })
       : () => ingestSemaEntries({ fetchFn: async () => new Response(JSON.stringify(semaJson)) }),
