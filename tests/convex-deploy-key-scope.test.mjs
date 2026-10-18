@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import YAML from 'yaml';
 
@@ -13,21 +13,25 @@ import YAML from 'yaml';
 // - No job that reads it runs dependency lifecycle scripts. An install script
 //   runs before the deploy step and can rewrite `node_modules/.bin/convex`,
 //   which then executes with the key in its environment.
-const workflow = YAML.parse(
-  readFileSync(new URL('../.github/workflows/convex-deploy.yml', import.meta.url), 'utf8'),
-);
-const KEY_REFERENCE = /\$\{\{\s*secrets\.CONVEX_DEPLOY_KEY\s*\}\}/;
+const workflowsDir = new URL('../.github/workflows/', import.meta.url);
+const workflows = Object.fromEntries(readdirSync(workflowsDir)
+  .filter((file) => /\.ya?ml$/.test(file))
+  .map((file) => [file, YAML.parse(readFileSync(new URL(file, workflowsDir), 'utf8'))]));
+const KEY_REFERENCE = /\bsecrets\s*(?:\.\s*CONVEX_DEPLOY_KEY\b|\[\s*['"]CONVEX_DEPLOY_KEY['"]\s*\])/i;
+
+function referencesKey(value) {
+  if (typeof value === 'string') return KEY_REFERENCE.test(value);
+  return value !== null && typeof value === 'object' && Object.values(value).some(referencesKey);
+}
 
 function findKeyJobs(workflows) {
   return Object.entries(workflows)
-    .filter(([file]) => file === 'convex-deploy.yml')
-    .flatMap(([file, workflow]) => Object.entries(workflow.jobs)
-      .filter(([, job]) => (job.steps ?? []).some((step) =>
-        Object.values(step.env ?? {}).some((value) => KEY_REFERENCE.test(String(value)))))
+    .flatMap(([file, workflow]) => Object.entries(workflow.jobs ?? {})
+      .filter(([, job]) => referencesKey([workflow.env, job]))
       .map(([name, job]) => [`${file}:${name}`, job]));
 }
 
-const keyJobs = findKeyJobs({ 'convex-deploy.yml': workflow });
+const keyJobs = findKeyJobs(workflows);
 
 const key = '${{ secrets.CONVEX_DEPLOY_KEY }}';
 for (const [name, file, fixture] of [
