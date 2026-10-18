@@ -1668,6 +1668,7 @@ describe('crawlable corpus generator', () => {
       'src/config/trade-routes.ts',
       'scripts/chokepoint-page-content.mjs',
       'scripts/chokepoint-eia-baselines.mjs',
+      'scripts/live-pages/related-links.mjs',
     ]);
   });
 
@@ -3233,13 +3234,24 @@ describe('crawlable corpus generator', () => {
           relatedLinksFrameWords > 0 && relatedLinksFrameWords <= 55 + 3 * words(country.name).length,
           `${route} related-links heading, intro and Pro/API sentence must stay short, got ${relatedLinksFrameWords} words`,
         );
+        // The live-data links (scripts/live-pages/related-links.mjs) are the
+        // same kind of navigation block: a heading and one short line per
+        // live page, at most five lines (the US profile).
+        const liveLinksBlock = countryDocument.querySelector('[data-live-data-links]');
+        const liveLinkItems = [...(liveLinksBlock?.querySelectorAll('li') || [])];
+        assert.ok(liveLinkItems.length >= 2 && liveLinkItems.length <= 5, `${route} must list 2-5 live data links, got ${liveLinkItems.length}`);
+        for (const item of liveLinkItems) {
+          assert.ok(words(item.textContent).length <= 10, `${route} live data lines must stay one short line`);
+        }
+        const liveLinksWordCount = words(liveLinksBlock?.textContent).length;
+        const navigationWordCount = relatedLinksWordCount + liveLinksWordCount;
         const basePageWordCeiling = country.headlineEligible === false ? 950 : 900;
-        const pageWordCeiling = basePageWordCeiling + developmentsWordCount + relatedLinksWordCount;
+        const pageWordCeiling = basePageWordCeiling + developmentsWordCount + navigationWordCount;
         assert.ok(
-          // The 600-word floor is for page content, so the navigation block
-          // does not count toward it.
-          pageWordCount - relatedLinksWordCount >= 600 && pageWordCount <= pageWordCeiling,
-          `${route} main content must contain at least 600 words besides the related links and no more than ${basePageWordCeiling} base words plus ${developmentsWordCount} developments words and ${relatedLinksWordCount} related-link words; got ${pageWordCount}`,
+          // The 600-word floor is for page content, so the navigation blocks
+          // do not count toward it.
+          pageWordCount - navigationWordCount >= 600 && pageWordCount <= pageWordCeiling,
+          `${route} main content must contain at least 600 words besides the navigation links and no more than ${basePageWordCeiling} base words plus ${developmentsWordCount} developments words and ${navigationWordCount} navigation words; got ${pageWordCount}`,
         );
       }
 
