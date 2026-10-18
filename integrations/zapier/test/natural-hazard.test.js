@@ -41,6 +41,7 @@ const NATURAL = {
     { id: 'gdacs-DR-1', title: '\u{1F7E0} Drought in Kenya', category: 'drought', categoryTitle: 'Drought', lat: 0, lon: 38, date: T0 + 4 * HOUR, magnitude: 0, magnitudeUnit: '', sourceUrl: '', sourceName: 'GDACS', closed: false },
     { id: 'gdacs-EQ-1500', title: '\u{1F7E0} Earthquake in Russia', category: 'earthquakes', categoryTitle: 'Earthquake', lat: 51.9, lon: 157.2, date: T0, magnitude: 0, magnitudeUnit: '', sourceUrl: '', sourceName: 'GDACS', closed: false },
     { id: 'EONET_25232', title: 'Wildfire CYRUS, Kern, California', category: 'wildfires', categoryTitle: 'Wildfires', lat: 35.7, lon: -118.42, date: T0 + 5 * HOUR, magnitude: 543, magnitudeUnit: 'acres', sourceUrl: 'https://irwin.doi.gov/observer/incidents/1', sourceName: 'IRWIN', closed: false },
+    { id: 'EONET_25240', title: 'Prescribed Fire Newman Piles RX, Coconino, Arizona', category: 'wildfires', categoryTitle: 'Wildfires', lat: 35.1, lon: -111.6, date: T0 + 5 * HOUR, magnitude: 120, magnitudeUnit: 'acres', sourceUrl: '', sourceName: 'IRWIN', closed: false },
     { id: 'hko-warning:TC8NE', title: 'Hong Kong No. 8 Northeast Gale or Storm Signal', category: 'severeStorms', categoryTitle: 'Tropical Cyclone Warning', lat: 22.3, lon: 114.17, date: T0 + 7 * HOUR, magnitude: 0, magnitudeUnit: '', sourceUrl: '', sourceName: 'HKO', closed: false },
     { id: 'EONET_10', title: 'Old closed flood', category: 'floods', categoryTitle: 'Floods', lat: 1, lon: 1, date: T0 + 6 * HOUR, magnitude: 0, magnitudeUnit: '', sourceUrl: '', sourceName: 'EO', closed: true },
   ],
@@ -119,7 +120,7 @@ describe('trigger natural_hazard (REST hook)', () => {
       'nat:gdacs-FL-1103:red',
       'nat:nhc-AL13',
       'eq:us6000u2mq',
-    ], 'M4.8 is under the 5.5 default; closed, GDACS earthquake and HKO signal rows are skipped; the NHC advisory number is dropped; a Red GDACS id ends in :red');
+    ], 'M4.8 is under the 5.5 default; closed, GDACS earthquake, prescribed-burn and HKO signal rows are skipped; the NHC advisory number is dropped; a Red GDACS id ends in :red');
     for (const row of rows) {
       assert.deepEqual(Object.keys(row).sort(), Object.keys(trigger.sample).sort(), `${row.eventId}: sample rows and deliveries share one field set`);
       assert.deepEqual(row.countryCodes, [], 'samples are not geocoded; deliveries are');

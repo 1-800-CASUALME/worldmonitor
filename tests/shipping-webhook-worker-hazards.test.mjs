@@ -288,6 +288,15 @@ describe('diffHazards', () => {
     assert.equal(naturalEventCandidate(natural({ id: 'hko-warning:TC8NE', title: 'Hong Kong No. 8 Northeast Gale or Storm Signal', sourceName: 'HKO', lat: 22.3, lon: 114.17 })), null);
   });
 
+  it('skips prescribed burns: EONET titles them "Prescribed Fire … RX", and a planned burn is not a wildfire alert', () => {
+    for (const title of ['Prescribed Fire Newman Piles RX, Coconino, Arizona', 'Prescribed Fire SRF 2026 Rx Implementation, Humboldt, California', 'Prescribed Burn Unit 4, Lake, Oregon', 'Jane 102 RX, Harney, Oregon']) {
+      assert.equal(naturalEventCandidate(natural({ id: 'EONET_30001', title, category: 'wildfires', sourceName: 'IRWIN', lat: 35, lon: -111 })), null, title);
+    }
+    assert.ok(naturalEventCandidate(natural({ id: 'EONET_30002', title: 'Wildfire Buckhorn 2, Cassia, Idaho', category: 'wildfires', sourceName: 'IRWIN', lat: 42.3, lon: -113.6 })), 'a wildfire is kept');
+    assert.ok(naturalEventCandidate(natural({ id: 'EONET_30003', title: 'Wildfire Rxford, Kern, California', category: 'wildfires', sourceName: 'IRWIN', lat: 35.4, lon: -118.9 })), 'RX only as a whole word');
+    assert.ok(naturalEventCandidate(natural({ id: 'EONET_30004', title: 'Prescribed Fire RX near the Sava, Croatia', category: 'floods', sourceName: 'EO', lat: 45, lon: 16 })), 'only wildfire rows are filtered');
+  });
+
   it('keeps an id seen for 30 days after it leaves the feeds, so an EONET event that drops out and returns is not new again', () => {
     assert.equal(HAZARD_RULE.seenWindowMs, 30 * 24 * HOUR);
   });

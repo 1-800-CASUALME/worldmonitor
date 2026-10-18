@@ -559,6 +559,15 @@ export function earthquakeCandidate(row) {
 
 const NATURAL_PRIORITY = Object.freeze({ nhc: 0, gdacs: 1, eonet: 2 });
 
+// EONET titles planned burns from the US incident feeds "Prescribed Fire …
+// RX"; in a 30-day sample they were 18 of 32 wildfires. A planned burn is not
+// a wildfire alert.
+const PRESCRIBED_BURN = /^prescribed (?:fire|burn)\b|\brx\b/i;
+
+export function isPrescribedBurn(row) {
+  return row?.category === 'wildfires' && typeof row.title === 'string' && PRESCRIBED_BURN.test(row.title);
+}
+
 /**
  * Pure. One row of natural:events:v1 as a candidate. Earthquake rows (GDACS
  * EQ) are skipped: the earthquake feed carries the same quakes with a
@@ -571,6 +580,7 @@ export function naturalEventCandidate(row) {
   // not the storm, so a later storm's same signal would read as seen; the
   // storm itself arrives through the cyclone feeds.
   if (row.id.startsWith('hko-warning:')) return null;
+  if (isPrescribedBurn(row)) return null;
   const lat = finiteNumber(row.lat);
   const lon = finiteNumber(row.lon);
   if (lat === null || lon === null || typeof row.category !== 'string' || !row.category) return null;

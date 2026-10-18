@@ -29,6 +29,8 @@ const perform = (z, bundle) => receive(z, bundle, { eventType: EVENT.key });
 // and naturalEventCandidate), repeated here because Zapier bundles only this
 // folder. Samples are not geocoded: countryCodes is [] (deliveries carry it).
 const GDACS_ALERT_EMOJI = /^\s*(\u{1F534}|\u{1F7E0})\s*/u;
+// Same rule as the worker's isPrescribedBurn: planned burns are not wildfire alerts.
+const PRESCRIBED_BURN = /^prescribed (?:fire|burn)\b|\brx\b/i;
 const NHC_ADVISORY_ID = /^(nhc-[A-Z]{2}\d{2})-[^-]+$/;
 const STORM_CLASSIFICATION = /^(?:super typhoon|typhoon|hurricane|major hurricane|tropical storm|tropical depression|tropical cyclone|severe tropical storm|severe cyclonic storm|very severe cyclonic storm|cyclonic storm|cyclone|subtropical storm|subtropical depression|post-tropical cyclone|potential tropical cyclone|remnants of|storm|depression)\s+/i;
 
@@ -88,6 +90,7 @@ function naturalRow(event) {
   const lon = finite(event && event.lon);
   if (!event || typeof event.id !== 'string' || !event.id || event.category === 'earthquakes' || event.closed === true) return null;
   if (event.id.startsWith('hko-warning:')) return null;
+  if (event.category === 'wildfires' && typeof event.title === 'string' && PRESCRIBED_BURN.test(event.title)) return null;
   if (lat === null || lon === null || !event.category || !(finite(event.date) > 0)) return null;
   const rawTitle = typeof event.title === 'string' ? event.title : '';
   const emoji = (GDACS_ALERT_EMOJI.exec(rawTitle) || [])[1];
