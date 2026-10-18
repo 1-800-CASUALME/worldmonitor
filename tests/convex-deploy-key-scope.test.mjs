@@ -18,12 +18,40 @@ const workflow = YAML.parse(
 );
 const KEY_REFERENCE = /\$\{\{\s*secrets\.CONVEX_DEPLOY_KEY\s*\}\}/;
 
-const keyJobs = Object.entries(workflow.jobs).filter(([, job]) =>
-  (job.steps ?? []).some((step) => Object.values(step.env ?? {}).some((value) => KEY_REFERENCE.test(String(value)))),
-);
+function findKeyJobs(workflows) {
+  return Object.entries(workflows)
+    .filter(([file]) => file === 'convex-deploy.yml')
+    .flatMap(([file, workflow]) => Object.entries(workflow.jobs)
+      .filter(([, job]) => (job.steps ?? []).some((step) =>
+        Object.values(step.env ?? {}).some((value) => KEY_REFERENCE.test(String(value)))))
+      .map(([name, job]) => [`${file}:${name}`, job]));
+}
+
+const keyJobs = findKeyJobs({ 'convex-deploy.yml': workflow });
+
+const key = '${{ secrets.CONVEX_DEPLOY_KEY }}';
+for (const [name, file, fixture] of [
+  ['step env', 'convex-deploy.yml', { jobs: { reader: { steps: [{ env: { KEY: key } }] } } }],
+  ['job env', 'convex-deploy.yml', { jobs: { reader: { env: { KEY: key }, steps: [] } } }],
+  ['workflow env', 'convex-deploy.yml', { env: { KEY: key }, jobs: { reader: { steps: [] } } }],
+  ['action inputs', 'convex-deploy.yml', { jobs: { reader: { steps: [{ with: { key } }] } } }],
+  ['run expressions', 'convex-deploy.yml', { jobs: { reader: { steps: [{ run: `echo ${key}` }] } } }],
+  ['reusable workflow secrets', 'convex-deploy.yml', { jobs: { reader: { secrets: { key } } } }],
+  ['compound expressions', 'convex-deploy.yml', { jobs: { reader: { env: { KEY: "${{ format('{0}', secrets.CONVEX_DEPLOY_KEY) }}" } } } }],
+  ['bracket access', 'convex-deploy.yml', { jobs: { reader: { env: { KEY: '${{ secrets["convex_deploy_key"] }}' } } } }],
+  ['another yml workflow', 'other.yml', { jobs: { reader: { steps: [{ env: { KEY: key } }] } } }],
+  ['another yaml workflow', 'other.yaml', { jobs: { reader: { steps: [{ env: { KEY: key } }] } } }],
+]) {
+  test(`finds deploy-key readers in ${name}`, () => {
+    assert.deepEqual(findKeyJobs({ [file]: fixture }).map(([id]) => id), [`${file}:reader`]);
+  });
+}
 
 test('the deploy key is read only by the jobs that deploy or run production functions', () => {
-  assert.deepEqual(keyJobs.map(([name]) => name).sort(), ['deploy', 'repair-stale-on-hold-derived-state']);
+  assert.deepEqual(keyJobs.map(([name]) => name).sort(), [
+    'convex-deploy.yml:deploy',
+    'convex-deploy.yml:repair-stale-on-hold-derived-state',
+  ]);
 });
 
 test('every job that reads the deploy key runs in the main-only convex-production environment', () => {
