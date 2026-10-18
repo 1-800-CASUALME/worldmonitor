@@ -75,7 +75,8 @@ export class Store extends EventEmitter {
       m.attempts += 1;
       // Back off before the next attempt; loadedAt keeps the last success.
       m.retryAt = this.now() + Math.min(src.every, 15000 * m.attempts);
-      this.emit('error', id, m.error);
+      // 'error' throws on an EventEmitter with no listener; the failure is already in meta.
+      if (this.listenerCount('error')) this.emit('error', id, m.error);
       return false;
     } finally {
       m.loading = false;

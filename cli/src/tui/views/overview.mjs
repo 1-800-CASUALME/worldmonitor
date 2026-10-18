@@ -8,6 +8,9 @@ import { decodeBitmap, heading, kv, label, panel, segments, sparkline, worldMap 
 import { ageOf, fmtPct, fmtPrice, mapBlips } from '../data/select.mjs';
 import { PaneView, selectedItem } from './base.mjs';
 
+// Border plus three story rows.
+const MIN_STORIES_H = 5;
+
 export class OverviewView extends PaneView {
   constructor(app) {
     super(app, { id: 'overview', label: 'Overview', paneIds: ['stories', 'markets'], sources: ['fast', 'digest', 'slow'] });
@@ -49,10 +52,18 @@ export class OverviewView extends PaneView {
     const wide = r.w >= 110;
     const [left, right] = wide ? splitH(r, ['62%', 'fill']) : splitV(r, ['55%', 'fill']);
     this.renderMap(ctx, left);
-    const [briefR, storiesR, marketsR] = splitV(right, [Math.max(6, Math.min(12, Math.floor(right.h * 0.3))), 'fill', Math.max(5, Math.min(13, this.marketRows().length + 2))]);
-    this.renderBrief(ctx, briefR);
-    this.renderStories(ctx, storiesR);
-    this.renderMarkets(ctx, marketsR);
+    // Stories come first: on short terminals the market strip goes, then the brief.
+    const briefH = Math.max(6, Math.min(12, Math.floor(right.h * 0.3)));
+    const marketsH = Math.max(5, Math.min(13, this.marketRows().length + 2));
+    let room = right.h - MIN_STORIES_H;
+    const showMarkets = room >= marketsH;
+    if (showMarkets) room -= marketsH;
+    const showBrief = room >= briefH;
+    const specs = [...(showBrief ? [briefH] : []), 'fill', ...(showMarkets ? [marketsH] : [])];
+    const parts = splitV(right, specs);
+    if (showBrief) this.renderBrief(ctx, parts.shift());
+    this.renderStories(ctx, parts.shift());
+    if (showMarkets) this.renderMarkets(ctx, parts.shift());
     void s;
     void now;
   }

@@ -9,7 +9,7 @@ import { PaneView } from './base.mjs';
 
 export class MarketsView extends PaneView {
   constructor(app) {
-    super(app, { id: 'markets', label: 'Markets', paneIds: ['quotes', 'crypto', 'gulf'], sources: ['fast', 'slow'] });
+    super(app, { id: 'markets', label: 'Markets', paneIds: ['quotes', 'crypto'], sources: ['fast', 'slow'] });
   }
 
   quoteRows() {

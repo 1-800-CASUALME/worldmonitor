@@ -56,32 +56,47 @@ export async function runWeb({ options = {}, stdout = (s) => process.stdout.writ
   // so npm.cmd runs through one there; every argument is a fixed literal or the
   // digits-only port checked above.
   const win = platform === 'win32';
+  // BROWSER=none stops Vite's own `server.open`, so this function alone opens
+  // the browser, once, and --no-open is honoured.
+  const childEnv = { ...env, BROWSER: 'none' };
   let child;
   try {
-    child = spawnImpl(win ? 'npm.cmd' : 'npm', ['run', 'dev', '--', '--port', port, '--strictPort'], { cwd: root, stdio: ['inherit', 'pipe', 'inherit'], env, shell: win });
+    child = spawnImpl(win ? 'npm.cmd' : 'npm', ['run', 'dev', '--', '--port', port, '--strictPort'], { cwd: root, stdio: ['inherit', 'pipe', 'inherit'], env: childEnv, shell: win });
   } catch (err) {
     stderr(`Could not start the dev server: ${err.message}\n`);
     return 1;
   }
   let opened = options.noOpen === true;
+  let pending = '';
   child.stdout.on('data', (chunk) => {
     const text = chunk.toString();
     stdout(text);
-    if (!opened) {
-      const m = /(https?:\/\/(?:localhost|127\.0\.0\.1)[^\s]*)/.exec(text.replace(/\x1b\[[0-9;]*m/g, ''));
+    if (opened) return;
+    // Match whole lines only: the URL can arrive split across chunks.
+    const lines = (pending + text).split('\n');
+    pending = lines.pop();
+    for (const line of lines) {
+      const m = /(https?:\/\/(?:localhost|127\.0\.0\.1)[^\s]*)/.exec(line.replace(/\x1b\[[0-9;]*m/g, ''));
       if (m) {
         opened = true;
+        pending = '';
         open(m[1]);
+        return;
       }
     }
   });
   return new Promise((resolveExit) => {
+    const forward = () => child.kill('SIGINT');
+    const settle = (code) => {
+      process.removeListener('SIGINT', forward);
+      process.removeListener('SIGTERM', forward);
+      resolveExit(code);
+    };
     child.on('error', (err) => {
       stderr(`Could not start the dev server: ${err.message}\n`);
-      resolveExit(1);
+      settle(1);
     });
-    child.on('exit', (code) => resolveExit(code === null ? 1 : code));
-    const forward = () => child.kill('SIGINT');
+    child.on('exit', (code) => settle(code === null ? 1 : code));
     process.once('SIGINT', forward);
     process.once('SIGTERM', forward);
   });

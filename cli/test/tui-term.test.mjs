@@ -85,6 +85,12 @@ describe('Screen', () => {
     s.put(1, 0, 'x');
     assert.equal(s.toLines()[0], ' x本');
   });
+  it('keeps a wide character drawn twice in the same cells', () => {
+    const s = new Screen(4, 1);
+    s.text(0, 0, '日');
+    s.text(0, 0, '日');
+    assert.equal(s.toLines()[0], '日');
+  });
   it('draws boxes', () => {
     const s = new Screen(4, 3);
     s.box({ x: 0, y: 0, w: 4, h: 3 });

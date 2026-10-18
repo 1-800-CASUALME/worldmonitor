@@ -75,7 +75,13 @@ export class Screen {
       if (w === 2) {
         if (!this.inClip(cx + 1, y)) break;
         this.put(cx, y, ch, style);
-        this.put(cx + 1, y, WIDE_TAIL, style);
+        // Set the tail directly: put() would see an old tail here and blank the head just drawn.
+        const i = y * this.cols + cx + 1;
+        if (cx + 2 < this.cols && this.ch[i + 1] === WIDE_TAIL) this.ch[i + 1] = ' ';
+        this.ch[i] = WIDE_TAIL;
+        if (style.fg !== undefined) this.fg[i] = style.fg;
+        if (style.bg !== undefined) this.bg[i] = style.bg;
+        if (style.attr !== undefined) this.attr[i] = style.attr;
       } else {
         this.put(cx, y, ch, style);
       }

@@ -60,6 +60,15 @@ export async function run(argv, io = {}) {
   const stdout = io.stdout || ((s) => process.stdout.write(s));
   const stderr = io.stderr || ((s) => process.stderr.write(s));
 
+  const fail = (err) => {
+    if (err instanceof UsageError) {
+      stderr(`Error: ${err.message}\n`);
+      return 2;
+    }
+    stderr(`Error: ${err && err.message ? err.message : String(err)}\n`);
+    return 1;
+  };
+
   const parsed = parseArgs(argv);
   const { command, options } = parsed;
 
@@ -77,12 +86,20 @@ export async function run(argv, io = {}) {
       stderr('The dashboard needs an interactive terminal. Run `worldmonitor tui` from a terminal, or see --help.\n');
       return 2;
     }
-    const launch = io.launchTui || (await import('./tui/index.mjs')).launchTui;
-    return launch({ options: dashboardOptions(parsed), config: resolveConfig(env), env, fetchImpl: io.fetch });
+    try {
+      const launch = io.launchTui || (await import('./tui/index.mjs')).launchTui;
+      return await launch({ options: dashboardOptions(parsed), config: resolveConfig(env), env, fetchImpl: io.fetch });
+    } catch (err) {
+      return fail(err);
+    }
   }
   if (command === 'web' && !options.help) {
-    const runWeb = io.runWeb || (await import('./tui/web.mjs')).runWeb;
-    return runWeb({ options: dashboardOptions(parsed), stdout, stderr, env });
+    try {
+      const runWeb = io.runWeb || (await import('./tui/web.mjs')).runWeb;
+      return await runWeb({ options: dashboardOptions(parsed), stdout, stderr, env });
+    } catch (err) {
+      return fail(err);
+    }
   }
   if (options.help || !command || command === 'help') {
     stdout(`${HELP}\n`);
@@ -147,12 +164,7 @@ export async function run(argv, io = {}) {
     stdout(`${formatOutput(value, options)}\n`);
     return 0;
   } catch (err) {
-    if (err instanceof UsageError) {
-      stderr(`Error: ${err.message}\n`);
-      return 2;
-    }
-    stderr(`Error: ${err && err.message ? err.message : String(err)}\n`);
-    return 1;
+    return fail(err);
   }
 }
 

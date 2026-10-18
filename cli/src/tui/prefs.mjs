@@ -23,7 +23,9 @@ export function savePrefs(prefs, env = process.env, home = homedir()) {
   try {
     const file = prefsPath(env, home);
     mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, `${JSON.stringify({ ...DEFAULT_PREFS, ...prefs }, null, 2)}\n`);
+    const known = { ...DEFAULT_PREFS };
+    for (const k of Object.keys(DEFAULT_PREFS)) if (prefs && prefs[k] !== undefined) known[k] = prefs[k];
+    writeFileSync(file, `${JSON.stringify(known, null, 2)}\n`);
     return true;
   } catch {
     return false;

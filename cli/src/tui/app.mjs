@@ -305,7 +305,9 @@ export class App {
     );
     s.pushClip(body);
     try {
+      this.view.beginFrame?.();
       this.view.render(ctx, body);
+      this.view.endFrame?.();
     } catch (err) {
       s.fill(body, ' ', { bg: t.bg });
       s.text(body.x + 2, body.y + 1, `view error: ${err.message}`, { fg: t.bad, bg: t.bg });

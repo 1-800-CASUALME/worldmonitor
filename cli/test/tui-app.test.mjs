@@ -249,3 +249,45 @@ describe('App input', () => {
     assert.ok(live.channels().every((c) => c.region === catalog.regions[0].key));
   });
 });
+
+describe('Narrow layouts', () => {
+  it('keeps the Overview stories list on screen at 80x24', () => {
+    const { app } = makeApp({ cols: 80, rows: 24 });
+    app.render();
+    const frame = text(app);
+    assert.match(frame, /TOP STORIES/);
+    const first = app.view.topStories()[0];
+    assert.ok(first, 'fixture has stories');
+    assert.ok(frame.includes(String(first.primaryTitle || first.title).slice(0, 12)), 'first story row is visible');
+  });
+  it('cycles focus only through the panes the layout draws', () => {
+    const { app, show } = makeApp({ cols: 100, rows: 30 });
+    const cycle = () => {
+      const seen = new Set();
+      for (let i = 0; i < 6; i++) {
+        app.handleEvent({ type: 'key', name: 'right' });
+        app.render();
+        seen.add(app.view.focusedPane);
+      }
+      return [...seen].sort();
+    };
+    show('climate');
+    app.render();
+    assert.deepEqual(cycle(), ['hazards', 'quakes', 'weather']);
+    show('conflict');
+    app.render();
+    assert.deepEqual(cycle(), ['cii', 'ucdp', 'unrest']);
+    show('markets');
+    app.render();
+    assert.deepEqual(cycle(), ['crypto', 'quotes']);
+  });
+  it('moves focus off a pane that a resize hides', () => {
+    const { app, show } = makeApp({ cols: 160, rows: 45 });
+    show('climate');
+    app.render();
+    app.view.focusPane('anomalies');
+    app.resize(100, 30);
+    app.render();
+    assert.notEqual(app.view.focusedPane, 'anomalies');
+  });
+});

@@ -399,6 +399,16 @@ describe('dashboard dispatch', () => {
     }
     assert.equal(launched, 0);
   });
+  it('reports a launcher failure through the CLI error handler', async () => {
+    let err = '';
+    const boom = async () => {
+      throw new Error('terminal went away');
+    };
+    const io = { isTTY: true, env: {}, stdout() {}, stderr: (s) => (err += s), launchTui: boom, runWeb: boom };
+    assert.equal(await run(['tui'], io), 1);
+    assert.equal(await run(['web'], io), 1);
+    assert.equal(err, 'Error: terminal went away\nError: terminal went away\n');
+  });
   it('keeps dashboard flags out of other commands so they still reach the API', async () => {
     const p = parseArgs(['get', '/api/rss-proxy', '--url', 'https://example.com/feed', '--port', '8080', '--theme', 'dark']);
     assert.deepEqual(p.params, { url: 'https://example.com/feed', port: '8080', theme: 'dark' });

@@ -10,6 +10,30 @@ export class PaneView {
     this.focus = 0;
     this.lists = Object.fromEntries(paneIds.map((p) => [p, new ListView()]));
     this.sourceIds = sources;
+    // Panes the last frame drew; narrow layouts leave some out.
+    this.drawing = new Set();
+    this.drawn = new Set(paneIds);
+  }
+
+  // The app brackets each render so focus only visits panes on screen.
+  beginFrame() {
+    this.drawing = new Set();
+  }
+
+  endFrame() {
+    this.drawn = this.drawing;
+    if (this.drawn.size && !this.drawn.has(this.focusedPane)) this.focus = this.paneIds.findIndex((p) => this.drawn.has(p));
+  }
+
+  moveFocus(step) {
+    const n = this.paneIds.length;
+    for (let k = 1; k <= n; k++) {
+      const i = (this.focus + step * k + n * k) % n;
+      if (!this.drawn.size || this.drawn.has(this.paneIds[i])) {
+        this.focus = i;
+        return;
+      }
+    }
   }
 
   get store() {
@@ -48,11 +72,11 @@ export class PaneView {
   // Default key handling: left/right (h/l) move focus; the focused list handles the rest.
   onKey(ev) {
     if (ev.name === 'right' || ev.name === 'l') {
-      this.focus = (this.focus + 1) % Math.max(1, this.paneIds.length);
+      this.moveFocus(1);
       return true;
     }
     if (ev.name === 'left' || ev.name === 'h') {
-      this.focus = (this.focus + this.paneIds.length - 1) % Math.max(1, this.paneIds.length);
+      this.moveFocus(-1);
       return true;
     }
     if (ev.name === 'enter') {
@@ -72,6 +96,7 @@ export class PaneView {
 
   // Common list options wiring focus and activation.
   listOpts(paneId, extra = {}) {
+    this.drawing.add(paneId);
     return {
       focused: this.isFocused(paneId),
       onFocus: () => this.focusPane(paneId),

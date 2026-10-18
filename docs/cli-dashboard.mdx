@@ -175,7 +175,7 @@ Your theme, the animation setting and the last view are saved in `$XDG_CONFIG_HO
 | `--base-url <url>` | API host for a self-hosted deployment |
 | `--api-key <key>` | Use your API key instead of an anonymous session |
 
-These flags apply only to the dashboard and `worldmonitor web`. On every other command, `--theme`, `--url` and similar flags are passed through to the API as parameters.
+These flags apply to the terminal dashboard. `worldmonitor web` has its own flags, listed under [Open the web dashboard](#open-the-web-dashboard). On every other command, `--theme`, `--url` and similar flags are passed through to the API as parameters.
 
 | Environment variable | Effect |
 |---|---|
@@ -205,7 +205,7 @@ Opens [worldmonitor.app/dashboard](https://www.worldmonitor.app/dashboard) in yo
 | `--hosted` | Always open the hosted dashboard, even inside a checkout |
 | `--port <n>` | Port for the local development server (default 5173) |
 | `--no-open` | Print the URL without opening a browser |
-| `--url <url>` | Open this URL instead of the hosted dashboard |
+| `--url <url>` | Open this URL instead of the hosted dashboard. Inside a checkout, add `--hosted`, or the local development server starts instead |
 
 ## Troubleshooting
 

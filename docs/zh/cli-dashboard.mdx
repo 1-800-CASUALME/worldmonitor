@@ -175,7 +175,7 @@ worldmonitor                # open the dashboard (same as `worldmonitor tui`)
 | `--base-url <url>` | 自托管部署的 API 地址 |
 | `--api-key <key>` | 使用你的 API 密钥代替匿名会话 |
 
-这些参数仅对仪表盘和 `worldmonitor web` 生效。在其他所有命令中，`--theme`、`--url` 等参数会作为请求参数传给 API。
+这些参数仅对终端仪表盘生效。`worldmonitor web` 有自己的参数，见[打开网页仪表盘](#打开网页仪表盘)。在其他所有命令中，`--theme`、`--url` 等参数会作为请求参数传给 API。
 
 | 环境变量 | 作用 |
 |---|---|
@@ -205,7 +205,7 @@ worldmonitor web
 | `--hosted` | 即使在仓库目录中也始终打开托管版仪表盘 |
 | `--port <n>` | 本地开发服务器端口（默认 5173） |
 | `--no-open` | 只打印地址，不打开浏览器 |
-| `--url <url>` | 打开此地址，而非托管版仪表盘 |
+| `--url <url>` | 打开此地址，而非托管版仪表盘。在仓库目录中需同时加上 `--hosted`，否则会启动本地开发服务器 |
 
 ## 故障排除
 

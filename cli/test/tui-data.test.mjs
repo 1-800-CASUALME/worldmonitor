@@ -153,6 +153,12 @@ describe('store', () => {
     assert.equal(events.length, 1);
     assert.equal(store.status().errors[0], 'fast');
   });
+  it('reports a failed refresh without an error listener instead of throwing', async () => {
+    const { fetch } = fakeFetch([['tier=fast', { status: 503, body: { error: 'nope' } }]]);
+    const store = new Store(createClient({ fetch }), { now: () => 5000000 });
+    assert.equal(await store.refresh('fast'), false);
+    assert.match(store.meta.fast.error, /503/);
+  });
   it('keeps a failed source at no-success while backing off', async () => {
     const now = { t: 5000000 };
     const { fetch, calls } = fakeFetch([['tier=fast', { status: 503, body: { error: 'nope' } }]]);
@@ -269,6 +275,7 @@ describe('prefs', () => {
       assert.equal(savePrefs({ theme: 'matrix', animations: false, apiKey: 'wm_secret' }, env), true);
       const raw = readFileSync(prefsPath(env), 'utf8');
       assert.ok(raw.includes('matrix'));
+      assert.ok(!raw.includes('wm_secret'), 'only known preference keys are written');
       assert.equal(loadPrefs(env).theme, 'matrix');
       assert.equal(loadPrefs(env).animations, false);
     } finally {
@@ -365,6 +372,30 @@ describe('web command', () => {
     const code = await runWeb({ options: { noOpen: true }, stdout: () => {}, stderr: (s) => (err += s), open: () => {}, spawnImpl, cwd: HERE });
     assert.equal(code, 1);
     assert.match(err, /EINVAL/);
+  });
+  it('leaves opening to the CLI, reads a URL split across chunks, and removes its signal handlers', async () => {
+    const opened = [];
+    const { EventEmitter } = await import('node:events');
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.kill = () => {};
+    let spawned = null;
+    const before = [process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')];
+    const spawnImpl = (cmd, args, opts) => {
+      spawned = { cmd, args, opts };
+      setTimeout(() => {
+        child.stdout.emit('data', Buffer.from('  ➜  Local:   http://local'));
+        child.stdout.emit('data', Buffer.from('host:5173/\n'));
+        child.emit('exit', 0);
+      }, 5);
+      return child;
+    };
+    const code = await runWeb({ options: { port: 5173 }, stdout: () => {}, open: (u) => opened.push(u), spawnImpl, cwd: HERE, env: { PATH: '/bin' } });
+    assert.equal(code, 0);
+    assert.deepEqual(opened, ['http://localhost:5173/']);
+    assert.equal(spawned.opts.env.BROWSER, 'none', 'Vite must not open a second tab or ignore --no-open');
+    assert.equal(spawned.opts.env.PATH, '/bin');
+    assert.deepEqual([process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')], before);
   });
 });
 
