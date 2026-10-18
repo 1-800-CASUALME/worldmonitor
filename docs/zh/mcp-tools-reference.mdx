@@ -2363,35 +2363,6 @@ curl -s https://worldmonitor.app/mcp \
 
 </CodeGroup>
 
-### `generate_forecasts`
-
-返回已发布的 AI 预测，每条含概率、情景、信号和逐预测案例文件，由服务端按 domain 和 region 过滤。列表由预测流水线按自身计划生成（基于规则的概率加 LLM 撰写的叙事，按流水线自身节奏重新发布）；一次调用返回最新发布的运行结果，不会启动新的运行。超大响应会省略案例文件并在 transportCoverage 中报告省略数量；更窄的 domain 或 region 过滤会返回它们。需要付费套餐；一次下游请求，API 套餐权重 2。domain 为 conflict、market、supply_chain、political、military、cyber、infrastructure 之一；region 为自由文本，如 "Middle East"。只读。
-
-**参数：**
-
-| 名称 | 类型 | 必填 | 描述 |
-|------|------|---------:|-------------|
-| `domain` | string | 否 | 预测领域："geopolitical"、"economic"、"military"、"climate"，或留空表示所有领域 |
-| `region` | string | 否 | 地理区域筛选，例如 "Middle East"、"Europe"、"Asia Pacific"，或留空表示全球 |
-
-- **API 端点：** 无公开 OpenAPI 行；运行时代理 `POST /api/forecast/v1/get-forecasts`（OpenAPI 规范仅在该路径上声明 `GET`，由 `get_forecast_predictions` 覆盖 — 此工具的 POST 变体运行新的预测）。
-- **类型：** 实时 RPC — 每次调用代理对 WorldMonitor API 的请求。Edge 运行时超时：**25.0s**。
-
-<CodeGroup>
-
-```bash curl
-curl -s https://worldmonitor.app/mcp \
-  -H "X-WorldMonitor-Key: $WM_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "jsonrpc":"2.0","id":1,
-    "method":"tools/call",
-    "params":{"name":"generate_forecasts","arguments":{}}
-  }'
-```
-
-</CodeGroup>
-
 ### `get_forecast_predictions`
 
 来自 WorldMonitor 预测模型的 AI 生成地缘政治和经济预测。涵盖即将到来的风险事件和概率评估。

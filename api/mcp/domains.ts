@@ -128,7 +128,6 @@ export const TOOL_CATEGORY_BY_NAME: Readonly<Record<string, McpToolCategoryId>> 
   // AI intelligence, including historical intelligence
   get_world_brief: 'ai-intelligence',
   analyze_situation: 'ai-intelligence',
-  generate_forecasts: 'ai-intelligence',
   get_forecast_predictions: 'ai-intelligence',
   get_forecast_case: 'ai-intelligence',
   get_forecast_theaters: 'ai-intelligence',

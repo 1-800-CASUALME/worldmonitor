@@ -8,9 +8,10 @@ import assert from 'node:assert/strict';
 import { Ratelimit } from '@upstash/ratelimit';
 import { HMAC_SECRET, callBody, makeProDeps, proReq } from './helpers/mcp-pro-deps.mjs';
 import { readFixture } from './helpers/mcp-output-budget.mjs';
-import { TOOL_REGISTRY } from '../api/mcp/registry/index.ts';
+import { findCallableTool } from '../api/mcp/registry/index.ts';
 
-const budgetOf = name => TOOL_REGISTRY.find(tool => tool.name === name)._outputBudgetBytes;
+// generate_forecasts is retired (unlisted) but still callable, so its cases stay.
+const budgetOf = name => findCallableTool(name)._outputBudgetBytes;
 const apiDeps = () => makeProDeps({ getEntitlements: async () => ({ planKey: 'api-starter', features: {
   tier: 1, mcpAccess: true, apiAccess: true, planLimits: { apiCallsPerDay: 1000, mcpCallsPerDay: 'shared-api-budget' },
 }, validUntil: Date.now() + 86400000 }) });

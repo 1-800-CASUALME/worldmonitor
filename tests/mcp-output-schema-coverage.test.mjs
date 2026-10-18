@@ -643,8 +643,6 @@ describe('api/mcp.ts — per-tool outputSchema coverage (v1.7.0)', () => {
   // Tools that reshape inside `_execute` are deliberately out of scope — the
   // gateway response is not what they return.
   // --------------------------------------------------------------------
-  // `generate_forecasts` is verbatim too but declares `_apiPaths: []`, so it
-  // has no OpenAPI operation to check against and cannot be listed here.
   const VERBATIM_PASSTHROUGH_TOOLS = [
     'analyze_news_headlines',
     'analyze_situation',
@@ -882,7 +880,7 @@ describe('api/mcp.ts — per-tool outputSchema coverage (v1.7.0)', () => {
       .filter(t => typeof t._execute === 'function'
         && RETURNS_RESPONSE_VERBATIM.test(t._execute.toString())
         // A tool with no single declared OpenAPI operation has no contract to
-        // check against; `generate_forecasts` declares `_apiPaths: []`.
+        // check against.
         && (t._apiPaths ?? []).length === 1)
       .map(t => t.name)
       .sort();

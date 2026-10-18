@@ -33,7 +33,7 @@ import { isSharedRestCounter, readDailyAllowance, reserveQuota, resolveDailyLimi
 import { reserveFreeAccountAllowance } from './free-account-allowance';
 import { buildMcpStructuredDenial, type McpDenial } from './upgrade';
 import { filterConflictPanelEvents, isOrdinaryMarketDefault, presentConflictEvents, presentDefaultMarketData, projectConflictSourceObservation } from './registry/cache-tools';
-import { isQuotaExemptMetadataTool, toolAccess, toolWeight, TOOL_REGISTRY } from './registry/index';
+import { findCallableTool, isQuotaExemptMetadataTool, toolAccess, toolWeight, TOOL_REGISTRY } from './registry/index';
 import { rpcError, rpcOk, withMcpNoStore } from './rpc';
 import { McpSourceUnavailableError } from './source-unavailable';
 import { buildStructuredContent } from './structured-content';
@@ -431,7 +431,7 @@ export async function dispatchToolsCall(
   if (!p || typeof p.name !== 'string') {
     return rpcError(id, -32602, 'Invalid params: missing tool name', corsHeaders);
   }
-  const tool = TOOL_REGISTRY.find((t) => t.name === p.name);
+  const tool = findCallableTool(p.name);
   if (!tool) {
     if (deferredBurst) {
       const limited = await applyPerMinuteLimit(context, corsHeaders, toolBurstPerMinute, id);

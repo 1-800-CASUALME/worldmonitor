@@ -124,7 +124,7 @@ Don't try to memorise the grammar from scratch — head to the [JMESPath guide](
 - **Energy & macro** — `get_energy_intelligence`, `get_economic_data`, `get_country_macro`, `get_tariff_trends`, `get_eu_housing_cycle`, `get_eu_quarterly_gov_debt`, `get_eu_industrial_production`.
 - **Environment & health** — `get_climate_data`, `get_natural_disasters`, `get_radiation_data`, `get_health_signals`.
 - **Precomputed AI intelligence** — `get_world_brief` (citation-grounded dashboard snapshot; refreshed by the insights seeder).
-- **AI synthesis** (live LLM, slower — 1–4 s) — `get_country_brief`, `analyze_situation`, `generate_forecasts`.
+- **AI synthesis** (live LLM, slower — 1–4 s) — `get_country_brief`, `analyze_situation`.
 
 Full per-tool parameters, freshness budgets, and `curl` examples are in the [MCP Tools Reference](/mcp-tools-reference). `tools/list` already carries each tool's complete description; to re-read one tool's definition without re-listing the catalog, call `describe_tool` with `tool_name: "<name>"` — it's exempt from the Pro daily quota, so use it freely while exploring.
 

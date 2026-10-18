@@ -31,7 +31,7 @@
         "get_chokepoint_status",
         "get_supply_chain_data",
         "analyze_situation",
-        "generate_forecasts"
+        "get_forecast_predictions"
       ],
       "representativeQueries": [
         "what is happening in the Red Sea right now",

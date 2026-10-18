@@ -2998,62 +2998,6 @@ export const RPC_TOOLS: ToolDef[] = [
     _apiPaths: ['GET /api/forecast/v1/get-simulation-outcome'],
   },
   {
-    name: 'generate_forecasts',
-    title: 'Published forecasts filtered server-side',
-    _outputBudgetBytes: 65536,
-    description: 'Return the published AI forecasts through the paid forecast API, filtered server-side by domain and region, each with probability, scenarios, signals and a per-forecast case file. Despite the name, a call generates nothing. The list is produced by the forecasting pipeline on its own schedule (rule-based probabilities with LLM-written narrative, republished on the pipeline\'s own cadence); a call returns the latest published run and does not start a new one. An oversized response omits the case files and reports the omitted count in transportCoverage; a narrower domain or region filter returns them. Requires a paid plan; one downstream request, weight 2 on API plans. domain is one of conflict, market, supply_chain, political, military, cyber, infrastructure; region is free text such as "Middle East". Read-only.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        domain: { type: 'string', enum: FORECAST_DOMAINS, description: `Forecast domain: one of ${FORECAST_DOMAINS.map(domain => `"${domain}"`).join(', ')}. Omit for all domains.` },
-        region: { type: 'string', description: 'Geographic region filter, e.g. "Middle East", "Europe", "Asia Pacific", or empty for global' },
-      },
-      required: [],
-    },
-    outputSchema: {
-      type: 'object',
-      properties: {
-        forecasts: { type: 'array', items: { type: 'object', properties: {
-          domain: { type: 'string' }, region: { type: 'string' },
-          probability: { type: ['number', 'null'] }, title: { type: 'string' }, rationale: { type: 'string' },
-          caseFile: { type: 'object' },
-          caseFileOmitted: { type: 'boolean', description: 'True when this forecast\'s case file was omitted to fit the response budget.' },
-        } } },
-        generatedAt: { type: ['string', 'number', 'null'] },
-        provider: { type: 'string' },
-        model: { type: 'string' },
-        transportCoverage: { type: 'object', required: ['field', 'original_count', 'returned_count', 'omitted_count', 'omission_reason'], properties: {
-          field: { const: 'forecasts[].caseFile' },
-          original_count: { type: 'integer', minimum: 0 }, returned_count: { type: 'integer', minimum: 0 },
-          omitted_count: { type: 'integer', minimum: 0 }, omission_reason: { const: 'output_budget' },
-        } },
-      },
-    },
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    _fitToBudget: fitForecastsToBudget,
-    _execute: async (params, base, context, execution) => {
-      // The upstream answers an unknown domain with an empty list that looks
-      // like "no forecasts", so reject it here with the valid set.
-      const domain = String(params.domain ?? '').trim().toLowerCase();
-      if (domain && !FORECAST_DOMAINS.includes(domain)) {
-        throw new RpcValidationError('get-forecasts', [{ field: 'domain', description: `Use one of: ${FORECAST_DOMAINS.join(', ')}.` }]);
-      }
-      // 25 s — stays within Vercel Edge's ~30 s hard ceiling (was 60 s, which exceeded the limit)
-      const url = `${base}/api/forecast/v1/get-forecasts`;
-      const body = JSON.stringify({ domain, region: String(params.region ?? '') });
-      const auth = await buildAuthHeaders(context, 'POST', url, body);
-      const res = await fetchMcpDownstream(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...auth, 'User-Agent': 'worldmonitor-mcp-edge/1.0' },
-        body,
-        signal: AbortSignal.timeout(25_000),
-      }, execution);
-      await assertToolFetchOk(res, 'get-forecasts');
-      return res.json();
-    },
-    _apiPaths: [],
-  },
-  {
     name: 'search_flights',
     title: 'Search flights',
     _outputBudgetBytes: 262144,
@@ -3644,6 +3588,70 @@ export const RPC_TOOLS: ToolDef[] = [
         };
       }
       return buildPublicTool(tool, { compressDescriptions: false });
+    },
+    _apiPaths: [],
+  },
+];
+
+// Retired tools stay callable under their old name but are absent from
+// tools/list, describe_tool, the server card and the docs (dispatch resolves
+// them through findCallableTool). generate_forecasts read the same published
+// list as get_forecast_predictions (both reach forecast:predictions:v2) while
+// its name claimed it started a forecast run; retired in MCP server 1.37.0.
+export const RETIRED_RPC_TOOLS: ToolDef[] = [
+  {
+    name: 'generate_forecasts',
+    title: 'Published forecasts filtered server-side',
+    _outputBudgetBytes: 65536,
+    description: 'Return the published AI forecasts through the paid forecast API, filtered server-side by domain and region, each with probability, scenarios, signals and a per-forecast case file. Despite the name, a call generates nothing. The list is produced by the forecasting pipeline on its own schedule (rule-based probabilities with LLM-written narrative, republished on the pipeline\'s own cadence); a call returns the latest published run and does not start a new one. An oversized response omits the case files and reports the omitted count in transportCoverage; a narrower domain or region filter returns them. Requires a paid plan; one downstream request, weight 2 on API plans. domain is one of conflict, market, supply_chain, political, military, cyber, infrastructure; region is free text such as "Middle East". Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        domain: { type: 'string', enum: FORECAST_DOMAINS, description: `Forecast domain: one of ${FORECAST_DOMAINS.map(domain => `"${domain}"`).join(', ')}. Omit for all domains.` },
+        region: { type: 'string', description: 'Geographic region filter, e.g. "Middle East", "Europe", "Asia Pacific", or empty for global' },
+      },
+      required: [],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        forecasts: { type: 'array', items: { type: 'object', properties: {
+          domain: { type: 'string' }, region: { type: 'string' },
+          probability: { type: ['number', 'null'] }, title: { type: 'string' }, rationale: { type: 'string' },
+          caseFile: { type: 'object' },
+          caseFileOmitted: { type: 'boolean', description: 'True when this forecast\'s case file was omitted to fit the response budget.' },
+        } } },
+        generatedAt: { type: ['string', 'number', 'null'] },
+        provider: { type: 'string' },
+        model: { type: 'string' },
+        transportCoverage: { type: 'object', required: ['field', 'original_count', 'returned_count', 'omitted_count', 'omission_reason'], properties: {
+          field: { const: 'forecasts[].caseFile' },
+          original_count: { type: 'integer', minimum: 0 }, returned_count: { type: 'integer', minimum: 0 },
+          omitted_count: { type: 'integer', minimum: 0 }, omission_reason: { const: 'output_budget' },
+        } },
+      },
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    _fitToBudget: fitForecastsToBudget,
+    _execute: async (params, base, context, execution) => {
+      // The upstream answers an unknown domain with an empty list that looks
+      // like "no forecasts", so reject it here with the valid set.
+      const domain = String(params.domain ?? '').trim().toLowerCase();
+      if (domain && !FORECAST_DOMAINS.includes(domain)) {
+        throw new RpcValidationError('get-forecasts', [{ field: 'domain', description: `Use one of: ${FORECAST_DOMAINS.join(', ')}.` }]);
+      }
+      // 25 s — stays within Vercel Edge's ~30 s hard ceiling (was 60 s, which exceeded the limit)
+      const url = `${base}/api/forecast/v1/get-forecasts`;
+      const body = JSON.stringify({ domain, region: String(params.region ?? '') });
+      const auth = await buildAuthHeaders(context, 'POST', url, body);
+      const res = await fetchMcpDownstream(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...auth, 'User-Agent': 'worldmonitor-mcp-edge/1.0' },
+        body,
+        signal: AbortSignal.timeout(25_000),
+      }, execution);
+      await assertToolFetchOk(res, 'get-forecasts');
+      return res.json();
     },
     _apiPaths: [],
   },

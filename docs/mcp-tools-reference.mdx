@@ -2921,36 +2921,6 @@ curl -s https://worldmonitor.app/mcp \
 
 </CodeGroup>
 
-### `generate_forecasts`
-
-Return the published AI forecasts, each with probability, scenarios, signals and a per-forecast case file, filtered server-side by domain and region. The list is produced by the forecasting pipeline on its own schedule (rule-based probabilities with LLM-written narrative, republished on the pipeline's own cadence); a call returns the latest published run and does not start a new one. An oversized response omits the case files and reports the omitted count in transportCoverage; a narrower domain or region filter returns them. Requires a paid plan; one downstream request, weight 2 on API plans. domain is one of conflict, market, supply_chain, political, military, cyber, infrastructure; region is free text such as "Middle East". Read-only.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|---------:|-------------|
-| `domain` | string | no | Forecast domain: one of "conflict", "market", "supply_chain", "political", "military", "cyber", "infrastructure". Omit for all domains. |
-| `region` | string | no | Geographic region filter, e.g. "Middle East", "Europe", "Asia Pacific", or empty for global |
-
-- **API endpoints:** no public OpenAPI row; runtime proxies `POST /api/forecast/v1/get-forecasts` (the OpenAPI spec only declares `GET` on that path, which is covered by `get_forecast_predictions` — this tool's POST variant reads the same published forecasts).
-- **Access:** `subscription` — requires a Pro subscription. RPC tool: no `summary` argument (use `jmespath` to trim the response).
-- **Kind:** live RPC — proxies a fetch to the WorldMonitor API on each call. Edge-runtime timeout: **25.0s**.
-
-<CodeGroup>
-
-```bash curl
-curl -s https://worldmonitor.app/mcp \
-  -H "X-WorldMonitor-Key: $WM_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "jsonrpc":"2.0","id":1,
-    "method":"tools/call",
-    "params":{"name":"generate_forecasts","arguments":{}}
-  }'
-```
-
-</CodeGroup>
-
 ### `get_forecast_predictions`
 
 AI-generated geopolitical and economic forecasts from WorldMonitor's predictive models. Covers upcoming risk events and probability assessments.

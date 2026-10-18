@@ -161,7 +161,7 @@ export interface BaseToolDef {
   //     downstream MCP clients use this hint to decide whether to dedup,
   //     cache, or auto-retry tool calls. Two classes of tool earn `false`:
   //       1. LLM-synthesized tools (get_world_brief, get_country_brief,
-  //          analyze_situation, generate_forecasts) — the model output is
+  //          analyze_situation) — the model output is
   //          non-deterministic across calls.
   //       2. Live external-API reads with rapidly-changing content
   //          (get_airspace, get_maritime_activity, search_flights,
@@ -304,9 +304,9 @@ export interface RpcToolDef extends BaseToolDef {
   //       static JSON registry — see get_commodity_geo), OR
   //   (b) The tool's _execute fetches an endpoint whose runtime method
   //       drifts from the OpenAPI spec AND no covering op exists in the
-  //       spec (e.g. generate_forecasts POSTs /api/forecast/v1/get-forecasts
-  //       but the spec declares only GET — that GET is owned by
-  //       get_forecast_predictions). Document the drift inline; an EXCLUDED
+  //       spec (e.g. the retired generate_forecasts POSTed
+  //       /api/forecast/v1/get-forecasts but the spec declares only GET —
+  //       that GET is owned by get_forecast_predictions). Document the drift inline; an EXCLUDED
   //       entry is the wrong fix (the op IS covered, just via a sibling
   //       tool with matching method).
   //

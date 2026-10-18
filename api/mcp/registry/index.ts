@@ -5,7 +5,7 @@ import type { McpAccessClass, PublicToolShape, ToolDef } from '../types';
 import { compressDescription, utf8ByteLength } from '../utils';
 import { CACHE_TOOLS } from './cache-tools';
 import { NLP_TOOLS } from './nlp-tools';
-import { RPC_TOOLS } from './rpc-tools';
+import { RETIRED_RPC_TOOLS, RPC_TOOLS } from './rpc-tools';
 import { COUNTRY_VIEW_TOOLS } from './country-view';
 import { NEWS_DASHBOARD_TOOLS } from './news-dashboard';
 import { SOURCE_TOOLS } from './source-tools';
@@ -22,6 +22,17 @@ import { TARIFF_TOOLS } from './tariff-tools';
 // last so extracting it from rpc-tools.ts left every other tool's position
 // unchanged. SOURCE_TOOLS is appended after it for the same reason.
 export const TOOL_REGISTRY: ToolDef[] = [...CACHE_TOOLS, ...RPC_TOOLS, ...NLP_TOOLS, ...SOURCE_TOOLS, ...NEWS_DASHBOARD_TOOLS, ...MACRO_TOOLS, ...STOCK_TOOLS, ...COST_SHOCK_TOOLS, ...PUBLIC_DOMAIN_TOOLS, ...COUNTRY_VIEW_TOOLS, ...TARIFF_TOOLS];
+// Retired tools: callable under their old name so hard-coded clients keep
+// working, but never listed. Every published surface (tools/list,
+// describe_tool, the server card, docs, A2A) reads TOOL_REGISTRY only; the
+// tools/call dispatcher resolves names through findCallableTool.
+export const RETIRED_TOOLS: ToolDef[] = [...RETIRED_RPC_TOOLS];
+
+export function findCallableTool(name: string): ToolDef | undefined {
+  return TOOL_REGISTRY.find((tool) => tool.name === name)
+    ?? RETIRED_TOOLS.find((tool) => tool.name === name);
+}
+
 export const FREE_TIER_TOOL_NAMES: ReadonlySet<string> = new Set(
   TOOL_REGISTRY.filter((tool) => tool._freeTier === true).map((tool) => tool.name),
 );

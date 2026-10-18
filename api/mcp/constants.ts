@@ -344,7 +344,9 @@ export const SERVER_NAME = 'worldmonitor';
 // Bumped 1.34.0 → 1.35.0 for the new registry description; the official
 // registry refuses a changed payload under a published version.
 // Bumped 1.35.0 → 1.36.0 to lead the registry description with breadth.
-export const SERVER_VERSION = '1.36.0';
+// Bumped 1.36.0 → 1.37.0 when generate_forecasts left tools/list (94 → 93
+// tools); it stays callable as a retired alias.
+export const SERVER_VERSION = '1.37.0';
 
 // MCP logging capability — valid severity levels per the 2025-03-26 spec
 // (RFC 5424 subset). Stateless HTTP transport: we ACK the level but do not
@@ -437,7 +439,7 @@ export const SERVER_INSTRUCTIONS = [
   // Which tool fits which question. Tool descriptions describe only their own
   // tool: the Claude Connectors Directory forbids descriptions that name other
   // tools or direct the model (tests/mcp-tool-description-policy.test.mjs).
-  'Choosing between tools: open_country_brief for country brief requests and topic navigation; get_country_brief only for a text-only assessment. get_country_coverage for a country\'s deduplicated incident timeline rather than rebuilding it from the news tools. Tariffs: get_us_import_duty for current US duties including Section 301 and 232; get_tariff_averages for any reporter\'s average over time, a partner or a product group; get_bilateral_tariff for one HS product between two countries. Forecasts: get_forecast_predictions reads the published forecasts from the cache and get_forecast_case one of their cases; generate_forecasts returns the same published run filtered server-side by domain and region, with case files, as a downstream request (it does not start a new run). list_five_factor_scorecards for the overview, get_five_factor_scorecard for one country\'s provenance and raw observations. get_mineral_production for who mines and refines; get_commodity_geo for site locations. search_intel_history for a short query; get_similar_events for a described situation. Before relying on a result, check its availability flags (upstreamUnavailable, hasScore, underAudit, unavailable, coverage and degraded fields): they separate unknown from zero.',
+  'Choosing between tools: open_country_brief for country brief requests and topic navigation; get_country_brief only for a text-only assessment. get_country_coverage for a country\'s deduplicated incident timeline rather than rebuilding it from the news tools. Tariffs: get_us_import_duty for current US duties including Section 301 and 232; get_tariff_averages for any reporter\'s average over time, a partner or a product group; get_bilateral_tariff for one HS product between two countries. Forecasts: get_forecast_predictions reads the published forecasts from the cache and get_forecast_case one of their cases; no tool starts a new forecast run. list_five_factor_scorecards for the overview, get_five_factor_scorecard for one country\'s provenance and raw observations. get_mineral_production for who mines and refines; get_commodity_geo for site locations. search_intel_history for a short query; get_similar_events for a described situation. Before relying on a result, check its availability flags (upstreamUnavailable, hasScore, underAudit, unavailable, coverage and degraded fields): they separate unknown from zero.',
   '',
   // Content safety (#5743). This stanza is the ONLY delivery channel that
   // reliably reaches the model: hosts compress the tool description to its
