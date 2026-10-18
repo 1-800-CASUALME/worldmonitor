@@ -1,5 +1,5 @@
 ---
-title: "IMF WEO PUBLICATION_DATE and UPDATE_DATE are dataset-level reference metadata that only attributes=all returns"
+title: "IMF WEO PUBLICATION_DATE and UPDATE_DATE are dataset-level reference metadata; attributes=all returns them with the series attributes"
 date: 2026-10-18
 category: integration-issues
 module: scripts/_seed-utils.mjs
@@ -119,7 +119,7 @@ All findings below were observed against `https://api.imf.org/external/sdmx/3.0`
   - Decode dataset attributes by ID, through the structure the dataset names.
   - Treat absent, duplicated, malformed or non-calendar values as unknown.
   - Keep publication, update and retrieval (`seededAt`/`fetchedAt`) as separate fields.
-  - Use the `WEO_*_VINTAGE` flows when an immutable named edition is required.
+  - Use the `WEO_*_VINTAGE` flows when a named edition is required. These flows can receive revisions, so save the response used when results must be repeatable.
 - **Validate dates with a regex plus a `Date.UTC` round-trip.** Use the same rule in the seeder and in the browser parser.
 - **Tests that pin this behavior:**
   - `tests/seed-utils-imf-release.test.mjs` runs against a real capture, `tests/fixtures/imf-weo/ngdpd-usa-attributes-all-2026-10-18.json`:
