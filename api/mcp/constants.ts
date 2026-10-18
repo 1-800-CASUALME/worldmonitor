@@ -343,7 +343,8 @@ export const SERVER_NAME = 'worldmonitor';
 // compression, with the weakest descriptions rewritten.
 // Bumped 1.34.0 → 1.35.0 for the new registry description; the official
 // registry refuses a changed payload under a published version.
-export const SERVER_VERSION = '1.35.0';
+// Bumped 1.35.0 → 1.36.0 to lead the registry description with breadth.
+export const SERVER_VERSION = '1.36.0';
 
 // MCP logging capability — valid severity levels per the 2025-03-26 spec
 // (RFC 5424 subset). Stateless HTTP transport: we ACK the level but do not
