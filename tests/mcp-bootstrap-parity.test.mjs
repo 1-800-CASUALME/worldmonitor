@@ -37,6 +37,8 @@ const { TOOL_REGISTRY } = mcpTesting;
 //   - operational:         relay heartbeats and similar — visible via /api/health, not MCP.
 // -----------------------------------------------------------------------------
 const EXCLUDED_FROM_MCP = new Map([
+  ['risk:scores:history:index',
+    'operational: string index for daily CII health; MCP country history and weekly movers read the per-country sorted sets directly.'],
 
   ['live-video:resolved:v1',
     'dashboard-internal: channel id to current live YouTube video id, read by the Live News and Live Webcams players to try a fresh embed before the channel entry (#8545); a playback hint with no analytical content, not a queryable MCP slice.'],

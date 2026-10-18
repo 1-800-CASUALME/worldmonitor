@@ -648,7 +648,6 @@ describe('api/mcp.ts — per-tool outputSchema coverage (v1.7.0)', () => {
     'analyze_situation',
     'get_chokepoint_dependencies',
     'get_country_coverage',
-    'get_country_risk',
     'get_defense_industrial_base',
     'get_demographics_capability',
     'get_food_stocks',
@@ -916,6 +915,7 @@ describe('api/mcp.ts — per-tool outputSchema coverage (v1.7.0)', () => {
   const SPREAD_PASSTHROUGH_TOOLS = new Map([
     ['open_news_dashboard', { adds: ['requestedView', 'panelRequest'] }],
     ['get_country_brief', { adds: ['digestCoverage', 'groundingStories', 'sources[].sourceProvenance'] }],
+    ['get_country_risk', { adds: ['ciiHistory'] }],
     // The live tariff tools add what answered and where it stops (buildCoverage).
     ['get_bilateral_tariff', { adds: ['coverage'] }],
     ['get_tariff_averages', { adds: ['coverage'] }],

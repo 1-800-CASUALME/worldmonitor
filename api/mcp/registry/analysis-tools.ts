@@ -1,6 +1,7 @@
 import { RpcValidationError } from '../billing-denial';
 import { requireCountryCode } from '../_country-args';
 import { CII_RISK_SCORE_CACHE_KEYS } from '../../_cii-risk-cache-keys.js';
+import { CII_MOVERS_OUTPUT_SCHEMA, ciiHistoryDays, readCiiMovers } from '../_cii-history';
 import { hasRedistributableProviderAttribution } from '../../../shared/provider-redistribution';
 import { buildAlertDigest, buildWeeklyTrends } from '../../../shared/analysis-alert-digest';
 import {
@@ -823,12 +824,13 @@ export const ANALYSIS_TOOLS: ToolDef[] = [
       'severity vocabulary its own producer already uses; no thresholds are invented by this tool. Domains with data but no ' +
       'trips are listed as quiet, and domains whose caches are unavailable are listed separately so silence is never mistaken ' +
       'for calm. The weekly view adds direction, volatility, and anomaly flags derived from the persisted military-activity ' +
-      'history plus the current temporal-anomaly snapshot. A rollup of threshold trips across domains: no news stories, ' +
+      'history plus the current temporal-anomaly snapshot. movers_days (7-90, default 7) adds daily CII risers and fallers in weekly view. A rollup of threshold trips across domains: no news stories, ' +
       'narrative, or full per-stream anomaly lists. Requires a paid plan; weight 2 on API plans. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
         view: { type: 'string', enum: ['today', 'weekly'], description: 'today lists current threshold trips (default); weekly adds trend context.' },
+        movers_days: { type: 'integer', minimum: 7, maximum: 90, default: 7, description: 'Weekly view only. Rank CII rises and falls over this many UTC days (7-90, default 7).' },
       },
       required: [],
     },
@@ -850,6 +852,7 @@ export const ANALYSIS_TOOLS: ToolDef[] = [
                 trends: { type: 'array', items: { type: 'object' } },
                 current_anomalies: { type: 'array', items: { type: 'object' } },
                 history_available: { type: 'boolean' },
+                cii_movers: CII_MOVERS_OUTPUT_SCHEMA,
                 note: { type: 'string' },
               },
             },
@@ -862,6 +865,8 @@ export const ANALYSIS_TOOLS: ToolDef[] = [
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     _execute: async (params) => {
       const view = typeof params.view === 'string' ? params.view : 'today';
+      const moversDays = ciiHistoryDays(params.movers_days, 'movers_days');
+      if (moversDays !== undefined && view !== 'weekly') throw new RpcValidationError('movers_days', [{ field: 'movers_days', description: 'Valid only with view: weekly.' }]);
       const keys: string[] = [
         CII_RISK_SCORE_CACHE_KEYS.live,
         'military:surges:v1',
@@ -883,6 +888,7 @@ export const ANALYSIS_TOOLS: ToolDef[] = [
         { key: 'seed-meta:thermal:escalation', maxStaleMin: 360 },
         { key: 'seed-meta:supply_chain:shipping_stress', maxStaleMin: 45 },
       ];
+      if (view === 'weekly') checks.push({ key: CII_RISK_SCORE_CACHE_KEYS.dailyHistoryMeta, maxStaleMin: 30, minRecordCount: 31 });
       const {
         payloads: [riskScores, surges, cableHealth, outages, temporal, thermal, stress, historyPayload],
         freshness,
@@ -909,6 +915,11 @@ export const ANALYSIS_TOOLS: ToolDef[] = [
       let weekly: Record<string, unknown> | null = null;
       const unavailable = [...digest.unavailable];
       if (view === 'weekly') {
+        const cii = await readCiiMovers(moversDays ?? 7, now);
+        freshness.unavailable_inputs.push(...cii.unavailableInputs);
+        freshness.failed_inputs.push(...cii.failedInputs);
+        freshness.stale ||= cii.unavailableInputs.length > 0;
+        if (!cii.available || freshness.unavailable_inputs.includes(CII_RISK_SCORE_CACHE_KEYS.dailyHistoryMeta)) unavailable.push('cii_history');
         const historyAvailable = historyPayload !== null;
         if (!historyAvailable) unavailable.push('military_history');
         const activity = surgeHistoryToActivityHistory(historyPayload);
@@ -920,7 +931,8 @@ export const ANALYSIS_TOOLS: ToolDef[] = [
           trends: buildWeeklyTrends(series, now),
           current_anomalies: anomaliesToDigestInput(temporal),
           history_available: historyAvailable,
-          note: 'weekly trends derive from the persisted military-activity history; other domains publish no whole-feed history caches yet',
+          cii_movers: cii.movers,
+          note: 'weekly trends use military-activity history; CII movers use UTC daily closes with actual baseline dates, matching methodologies and no interpolation; other domains have no whole-feed history caches',
         };
       }
       return {

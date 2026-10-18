@@ -903,7 +903,7 @@ export async function dispatchToolsCall(
         const { panelRequest: _receipt, ...snapshot } = result as Record<string, unknown>;
         forecastSnapshotToSave = snapshot;
         forecastCompletedBytes = utf8ByteLength(JSON.stringify(panelRequest ? { ...result, panelRequest } : result));
-      } else await panelRead.save(result);
+      } else await panelRead.save(result, execution?.countryRiskHistoryReuseUntil);
     }
     if (tool.name === 'get_forecast_predictions' && panelRead?.panel === 'forecasts' && tool._execute === undefined && argBool(callArguments.summary) && result && typeof result === 'object' && 'data' in result) {
       const data = (result as { data: Record<string, unknown> }).data;

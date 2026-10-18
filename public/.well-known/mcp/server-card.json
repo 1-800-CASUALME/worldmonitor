@@ -5,12 +5,12 @@
   "description": "Real-time global intelligence across conflict, markets, energy, trade, shipping and cyber.",
   "kind": "product",
   "icon": "https://www.worldmonitor.app/favico/apple-touch-icon.png",
-  "version": "1.37.0",
+  "version": "1.38.0",
   "url": "https://worldmonitor.app/mcp",
   "serverUrl": "https://worldmonitor.app/mcp",
   "serverInfo": {
     "name": "worldmonitor",
-    "version": "1.37.0",
+    "version": "1.38.0",
     "description": "WorldMonitor's live global-intelligence stack as an MCP server, with per-outlet source ratings and a publicly scored forecast record, serving real-time data and AI-generated briefs in these domains: markets, commodities and macro; energy; conflicts, country risk, sanctions, cyber threats and chokepoints; maritime, aviation and supply chains; climate and natural disasters; health signals; displacement and humanitarian crises; AI briefs, forecasts and intel history; tariffs and trade policy.",
     "vendor": "WorldMonitor",
     "homepage": "https://www.worldmonitor.app"
@@ -372,7 +372,7 @@
     },
     {
       "name": "get_country_risk",
-      "description": "Return the structured risk snapshot for one country: the Composite Instability Index at cii.combinedScore (0-100) with its four components under cii.components, the government travel-advisory level, and OFAC sanctions exposure as sanctionsActive and sanctionsCount. Index scores, advisory and sanctions fields only, read from the seeded risk cache in under a second: no narrative, no LLM, and no per-indicator resilience breakdown. upstreamUnavailable=true means a required upstream read failed and the whole response was withheld: zeroed fields are unknown, not calm. Requires a paid plan; one downstream fetch, weight 2 on API plans. On a dedicated Pro allowance a call shares the same-country panel allocation; refresh with request_id starts a new one. Read-only; idempotent within a cache window.",
+      "description": "Return the structured risk snapshot for one country: the Composite Instability Index at cii.combinedScore (0-100) with its four components under cii.components, the government travel-advisory level, and OFAC sanctions exposure as sanctionsActive and sanctionsCount. Index scores, advisory and sanctions fields only, read from the seeded risk cache in under a second: no narrative, no LLM, and no per-indicator resilience breakdown. upstreamUnavailable=true means a required upstream read failed and the whole response was withheld: zeroed fields are unknown, not calm. Requires a paid plan; one downstream fetch, weight 2 on API plans. On a dedicated Pro allowance a call shares the same-country panel allocation; refresh with request_id starts a new one. Read-only; idempotent within a cache window. history_days (1-90) adds ciiHistory: one UTC daily close per day, the change over the span, and methodology breaks.",
       "_meta": {
         "worldmonitor/access": "subscription",
         "worldmonitor/category": "geopolitical-security"
@@ -564,7 +564,7 @@
     },
     {
       "name": "get_alert_digest",
-      "description": "Cross-domain alert digest: everything that tripped a threshold today, in one rollup. Sweeps seven seeded domains — country instability bands, military surge alerts, submarine-cable health, ongoing internet outages, temporal anomalies, thermal escalation zones, and shipping stress — and reports each trip with the severity vocabulary its own producer already uses; no thresholds are invented by this tool. Domains with data but no trips are listed as quiet, and domains whose caches are unavailable are listed separately so silence is never mistaken for calm. The weekly view adds direction, volatility, and anomaly flags derived from the persisted military-activity history plus the current temporal-anomaly snapshot. A rollup of threshold trips across domains: no news stories, narrative, or full per-stream anomaly lists. Requires a paid plan; weight 2 on API plans. Read-only.",
+      "description": "Cross-domain alert digest: everything that tripped a threshold today, in one rollup. Sweeps seven seeded domains — country instability bands, military surge alerts, submarine-cable health, ongoing internet outages, temporal anomalies, thermal escalation zones, and shipping stress — and reports each trip with the severity vocabulary its own producer already uses; no thresholds are invented by this tool. Domains with data but no trips are listed as quiet, and domains whose caches are unavailable are listed separately so silence is never mistaken for calm. The weekly view adds direction, volatility, and anomaly flags derived from the persisted military-activity history plus the current temporal-anomaly snapshot. movers_days (7-90, default 7) adds daily CII risers and fallers in weekly view. A rollup of threshold trips across domains: no news stories, narrative, or full per-stream anomaly lists. Requires a paid plan; weight 2 on API plans. Read-only.",
       "_meta": {
         "worldmonitor/access": "subscription",
         "worldmonitor/category": "geopolitical-security"

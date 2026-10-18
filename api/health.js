@@ -498,6 +498,7 @@ const STANDALONE_KEYS = {
   theaterPostureLive:    'theater-posture:sebuf:v1',
   theaterPostureBackup:  'theater-posture:sebuf:backup:v1',
   riskScoresLive:        CII_RISK_SCORE_CACHE_KEYS.live,
+  riskScoresHistory:     CII_RISK_SCORE_CACHE_KEYS.dailyHistoryIndex,
   usniFleet:             'usni-fleet:sebuf:v1',
   usniFleetStale:        'usni-fleet:sebuf:stale:v1',
   faaDelays:             'aviation:delays:faa:v1',
@@ -992,6 +993,11 @@ const SEED_META = {
   gpsjam:           { key: 'seed-meta:intelligence:gpsjam',       maxStaleMin: 1440 }, // Wingbits API (scripts/fetch-gpsjam.mjs); 1440min = 24h tolerance gives operator headroom to handle upstream outages and monthly quota exhaustion (HTTP 402 observed 2026-04-29) without dashboard noise. Seeder catch-block extends TTL on fail without refreshing fetchedAt, so STALE_SEED via age is the only alarm path.
   positiveGeoEvents:{ key: 'seed-meta:positive-events:geo',       maxStaleMin: 60 },
   riskScores:       { key: 'seed-meta:intelligence:risk-scores',  maxStaleMin: 30, minRecordCount: 3 }, // CII warm-ping every 8min; recordCount is realtime signal-density coverage for score-relevant conflict (ACLED or UCDP), news, and cyber families, not raw feed availability; quiet-but-fresh feeds may warn COVERAGE_PARTIAL.
+  riskScoresHistory: {
+    key: 'seed-meta:intelligence:risk-scores-history', maxStaleMin: 30, minRecordCount: 31,
+    activationKey: CII_RISK_SCORE_CACHE_KEYS.dailyHistoryActivation,
+    cutover: { mode: 'activation-marker', fromKey: null, issue: 9354, activationKey: CII_RISK_SCORE_CACHE_KEYS.dailyHistoryActivation },
+  },
   iranEvents:       { key: 'seed-meta:conflict:iran-events',      maxStaleMin: 20160 }, // manual seed from LiveUAMap; 20160 = 14d = 2× weekly cadence
   ucdpEvents:       { key: 'seed-meta:conflict:ucdp-events',      maxStaleMin: 420 },
   ucdpEventsBootstrap: { key: 'seed-meta:conflict:ucdp-events-bootstrap', maxStaleMin: 420 }, // Same cron. Monitored separately because the bootstrap tier now hydrates from the compact projection, and a transform/write failure there must not hide behind a healthy canonical key (#5300).
@@ -2189,6 +2195,7 @@ const ON_DEMAND_KEYS = new Set([
   // archive is, and that still reports STALE_SEED because on-demand softening
   // never covers a key that has data behind it (see classifyKey).
   'pizzintHistory',
+  'riskScoresHistory', // first fresh leader build atomically activates daily history
   // #6070 retired six expired deployment-order bridges after live producer
   // verification. Future temporary softening needs an activation marker or an
   // enforced wall-clock expiry; a prose-only removal reminder is not a control.
@@ -2223,6 +2230,7 @@ const ACTIVATION_MARKERS = {
   chinaCoverage: 'seed-activated:health:china-coverage',
   // Written by the PizzINT archive's Lua (scripts/shared/pizzint-history.cjs).
   pizzintHistory: SEED_META.pizzintHistory.activationKey,
+  riskScoresHistory: SEED_META.riskScoresHistory.activationKey,
   companyMonitoringWorker: 'seed-activated:company-monitoring:worker',
   shippingWebhookWorker: SEED_META.shippingWebhookWorker.activationKey,
   sanctionsChanges: SEED_META.sanctionsChanges.activationKey,

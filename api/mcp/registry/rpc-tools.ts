@@ -53,6 +53,8 @@ import {
 } from '../../../shared/insights-snapshot.js';
 import type { FreshnessCheck, ToolDef } from '../types';
 import { COUNTRY_BRIEF_UI_URI, COUNTRY_RISK_UI_URI, WORLD_BRIEF_UI_URI } from '../ui/registry';
+import { CII_HISTORY_OUTPUT_SCHEMA, ciiHistoryDays, readCountryCiiHistory } from '../_cii-history';
+import { CII_FORMULA_VERSION } from '../../../server/worldmonitor/intelligence/v1/_risk-config';
 import { ANALYSIS_TOOLS } from './analysis-tools';
 import { buildPublicTool, TOOL_REGISTRY } from './index';
 import { COMPANY_INTEL_TOOL } from './company-intel-tools';
@@ -1795,7 +1797,7 @@ export const RPC_TOOLS: ToolDef[] = [
     name: 'get_country_risk',
     title: 'Country instability score, advisory and sanctions',
     _outputBudgetBytes: 262144,
-    description: 'Return the structured risk snapshot for one country: the Composite Instability Index at cii.combinedScore (0-100) with its four components under cii.components, the government travel-advisory level, and OFAC sanctions exposure as sanctionsActive and sanctionsCount. Index scores, advisory and sanctions fields only, read from the seeded risk cache in under a second: no narrative, no LLM, and no per-indicator resilience breakdown. upstreamUnavailable=true means a required upstream read failed and the whole response was withheld: zeroed fields are unknown, not calm. Requires a paid plan; one downstream fetch, weight 2 on API plans. On a dedicated Pro allowance a call shares the same-country panel allocation; refresh with request_id starts a new one. Read-only; idempotent within a cache window.',
+    description: 'Return the structured risk snapshot for one country: the Composite Instability Index at cii.combinedScore (0-100) with its four components under cii.components, the government travel-advisory level, and OFAC sanctions exposure as sanctionsActive and sanctionsCount. Index scores, advisory and sanctions fields only, read from the seeded risk cache in under a second: no narrative, no LLM, and no per-indicator resilience breakdown. upstreamUnavailable=true means a required upstream read failed and the whole response was withheld: zeroed fields are unknown, not calm. Requires a paid plan; one downstream fetch, weight 2 on API plans. On a dedicated Pro allowance a call shares the same-country panel allocation; refresh with request_id starts a new one. Read-only; idempotent within a cache window. history_days (1-90) adds ciiHistory: one UTC daily close per day, the change over the span, and methodology breaks.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1803,21 +1805,18 @@ export const RPC_TOOLS: ToolDef[] = [
         refresh: { type: 'boolean', description: 'For a paid MCP allowance, start a new country allocation and reread loaded sources. Requires request_id and no panel_request. Does not force AI generation.' },
         request_id: { type: 'string', format: 'uuid', description: 'Required UUID for an explicit paid refresh. Retrying the same UUID reuses that allocation.' },
         country_code: { type: 'string', description: 'ISO 3166-1 alpha-2 code (e.g. "IQ"), alpha-3 code ("IRQ"), or English country name ("Iraq")' },
+        history_days: { type: 'integer', minimum: 1, maximum: 90, description: 'Optional UTC daily CII history depth, 1-90 days. Gaps remain gaps; only current-methodology points contribute to change.' },
       },
       required: ['country_code'],
     },
-    // Mirrors GetCountryRiskResponse verbatim — `_execute` returns the
-    // gateway's `res.json()` unchanged, and the gateway `JSON.stringify`s the
-    // proto-generated struct with no case conversion. Keep this in step with
-    // proto/worldmonitor/intelligence/v1/get_country_risk.proto; the
-    // OpenAPI-parity guard in tests/mcp-output-schema-coverage.test.mjs fails
-    // the build if a property here stops existing on the wire.
+    // ciiHistory is MCP-only. All other fields mirror GetCountryRiskResponse.
     outputSchema: {
       type: 'object',
       required: ['countryCode', 'countryName', 'advisoryLevel', 'sanctionsActive', 'sanctionsCount', 'fetchedAt', 'upstreamUnavailable'],
       properties: {
         countryCode: { type: 'string', description: 'ISO 3166-1 alpha-2 code, echoed back uppercased.' },
         countryName: { type: 'string', description: 'Resolved country name, or the ISO code when no name is known.' },
+        ciiHistory: CII_HISTORY_OUTPUT_SCHEMA,
         cii: {
           type: ['object', 'null'],
           description: 'Composite Instability Index score. Absent when the country is not tracked, and always absent when upstreamUnavailable is true.',
@@ -1865,6 +1864,7 @@ export const RPC_TOOLS: ToolDef[] = [
     // truth — the ui:// resource is registered in ../ui/registry.ts.
     _uiResourceUri: COUNTRY_RISK_UI_URI,
     _execute: async (params, base, context, execution) => {
+      const days = ciiHistoryDays(params.history_days, 'history_days');
       const code = requireCountryCode(params.country_code, 'get-country-risk');
       const url = `${base}/api/intelligence/v1/get-country-risk?country_code=${encodeURIComponent(code)}`;
       const auth = await buildAuthHeaders(context, 'GET', url, null);
@@ -1873,7 +1873,12 @@ export const RPC_TOOLS: ToolDef[] = [
         signal: AbortSignal.timeout(8_000),
       }, execution);
       await assertToolFetchOk(res, 'get-country-risk');
-      return res.json();
+      const result = await res.json();
+      if (days === undefined) return result;
+      const { history: ciiHistory, reuseUntil } = await readCountryCiiHistory(code, days, result.cii?.methodologyVersion || CII_FORMULA_VERSION);
+      if (execution) execution.countryRiskHistoryReuseUntil = reuseUntil;
+      if (result.upstreamUnavailable) ciiHistory.stale = true;
+      return { ...result, ciiHistory };
     },
     _apiPaths: [
       "GET /api/intelligence/v1/get-country-risk",

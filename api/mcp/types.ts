@@ -61,6 +61,7 @@ export interface McpToolExecutionContext {
   perToolForecastRead?: true;
   // Set only by dispatch after a dedicated paid country-panel read is authorized.
   countryPanelCode?: string;
+  countryRiskHistoryReuseUntil?: number | null;
   inboundHostClass: McpInboundHostClass;
   downstreamOrigin: string;
   downstreamOriginTag: string;

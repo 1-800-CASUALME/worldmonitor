@@ -112,6 +112,7 @@ Worked example — the `outputSchema` documented shape (its `anyOf[0]`) for `get
   "properties": {
     "countryCode": { "type": "string" },
     "countryName": { "type": "string" },
+    "ciiHistory": { "type": "object", "description": "Optional UTC daily history, added only with history_days." },
     "cii": {
       "type": ["object", "null"],
       "description": "Absent when the country is not tracked, and always absent when upstreamUnavailable is true.",
@@ -160,6 +161,12 @@ A typed-parsing sketch in TypeScript using the schema for compile-time hints:
 type CountryRisk = {
   countryCode: string;
   countryName: string;
+  ciiHistory?: {
+    methodologyVersion: string; requestedDays: number; returnedDays: number; stale: boolean;
+    points: Array<{ date: string; combinedScore: number; components: { ciiContribution: number; geoConvergence: number; militaryActivity: number; newsActivity: number } }>;
+    change: { fromDate: string; fromScore: number; toDate: string; toScore: number; delta: number } | null;
+    versionBreaks: Array<{ date: string; from: string; to: string }>;
+  };
   // The four component names are historical misnomers: ciiContribution is
   // domestic unrest, geoConvergence is armed conflict, militaryActivity is
   // security/mobility, newsActivity is the information environment.
@@ -1261,11 +1268,14 @@ curl -s https://worldmonitor.app/mcp \
 
 Structured risk intelligence for a specific country: the Composite Instability Index at `cii.combinedScore` (0-100), its four contributing components under `cii.components` (domestic unrest, armed conflict, security and mobility, and the information environment), the government travel-advisory level, and OFAC sanctions exposure as `sanctionsActive` plus `sanctionsCount`. Fast Redis read - no LLM. Check `upstreamUnavailable` before interpreting a low score: when it is true, at least one required upstream read failed and the zeroed risk fields mean UNKNOWN, not calm. Use for quantitative risk screening or to answer "how risky is X right now?"
 
+Optional `history_days` adds `ciiHistory` with up to 90 UTC daily closes. The latest successful build replaces the current day's point. History starts at activation, without backfill. `points` contains only the current methodology and keeps gaps. `change` is null with fewer than two points; otherwise it names the actual dates and scores used. `versionBreaks` reports methodology changes within the requested window. `stale: true` means history is missing, unreadable or more than 30 minutes old. This option is MCP-only and keeps the tool's weight at 2.
+
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|---------:|-------------|
 | `country_code` | string | **yes** | ISO2, ISO3 or English country name, e.g. "RU", "RUS", "Russia" |
+| `history_days` | integer | no | UTC calendar window, 1-90 days including today; omitted calls make no history read |
 | `panel_request` | string | no | Server-issued same-country receipt for authorized paid reads |
 | `refresh` | boolean | no | Paid-only new country allocation; requires a UUID and no receipt |
 | `request_id` | string (UUID) | no | Required for refresh; the same UUID retries that allocation |
@@ -2009,11 +2019,14 @@ curl -s https://worldmonitor.app/mcp \
 
 Cross-domain alert digest: every threshold trip across seven domains (country instability, military surges, cable health, ongoing outages, temporal anomalies, thermal escalation, shipping stress) using each producer's own severity vocabulary — no invented thresholds. Quiet domains and unavailable caches are listed separately so silence is never mistaken for calm.
 
+The weekly view adds `weekly.cii_movers` with up to five risers and five fallers across the 31 CII countries. Each row compares the latest point with the last point on or before the requested start day and reports its actual `fromDate`. Changes within ±1 point are excluded. Endpoints must share the current methodology; countries without comparable history appear in `insufficient_history`. `as_of` is the latest eligible source time. Missing history appears as `cii_history` in `data.unavailable`, and history older than 30 minutes makes the response stale. History accrues from activation, so the first seven-day ranking needs at least seven days of observations.
+
 **Parameters (tool-specific):**
 
 | Name | Type | Description |
 |------|------|-------------|
 | `view` | string: today / weekly | today lists current threshold trips (default); weekly adds trend context. |
+| `movers_days` | integer | Weekly CII comparison window, 7-90 days, default 7; rejected with the today view |
 
 - **API endpoints:** none (MCP-only derived analysis).
 - **Access:** `subscription` — requires a Pro subscription. RPC tool: no `summary` argument (use `jmespath` to trim the response).
