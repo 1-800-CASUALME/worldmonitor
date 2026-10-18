@@ -101,6 +101,8 @@ import { buildSourceCatalog, sourceProviderDisplayName } from '../scripts/crawla
 import { resolveSourceOrigin, sourceOriginLabel } from '../scripts/source-origin.mjs';
 import { USE_CASES_CONTENT_VERSION } from '../scripts/build-use-cases.mjs';
 import { COVERAGE_CONTENT_VERSION } from '../scripts/build-coverage-catalog.mjs';
+import { LIVE_TOPIC_PAGES_CONTENT_VERSION } from '../scripts/build-live-topic-pages.mjs';
+import { LIVE_TOPIC_PAGES } from '../scripts/live-pages/index.mjs';
 import { RELATED_READING_PATH } from '../scripts/related-reading.mjs';
 import { MAX_RELATED_COUNTRIES } from '../scripts/country-related-links.mjs';
 import { ACCURACY_CONTENT_VERSION } from '../scripts/build-accuracy-page.mjs';
@@ -2292,7 +2294,7 @@ describe('crawlable corpus generator', () => {
         manifest.sections.crises.count,
         JSON.parse(read(repoRoot, 'shared/crawlable-crises.json')).length,
       );
-      assert.equal(manifest.sections.tools.count, 3);
+      assert.equal(manifest.sections.tools.count, 3 + LIVE_TOPIC_PAGES.length);
       assert.equal(manifest.sections.research.count, 1);
       assert.equal(manifest.sections.useCases.count, 3);
       assert.equal(manifest.sections.accuracy.count, 1);
@@ -5941,7 +5943,25 @@ describe('live-pulse snapshot injection (#7533)', () => {
               gitFileLastmod(repoRoot, data.sources.liveToolsScript),
               TOOLS_PAGE_CONTENT_VERSION,
             ),
+            'tools/natural-hazard-pulse/index.html',
+          ]],
+          // The hub links every live topic page, so their code moves it too.
+          ['toolsIndex', [
+            laterDate(
+              gitFileLastmod(repoRoot, data.sources.liveToolsScript),
+              TOOLS_PAGE_CONTENT_VERSION,
+              LIVE_TOPIC_PAGES_CONTENT_VERSION,
+              ...data.sources.liveTopicPagesInputs.map((path) => gitFileLastmod(repoRoot, path)),
+            ),
             'tools/index.html',
+          ]],
+          ['liveTopics', [
+            laterDate(
+              LIVE_TOPIC_PAGES_CONTENT_VERSION,
+              ...data.sources.liveTopicPagesInputs.map((path) => gitFileLastmod(repoRoot, path)),
+              data.livePulse.liveTopics ? pulseDate : null,
+            ),
+            pageFor(LIVE_TOPIC_PAGES[0].path),
           ]],
           ['research', [
             laterDate(

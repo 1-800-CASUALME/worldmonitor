@@ -15070,6 +15070,9 @@
           "path": "scripts/lib/internal-links.mjs"
         },
         {
+          "path": "scripts/live-pages/common.mjs"
+        },
+        {
           "path": "scripts/mcp-proxy-live-smoke.mjs"
         },
         {

@@ -13098,6 +13098,7 @@ paths:
                     content:
                         application/json:
                             example:
+                                "fetchedAt": 1717200000000
                                 "outages":
                                     - "categories":
                                         - "example"
@@ -46145,6 +46146,12 @@ components:
                         $ref: '#/components/schemas/worldmonitor_infrastructure_v1_InternetOutage'
                 pagination:
                     $ref: '#/components/schemas/worldmonitor_core_v1_PaginationResponse'
+                fetchedAt:
+                    type: integer
+                    format: int64
+                    description: |-
+                        When the seeder last fetched the outage list from Cloudflare Radar, Unix
+                         epoch milliseconds. A retained payload keeps its original time; 0 when unknown. Warning: Values > 2^53 may lose precision in JavaScript
             description: ListInternetOutagesResponse contains internet outages matching the request.
         worldmonitor_infrastructure_v1_InternetOutage:
             type: object

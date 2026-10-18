@@ -31,6 +31,7 @@ import {
   liveRiskViewModel,
 } from './crawlable-live-tools.mjs';
 import { chokepointPulseRecord } from './crawlable-chokepoint-live.mjs';
+import { LIVE_TOPIC_PAGES, liveTopicReading, liveTopicRpcPath } from './live-pages/index.mjs';
 import { loadEnvFile } from './_seed-utils.mjs';
 import {
   briefCitationGroundingGap,
@@ -956,6 +957,22 @@ export async function freezeCrawlableLivePulse({
     }
   }
 
+  // The /tools/<slug>/ live data pages build from these readings; the routing
+  // middleware replaces them with the current reading at request time.
+  const liveTopics = {};
+  const liveTopicErrors = [];
+  for (const page of LIVE_TOPIC_PAGES) {
+    try {
+      const payload = await authedGet(liveTopicRpcPath(page), token, base, authOpts);
+      const record = liveTopicReading(page, payload, freezeStartedAt);
+      if (record === null) liveTopicErrors.push({ id: page.slug, message: 'reading not publishable as current' });
+      else liveTopics[page.slug] = record;
+    } catch (error) {
+      liveTopicErrors.push({ id: page.slug, message: error instanceof Error ? error.message : String(error) });
+    }
+    await sleep(requestGapMs);
+  }
+
   const crisisSnapshots = {};
   const crisisErrors = [];
   for (const crisis of crises) {
@@ -1333,6 +1350,7 @@ export async function freezeCrawlableLivePulse({
     resilienceSnapshotPath,
     countries,
     chokepoints,
+    liveTopics,
     crises: crisisSnapshots,
     headlines,
     quotes,
@@ -1347,6 +1365,8 @@ export async function freezeCrawlableLivePulse({
       countryErrorCount: countryErrors.length,
       chokepointCount: Object.keys(chokepoints).length,
       chokepointErrorCount: chokepointErrors.length,
+      liveTopicCount: Object.keys(liveTopics).length,
+      liveTopicErrorCount: liveTopicErrors.length,
       crisisCount: Object.keys(crisisSnapshots).length,
       crisisErrorCount: crisisErrors.length,
       headlineCount: headlines.length,
@@ -1426,6 +1446,9 @@ export async function freezeCrawlableLivePulse({
     errors: {
       countries: countryErrors,
       chokepoints: chokepointErrors,
+      // Not a freeze gate: a missing topic builds as "no current reading" and
+      // the middleware still serves the live one.
+      liveTopics: liveTopicErrors,
       crises: crisisErrors,
       headlines: headlineErrors,
       quotes: quoteErrors,

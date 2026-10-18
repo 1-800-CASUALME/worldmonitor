@@ -47,6 +47,12 @@ import {
   loadCoverageCatalog,
   writeCoverageSection,
 } from './build-coverage-catalog.mjs';
+import {
+  LIVE_TOPIC_PAGES_CONTENT_VERSION,
+  LIVE_TOPIC_PAGES_INPUT_PATHS,
+  writeLiveTopicPages,
+} from './build-live-topic-pages.mjs';
+import { LIVE_TOPIC_PAGES } from './live-pages/index.mjs';
 import { sourceOriginFilterValue } from './source-origin.mjs';
 import {
   attachCoverageToCatalog,
@@ -1954,6 +1960,18 @@ export async function loadCorpusData({
     gitFileLastmod(rootDir, LIVE_TOOLS_SCRIPT_PATH),
     TOOLS_PAGE_CONTENT_VERSION,
   );
+  // The hub links every live topic page, so their code moves it too.
+  const toolsIndexLastmod = laterDate(
+    toolsLastmod,
+    LIVE_TOPIC_PAGES_CONTENT_VERSION,
+    ...LIVE_TOPIC_PAGES_INPUT_PATHS.map((path) => gitFileLastmod(rootDir, path)),
+  );
+  // The built readings come from the pulse, so a new capture advances them.
+  const liveTopicsLastmod = laterDate(
+    LIVE_TOPIC_PAGES_CONTENT_VERSION,
+    ...LIVE_TOPIC_PAGES_INPUT_PATHS.map((path) => gitFileLastmod(rootDir, path)),
+    livePulse.liveTopics ? livePulse.capturedAt : null,
+  );
   const crisesLastmod = laterDate(
     gitFileLastmod(rootDir, CRISIS_REGISTRY_PATH),
     gitFileLastmod(rootDir, RELATED_READING_PATH),
@@ -2027,6 +2045,7 @@ export async function loadCorpusData({
       changelog: CHANGELOG_PATH,
       tradeRoutes: TRADE_ROUTES_PATH,
       liveToolsScript: LIVE_TOOLS_SCRIPT_PATH,
+      liveTopicPagesInputs: [...LIVE_TOPIC_PAGES_INPUT_PATHS],
       countryBboxes: COUNTRY_BBOXES_PATH,
       crisisRegistry: CRISIS_REGISTRY_PATH,
       tensionPairs: TENSION_PAIRS_PATH,
@@ -2051,6 +2070,8 @@ export async function loadCorpusData({
       changelog: changelogLastmod,
       chokepoints: chokepointsLastmod,
       tools: toolsLastmod,
+      toolsIndex: toolsIndexLastmod,
+      liveTopics: liveTopicsLastmod,
       crises: crisesLastmod,
       research: researchLastmod,
       useCases: useCasesLastmod,
@@ -4894,6 +4915,7 @@ function renderToolsIndex({ baseUrl, lastmod, crisisCount, chokepointCount }) {
         <a class="card" href="/tools/signal-convergence/"><strong>Geographic signal convergence</strong><br><span>Named multi-domain correlation score</span></a>
         <a class="card" href="/chokepoints/"><strong>Maritime chokepoint status</strong><br><span>${chokepointCount} canonical waterways</span></a>
         <a class="card" href="/crises/"><strong>Bounded crisis trackers</strong><br><span>${crisisCount} curated geographic scopes</span></a>
+${LIVE_TOPIC_PAGES.map((page) => `        <a class="card" href="${escapeHtml(page.path)}"><strong>${escapeHtml(page.h1)}</strong><br><span>${escapeHtml(page.question)}</span></a>`).join('\n')}
       </div>
       <h2>How these tools work</h2>
       <p>Each tool asks one narrow operational question — what natural hazards are open right now, is a country's monitored airspace disrupted, where independent streams converge — and answers it from a maintained World Monitor contract. Results are labelled with their source and retrieval time, unavailable data is reported as unavailable rather than zero, and independent signals are never combined into a single opaque threat score unless the tool names that combination explicitly.</p>
@@ -5276,6 +5298,7 @@ function buildManifest({ data, baseUrl, changelogPageCount }) {
     '/tools/natural-hazard-pulse/',
     '/tools/airspace-disruption-checker/',
     '/tools/signal-convergence/',
+    ...LIVE_TOPIC_PAGES.map((page) => page.path),
   ];
   const changelogRoutes = Array.from({ length: changelogPageCount }, (_, index) => changelogPagePath(index));
   const glossaryRoutes = data.glossaryTerms.map((term) => `/blog/glossary/${term.slug}/`);
@@ -5670,7 +5693,7 @@ export async function buildCorpus({
     'tools/index.html',
     renderToolsIndex({
       baseUrl,
-      lastmod: data.lastmod.tools,
+      lastmod: data.lastmod.toolsIndex,
       crisisCount: data.crises.length,
       chokepointCount: data.chokepoints.length,
     }),
@@ -5703,6 +5726,13 @@ export async function buildCorpus({
       snapshotPath: data.sources.livePulseSnapshot,
     }),
   );
+  writeLiveTopicPages({
+    outDir,
+    baseUrl,
+    lastmod: data.lastmod.liveTopics,
+    liveTopics: data.livePulse.liveTopics ?? {},
+    tpl: { escapeHtml, absoluteUrl, breadcrumbLd, pageDocument },
+  });
   writeGeneratedFile(
     outDir,
     datasetDownloadFile('/tools/signal-convergence/', CONVERGENCE_DATASET_DOWNLOAD),

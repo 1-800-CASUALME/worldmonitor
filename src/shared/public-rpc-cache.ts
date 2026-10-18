@@ -9,11 +9,27 @@
 // supplier data became Pro (#6438): its `public=1` shape was a standing
 // bypass of the new gate. The CDN shield it bought is gone with it, which is
 // the accepted cost of the paywall.
+//
+// Readings published on the /tools/<slug>/ live data pages
+// (scripts/live-pages/index.mjs). Each takes no request fields and is already
+// shown to anonymous dashboard visitors; the routing middleware reads the bare
+// `public=1` shape to put the current reading into the page HTML. Each is a
+// Redis seed read. tests/live-topic-pages.test.mjs keeps this list equal to
+// the page registry.
+export const LIVE_TOPIC_RPC_PATHS = Object.freeze([
+  '/api/market/v1/get-fear-greed-index',
+  '/api/infrastructure/v1/list-internet-outages',
+  '/api/prediction/v1/list-prediction-markets',
+  '/api/economic/v1/get-national-debt',
+]);
+const LIVE_TOPIC_PUBLIC_SEARCH = 'public=1';
+
 const PUBLIC_SHARED_RPC_PATHS = new Set([
   '/api/news/v1/list-feed-digest',
   '/api/displacement/v1/get-displacement-summary',
   '/api/forecast/v1/get-forecasts',
   '/api/supply-chain/v1/get-chokepoint-status',
+  ...LIVE_TOPIC_RPC_PATHS,
 ]);
 
 const NEWS_VARIANTS = new Set(['full', 'tech', 'finance', 'happy', 'commodity', 'energy']);
@@ -126,6 +142,7 @@ export function isPublicSharedRpcRequest(urlLike: string | URL, method = 'GET'):
   if (pathname === '/api/news/v1/list-feed-digest') return isNewsDigestShape(params);
   if (pathname === '/api/forecast/v1/get-forecasts') return search === FORECASTS_PUBLIC_SEARCH;
   if (pathname === '/api/supply-chain/v1/get-chokepoint-status') return search === CHOKEPOINT_STATUS_PUBLIC_SEARCH;
+  if (LIVE_TOPIC_RPC_PATHS.includes(pathname)) return search === LIVE_TOPIC_PUBLIC_SEARCH;
   return search === DISPLACEMENT_PUBLIC_SEARCH;
 }
 

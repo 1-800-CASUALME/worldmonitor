@@ -17,6 +17,10 @@ import {
   renderChokepointLiveSection,
   replaceChokepointLiveSection,
 } from './scripts/crawlable-chokepoint-live.mjs';
+import { liveTopicPageForPath, liveTopicReading } from './scripts/live-pages/index.mjs';
+import { replaceLiveSection } from './scripts/live-pages/common.mjs';
+
+type LiveTopicPage = NonNullable<ReturnType<typeof liveTopicPageForPath>>;
 
 const AGENT_UA = new RegExp(`(?:^|[^a-z0-9-])(?:${agentRequestPolicy.userAgents.join('|')})(?:$|[^a-z0-9-])`, 'i');
 
@@ -293,8 +297,10 @@ export default function middleware(request: Request) {
       return originNotFoundResponse(path, request);
     }
 
-    if (isLiveChokepointPageRequest(request, url)) {
-      return liveChokepointPage(url);
+    if (isLiveHtmlRequest(request, url)) {
+      if (CHOKEPOINT_PAGE_PATH.test(url.pathname)) return liveChokepointPage(url);
+      const topic = liveTopicPageForPath(url.pathname);
+      if (topic) return liveTopicPage(url, topic);
     }
   }
 
@@ -410,13 +416,6 @@ const LIVE_PAGE_CDN_CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidat
 const LIVE_PAGE_USER_AGENT = 'Mozilla/5.0 (compatible; WorldMonitorLivePages/1.0)';
 const CHOKEPOINT_STATUS_PUBLIC_PATH = '/api/supply-chain/v1/get-chokepoint-status?public=1';
 
-function isLiveChokepointPageRequest(request: Request, url: URL): boolean {
-  if (request.method !== 'GET' || !CHOKEPOINT_PAGE_PATH.test(url.pathname)) return false;
-  if (url.searchParams.has(BUILT_PAGE_PARAM)) return false;
-  const accept = request.headers.get('accept');
-  return !accept || (acceptQuality(accept, 'text/html', true) ?? 0) > 0;
-}
-
 function decodeAttribute(value: string): string {
   return value
     .replace(/&quot;/g, '"')
@@ -433,7 +432,27 @@ function sectionAttribute(html: string, name: string): string | null {
 
 const passThroughToOrigin = () => new Response(null, { headers: { 'x-middleware-next': '1' } });
 
-async function liveChokepointPage(url: URL): Promise<Response> {
+function isLiveHtmlRequest(request: Request, url: URL): boolean {
+  if (request.method !== 'GET' || url.searchParams.has(BUILT_PAGE_PARAM)) return false;
+  const accept = request.headers.get('accept');
+  return !accept || (acceptQuality(accept, 'text/html', true) ?? 0) > 0;
+}
+
+async function fetchPublicReading(url: URL, statusPath: string): Promise<unknown> {
+  const status = await fetch(new URL(statusPath, url), {
+    headers: { accept: 'application/json', 'user-agent': LIVE_PAGE_USER_AGENT },
+    signal: AbortSignal.timeout(LIVE_PAGE_FETCH_TIMEOUT_MS),
+  });
+  if (!status.ok) throw new Error(`public reading ${status.status}`);
+  return status.json();
+}
+
+/**
+ * Serves the built page with its live section re-rendered by `render`, which
+ * returns the new HTML or null to keep the built reading. Any failure serves
+ * the built page; a missing built page falls through to the origin.
+ */
+async function liveHtmlPage(url: URL, kind: string, render: (html: string) => Promise<string | null>): Promise<Response> {
   let page: Response;
   let html: string;
   const builtUrl = new URL(url.pathname, url);
@@ -461,17 +480,27 @@ async function liveChokepointPage(url: URL): Promise<Response> {
   headers.set('vercel-cdn-cache-control', LIVE_PAGE_CDN_CACHE_CONTROL);
   const builtPage = () => new Response(html, { status: 200, headers });
 
-  const id = sectionAttribute(html, 'data-chokepoint-id');
-  const displayName = sectionAttribute(html, 'data-chokepoint-name');
-  if (!id || !displayName) return builtPage();
-
   try {
-    const status = await fetch(new URL(CHOKEPOINT_STATUS_PUBLIC_PATH, url), {
-      headers: { accept: 'application/json', 'user-agent': LIVE_PAGE_USER_AGENT },
-      signal: AbortSignal.timeout(LIVE_PAGE_FETCH_TIMEOUT_MS),
-    });
-    if (!status.ok) return builtPage();
-    const view = chokepointStatusViewModel(await status.json(), id);
+    const live = await render(html);
+    if (live === null) return builtPage();
+    headers.set('x-wm-live-page', kind);
+    // The built file's validators describe a different body.
+    headers.delete('etag');
+    headers.delete('last-modified');
+    return new Response(live, { status: 200, headers });
+  } catch {
+    return builtPage();
+  }
+}
+
+function liveChokepointPage(url: URL): Promise<Response> {
+  return liveHtmlPage(url, 'chokepoint', async (html) => {
+    const id = sectionAttribute(html, 'data-chokepoint-id');
+    const displayName = sectionAttribute(html, 'data-chokepoint-name');
+    if (!id || !displayName) return null;
+    // Missing row, stale snapshot, or out-of-range score: the view model throws
+    // rather than return a reading it cannot vouch for.
+    const view = chokepointStatusViewModel(await fetchPublicReading(url, CHOKEPOINT_STATUS_PUBLIC_PATH), id);
     const section = renderChokepointLiveSection({
       chokepoint: {
         id,
@@ -481,18 +510,17 @@ async function liveChokepointPage(url: URL): Promise<Response> {
       pulse: chokepointPulseRecord(view),
       live: true,
     });
-    const live = replaceChokepointLiveSection(html, section);
-    if (live === null) return builtPage();
-    headers.set('x-wm-live-page', 'chokepoint');
-    // The built file's validators describe a different body.
-    headers.delete('etag');
-    headers.delete('last-modified');
-    return new Response(live, { status: 200, headers });
-  } catch {
-    // Missing row, stale snapshot, or out-of-range score: the view model throws
-    // rather than return a reading it cannot vouch for.
-    return builtPage();
-  }
+    return replaceChokepointLiveSection(html, section);
+  });
+}
+
+function liveTopicPage(url: URL, topic: LiveTopicPage): Promise<Response> {
+  return liveHtmlPage(url, topic.slug, async (html) => {
+    const record = liveTopicReading(topic, await fetchPublicReading(url, topic.statusPath));
+    // An unpublishable reading (stale, empty) keeps the built page's dated one.
+    if (record === null) return null;
+    return replaceLiveSection(html, topic.slug, topic.renderSection(record, { live: true }));
+  });
 }
 
 async function proxyDocsLocaleHtml(request: Request, url: URL, host: string): Promise<Response> {
