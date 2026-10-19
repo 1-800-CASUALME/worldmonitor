@@ -366,9 +366,56 @@ describe('map view', () => {
     assert.ok(later.x > ac.x, 'heading 090 moves east over time');
     const sat = map.features.find((f) => f.layer === 'satellites');
     assert.ok(sat && sat.tle);
+    const paths = [];
+    const polyline = map.canvas.polyline.bind(map.canvas);
+    map.canvas.polyline = (path, ...rest) => {
+      paths.push(path);
+      return polyline(path, ...rest);
+    };
+    // A drawn path of 20+ points that runs along the satellite's own ground track.
+    const trackDrawn = () => {
+      const dots = groundTrack(sat.tle, clock.t, { back: 45, ahead: 95, stepMin: 1 }).map(([lon, lat]) => map.proj.toDot(lon, lat));
+      const near = ([x, y]) => dots.some(([tx, ty]) => Math.abs(x - tx) <= 1 && Math.abs(y - ty) <= 1);
+      // The map unwraps longitudes past 180°, so compare the leading stretch only.
+      return paths.some((path) => path.length >= 20 && path.slice(0, 20).every(near));
+    };
+    clock.t += 1000;
+    app.render();
+    assert.equal(trackDrawn(), false, 'no ground track while the satellite is not focused');
+    paths.length = 0;
     map.pin(sat);
+    clock.t += 1000;
     app.render();
     assert.doesNotMatch(text(app), /view error/);
+    assert.equal(trackDrawn(), true, 'pinning the satellite draws its ground track');
+  });
+  it('scrolls the detail overlay, keeps it open on inside clicks and shows the record on the map', () => {
+    const { app, map } = makeApp();
+    app.switchView(app.views.findIndex((v) => v.id === 'news'));
+    app.render();
+    let centred = 0;
+    const rows = Array.from({ length: 80 }, (_, i) => [`Row ${i}`, `value ${i}`]);
+    app.openDetail({ title: 'Long record', subtitle: 'test', rows, onCenter: () => (centred += 1) });
+    app.render();
+    assert.ok(app.detail.maxScroll > 0, 'content taller than the overlay');
+    app.handleEvent({ type: 'key', name: 'down' });
+    assert.equal(app.detail.scroll, 1);
+    app.handleEvent({ type: 'key', name: 'G', ch: 'G', shift: true });
+    assert.equal(app.detail.scroll, app.detail.maxScroll);
+    const { box } = app.detail;
+    mouse(app, 'wheelup', box.x + 2, box.y + 2, -1);
+    assert.equal(app.detail.scroll, app.detail.maxScroll - 3);
+    mouse(app, 'wheeldown', box.x + 2, box.y + 2, -1);
+    mouse(app, 'wheeldown', box.x + 2, box.y + 2, -1);
+    assert.equal(app.detail.scroll, app.detail.maxScroll, 'wheel clamps at the end');
+    mouse(app, 'down', box.x + 2, box.y + 1);
+    assert.ok(app.detail, 'a click inside the overlay keeps it open');
+    mouse(app, 'move', box.x + 3, box.y + 3);
+    assert.ok(app.detail, 'pointer motion is swallowed while it is open');
+    app.handleEvent({ type: 'key', name: 'm', ch: 'm' });
+    assert.equal(app.detail, null);
+    assert.equal(app.view, map, 'm switches to the map');
+    assert.equal(centred, 1, 'and centres on the record');
   });
   it('keeps every theme and animation mode free of view errors', () => {
     for (const id of ['matrix', 'synthwave']) {
