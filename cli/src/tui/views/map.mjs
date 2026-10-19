@@ -270,8 +270,9 @@ export class MapView {
         this.touch();
         this.persist();
         return true;
-      case '0':
-        this.setView({ ...defaultView(), mode: this.view.mode, zoom: this.view.mode === 'globe' ? 1 : 1 });
+      case 'z':
+      case 'home':
+        this.setView({ ...defaultView(), mode: this.view.mode, zoom: 1 });
         return true;
       case 'c':
       case 'escape':

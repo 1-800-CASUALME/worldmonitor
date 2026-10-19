@@ -50,9 +50,9 @@ The dashboard boots in a couple of seconds. Views:
 | `8` | Cyber | Threat indicators, DDoS mix, service status, internet outages and traffic anomalies |
 | `9` | Climate | Earthquakes, hazards and outbreaks, weather alerts, climate anomalies, planet vitals |
 | `0` | Predict | Prediction markets by domain and AI scenario forecasts |
-| `Tab` | Live | The dashboard's live news channels and webcams, played in the terminal |
-| `Tab` | Intel | GDELT topic feeds, sanctions pressure, travel advisories, social velocity, spending |
-| `Tab` | System | Platform health, per-source freshness, themes, player status |
+| `Alt+1` | Live | The dashboard's live news channels and webcams, played in the terminal |
+| `Alt+2` | Intel | GDELT topic feeds, sanctions pressure, travel advisories, social velocity, spending |
+| `Alt+3` | System | Platform health, per-source freshness, themes, player status |
 
 Controls: `Tab` / `Shift+Tab` switch views, `←` `→` move between panes, `↑` `↓`
 move in lists, `Enter` expands the selected row of any view into a detail

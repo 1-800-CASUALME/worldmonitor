@@ -12,7 +12,7 @@ import { drawDetail } from './ui/detail.mjs';
 import { openExternal } from './video.mjs';
 
 const HELP_LINES = [
-  'Tab / Shift+Tab   next / previous view        1..9, 0   jump to a view',
+  'Tab / Shift+Tab   next / previous view        1..9, 0   jump to a view (Alt+1.. after the tenth)',
   '← →  or  h l      move between panes          ↑ ↓ j k   move in a list',
   'PgUp PgDn g G     page / first / last         Enter     expand the selected item',
   'o                 open selected link in browser',
@@ -22,10 +22,17 @@ const HELP_LINES = [
   '',
   'Mouse: click tabs, rows and buttons · wheel scrolls · click a selected row to expand it',
   'Map: drag pan · wheel zoom · hover highlights a layer · click pins · Enter details',
-  '     g globe/flat · s satellite · i imagery · d day/night · L layers · / search · 0 reset',
+  '     g globe/flat · s satellite · i imagery · d day/night · L layers · / search · z reset',
   'Brief: ↑↓ story lines · → related sources & news · Enter expand · o open',
   'Live view: Enter plays in the terminal (mpv), w opens an mpv window, b the browser',
 ];
+
+// Tab-bar hotkey label for the view at index i (see the digit handling in onKey).
+function hotkeyFor(i) {
+  if (i < 9) return String(i + 1);
+  if (i === 9) return '0';
+  return i < 19 ? `A-${i - 9}` : '';
+}
 
 export class App {
   constructor({ store, catalog, prefs, savePrefs, env = {}, out, cols, rows, depth = 24, now = () => Date.now(), createViews, player, apiKeyPresent = false, fetchImpl = null }) {
@@ -252,7 +259,10 @@ export class App {
         break;
     }
     if (/^[0-9]$/.test(ev.name) && ev.ch) {
-      const idx = ev.name === '0' ? 9 : Number(ev.name) - 1;
+      // 1..9, 0 reach the first ten views; Alt+1..9 the ones after.
+      const n = Number(ev.name);
+      const idx = ev.alt ? (n ? 9 + n : -1) : n === 0 ? 9 : n - 1;
+      if (idx < 0) return;
       if (idx < this.views.length) this.switchView(idx);
     }
   }
@@ -396,7 +406,7 @@ export class App {
     tabs(
       ctx,
       tabBar,
-      this.views.map((v, i) => ({ label: v.label, hotkey: i < 9 ? String(i + 1) : i === 9 ? '0' : '' })),
+      this.views.map((v, i) => ({ label: v.label, hotkey: hotkeyFor(i) })),
       this.viewIndex,
       (i) => this.switchView(i),
     );

@@ -116,6 +116,20 @@ describe('App input', () => {
     app.handleEvent({ type: 'mouse', kind: 'down', button: 0, x: x + 1, y: 1 });
     assert.equal(app.view.id, 'markets');
   });
+  it('reaches the views past the tenth with Alt+digit, and 0 still jumps from the map', () => {
+    const { app, show } = makeApp();
+    app.handleEvent({ type: 'key', name: '1', ch: '1', alt: true });
+    assert.equal(app.view.id, app.views[10].id);
+    app.handleEvent({ type: 'key', name: '3', ch: '3', alt: true });
+    assert.equal(app.view.id, app.views[12].id);
+    const wide = makeApp({ cols: 260 }).app;
+    wide.render();
+    assert.ok(wide.screen.toLines()[1].includes(`A-1:${wide.views[10].label}`), 'tab bar shows the Alt hotkey');
+    show('map');
+    app.render();
+    app.handleEvent({ type: 'key', name: '0', ch: '0' });
+    assert.equal(app.view.id, app.views[9].id, '0 is the tenth view, not a map shortcut');
+  });
   it('moves list selection with keys, wheel and clicks, and opens on second click', () => {
     const { app, show } = makeApp();
     show('news');

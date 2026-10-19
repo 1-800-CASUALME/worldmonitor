@@ -285,7 +285,7 @@ describe('map view', () => {
     assert.ok(map.view.lon < before.lon, 'dragging right moves the view west');
     mouse(app, 'wheelup', r.x + 40, r.y + 10, -1);
     assert.ok(map.view.zoom > before.zoom);
-    app.handleEvent({ type: 'key', name: '0', ch: '0' });
+    app.handleEvent({ type: 'key', name: 'z', ch: 'z' });
     assert.equal(map.view.zoom, 1);
     app.handleEvent({ type: 'key', name: '+', ch: '+' });
     app.handleEvent({ type: 'key', name: '+', ch: '+' });

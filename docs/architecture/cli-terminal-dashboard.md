@@ -175,13 +175,13 @@ Boundary rules from `AGENTS.md` hold: `cli/` imports nothing from `src/` or
 
 ## Controls
 
-Tab / Shift+Tab or 1..9, 0 switch views; click a tab. Left / Right (h / l)
+Tab / Shift+Tab, 1..9, 0 or Alt+1.. (views past the tenth) switch views; click a tab. Left / Right (h / l)
 move between panes inside a view. Arrows, j/k, PgUp/PgDn, g/G move in lists;
 wheel scrolls; click a row selects, click again (or Enter) expands it into the
 detail overlay (`ui/detail.mjs` describes any record generically; views can
 override `describe`). Map: drag pans, wheel zooms at the cursor, hover
 highlights a layer, click pins, Enter opens details, `g` globe, `s` satellite,
-`i` imagery, `d` day/night, `L` layers panel, `/` search, `0` reset, `p` pause
+`i` imagery, `d` day/night, `L` layers panel, `/` search, `z` reset, `p` pause
 rotation. `[` `]`
 change the News section or the Live region. `t` cycles theme, `T` opens the
 theme picker, `a` toggles animations, `r` refreshes the current view, `o` opens
