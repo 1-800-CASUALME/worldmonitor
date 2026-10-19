@@ -593,7 +593,7 @@ export class MapView {
   }
 
   drawSidebar(ctx, r) {
-    const { s, t } = ctx;
+    const { t } = ctx;
     const focused = this.focus === 'sidebar';
     const inner = panel(ctx, r, { title: 'Layers', focused, onClick: () => { this.focus = 'sidebar'; this.touch(); } });
     if (inner.w < 10) return;
@@ -646,7 +646,6 @@ export class MapView {
         },
       },
     );
-    void s;
   }
 
   sidebarRows() {
@@ -1147,4 +1146,3 @@ function polylineKm(points) {
   return km;
 }
 
-export { LAYERS as MAP_LAYERS };

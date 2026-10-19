@@ -41,7 +41,6 @@ import { AI_RESEARCH_LABS } from '../src/config/ai-research-labs.ts';
 import { STARTUP_ECOSYSTEMS } from '../src/config/startup-ecosystems.ts';
 import { TECH_COMPANIES } from '../src/config/tech-companies.ts';
 import { COMMODITY_MINERS } from '../src/config/commodity-miners.ts';
-import { BYPASS_CORRIDORS } from '../src/config/bypass-corridors.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUTPUT = resolve(root, 'cli/src/tui/data/catalog.generated.json');
@@ -329,7 +328,6 @@ export function buildStaticLayers() {
       points: [pt(seg.sourcePosition[0], seg.sourcePosition[1]), pt(seg.targetPosition[0], seg.targetPosition[1])],
       segment: `${seg.segmentIndex + 1}/${seg.totalSegments}`,
     })),
-    bypassCorridors: BYPASS_CORRIDORS.map((b) => compact({ id: b.id, name: b.name, chokepoint: b.primaryChokepointId, via: b.waypointChokepointIds, type: b.type, addedDays: b.addedTransitDays, costMultiplier: b.addedCostMultiplier })),
     economicCenters: ECONOMIC_CENTERS.map((e) => point(e, { type: e.type, country: e.country, description: e.description, hours: e.marketHours && `${e.marketHours.open}-${e.marketHours.close} ${e.marketHours.timezone}` })),
     stockExchanges: STOCK_EXCHANGES.map((e) => point(e, { shortName: e.shortName, city: e.city, country: e.country, tier: e.tier, marketCapT: e.marketCap, hours: e.tradingHours, description: e.description })),
     financialCenters: FINANCIAL_CENTERS.map((e) => point(e, { country: e.country, type: e.type, gfciRank: e.gfciRank, specialties: e.specialties, description: e.description })),
@@ -408,7 +406,7 @@ export function buildCatalog({ channelsSource, webcamsSource, topo, topo50m, unT
       'src/config/live-video-sources.ts',
       'src/services/live-channels.ts',
       'src/components/LiveWebcamsPanel.ts',
-      'src/config/geo-map.ts, geo.ts, airports.ts, ports.ts, military-bases.ts, ai-datacenters.ts, irradiators.ts, trade-routes.ts, chokepoint-registry.ts, finance-geo.ts, tech-geo.ts, commodity-geo.ts, gulf-fdi.ts, ai-research-labs.ts, startup-ecosystems.ts, tech-companies.ts, commodity-miners.ts, bypass-corridors.ts',
+      'src/config/geo-map.ts, geo.ts, airports.ts, ports.ts, military-bases.ts, ai-datacenters.ts, irradiators.ts, trade-routes.ts, chokepoint-registry.ts, finance-geo.ts, tech-geo.ts, commodity-geo.ts, gulf-fdi.ts, ai-research-labs.ts, startup-ecosystems.ts, tech-companies.ts, commodity-miners.ts',
       'shared/pipelines-data.ts',
       'shared/un-to-iso2.json',
       'public/data/countries-110m.json',

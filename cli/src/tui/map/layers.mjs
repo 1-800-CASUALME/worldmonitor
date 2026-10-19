@@ -158,7 +158,7 @@ export const LAYERS = [
   },
   {
     id: 'tradeRoutes', group: 'infra', label: 'Trade routes', glyph: '┈', kind: 'line', on: false, color: 'good',
-    build: ({ catalog, t }) => (catalog.layers?.tradeRoutes || []).map((s) => ({ id: `route:${s.id}`, name: s.name, groupKey: s.routeId, points: s.points, lat: s.points[0][1], lon: s.points[0][0], glyph: '┈', color: s.status === 'disrupted' ? t.bad : s.status === 'high_risk' ? t.warn : s.category === 'energy' ? t.accent3 : t.good, size: 1, dash: 4, flow: true, ...lineEnds(s.points), info: info([['Category', s.category], ['Status', s.status?.replace('_', ' ')], ['Volume', s.volume], ['Segment', s.segment]]) })),
+    build: ({ catalog, t }) => (catalog.layers?.tradeRoutes || []).map((s) => ({ id: `route:${s.id}`, name: s.name, points: s.points, lat: s.points[0][1], lon: s.points[0][0], glyph: '┈', color: s.status === 'disrupted' ? t.bad : s.status === 'high_risk' ? t.warn : s.category === 'energy' ? t.accent3 : t.good, size: 1, dash: 4, flow: true, ...lineEnds(s.points), info: info([['Category', s.category], ['Status', s.status?.replace('_', ' ')], ['Volume', s.volume], ['Segment', s.segment]]) })),
   },
   {
     id: 'fuelShortages', group: 'infra', label: 'Fuel shortages', glyph: '◭', kind: 'point', on: false, color: 'warn',
@@ -211,7 +211,7 @@ export const LAYERS = [
       const tle = parseTle(s.line1, s.line2);
       if (!tle) return null;
       const p = propagate(tle, now);
-      return { id: `sat:${s.id}`, name: s.name, lat: p.lat, lon: p.lon, glyph: '✦', color: t.accent3, size: 1, tle, orbit: true, info: info([['Country', s.country], ['Type', s.type], ['Altitude', `${fmtInt(p.altKm)} km`], ['Period', `${p.periodMin.toFixed(0)} min`], ['Inclination', `${tle.inclination.toFixed(1)}°`], ['NORAD', s.id]]) };
+      return { id: `sat:${s.id}`, name: s.name, lat: p.lat, lon: p.lon, glyph: '✦', color: t.accent3, size: 1, tle, info: info([['Country', s.country], ['Type', s.type], ['Altitude', `${fmtInt(p.altKm)} km`], ['Period', `${p.periodMin.toFixed(0)} min`], ['Inclination', `${tle.inclination.toFixed(1)}°`], ['NORAD', s.id]]) };
     }).filter(Boolean),
   },
   {
@@ -504,7 +504,6 @@ export const LAYERS = [
   { id: 'borders', group: 'overlays', label: 'Borders & coastlines', glyph: '╱', kind: 'overlay', on: true, color: 'map' },
 ];
 
-export const LAYER_IDS = LAYERS.map((l) => l.id);
 export const LAYER_BY_ID = new Map(LAYERS.map((l) => [l.id, l]));
 
 export function defaultLayerState() {
@@ -540,18 +539,4 @@ export function buildFeatures(ctx, enabled) {
     }
   }
   return { features, counts };
-}
-
-// Count features per layer without the full build (for the sidebar).
-export function layerCounts(ctx) {
-  const counts = {};
-  for (const l of LAYERS) {
-    if (!l.build) continue;
-    try {
-      counts[l.id] = (l.build(ctx) || []).length;
-    } catch {
-      counts[l.id] = 0;
-    }
-  }
-  return counts;
 }

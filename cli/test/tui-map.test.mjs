@@ -551,7 +551,11 @@ describe('review fixes', () => {
   });
   it('fetches a zoomed view across the antimeridian as two sharp tiles', async () => {
     const urls = [];
-    const { app, map, clock } = makeApp({ anim: false, fetchImpl: async (u) => (urls.push(u), pngResponse()) });
+    const fetchImpl = async (u) => {
+      urls.push(u);
+      return pngResponse();
+    };
+    const { app, map, clock } = makeApp({ anim: false, fetchImpl });
     map.setView({ ...map.view, mode: 'flat', lon: 180, lat: 0, zoom: 6 });
     map.toggleSat();
     map.layers.dayNight = false;
@@ -577,7 +581,10 @@ describe('review fixes', () => {
     const original = map.sampler.bind(map);
     map.sampler = (...args) => {
       const fn = original(...args);
-      return (cx, cy) => (samples++, fn(cx, cy));
+      return (cx, cy) => {
+        samples += 1;
+        return fn(cx, cy);
+      };
     };
     app.render();
     const first = samples;
