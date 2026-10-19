@@ -7,7 +7,7 @@ import { ATTR } from '../term/screen.mjs';
 import { rect, splitH, splitV } from '../ui/layout.mjs';
 import { pulse, typewriterCount } from '../ui/fx.mjs';
 import { heading, label, panel, segments } from '../ui/widgets.mjs';
-import { describeItem } from '../ui/detail.mjs';
+import { describeItem, isHttpUrl } from '../ui/detail.mjs';
 import { ageOf, allHeadlines } from '../data/select.mjs';
 import { PaneView, selectedItem } from './base.mjs';
 
@@ -96,9 +96,12 @@ export class BriefView extends PaneView {
   related() {
     const line = selectedItem(this.lists.lines, this.lines());
     if (!line) return [];
-    if (this.relCache && this.relCache.line === line && this.relCache.digest === this.store.raw.digest) return this.relCache.items;
-    const items = relatedFor(line, this.insights(), this.store.raw.digest);
-    this.relCache = { line, digest: this.store.raw.digest, items };
+    // A fast refresh can swap the cited sources and keep the brief text.
+    const ins = this.insights();
+    const c = this.relCache;
+    if (c && c.line === line && c.ins === ins && c.digest === this.store.raw.digest) return c.items;
+    const items = relatedFor(line, ins, this.store.raw.digest);
+    this.relCache = { line, ins, digest: this.store.raw.digest, items };
     return items;
   }
 
@@ -114,16 +117,18 @@ export class BriefView extends PaneView {
         subtitle: 'AI world brief',
         rows: [['Line', String(item.text || '').replace(/\s*\[\d+\]/g, '')], ['Cites', citations(item.text).map((n) => `[${n}]`).join(' ') || 'nothing'], ['Related coverage', `${rel.length} items`], ...rel.slice(0, 12).map((r, i) => [`${i + 1}. ${r.kind}`, `${r.source ? `${r.source}: ` : ''}${r.title}`])],
         body: '',
-        url: rel[0]?.link || null,
+        url: rel.map((r) => r.link).find(isHttpUrl) || null,
       };
     }
     return describeItem(item.item || item, { title: item.title, subtitle: item.kind === 'cited' ? `cited source [${item.n}]` : item.kind === 'story' ? 'ranked story' : 'related headline', url: item.link });
   }
 
   selectedUrl() {
-    if (this.focusedPane === 'related') return selectedItem(this.lists.related, this.related())?.link || null;
-    const rel = this.related();
-    return rel[0]?.link || null;
+    if (this.focusedPane === 'related') {
+      const link = selectedItem(this.lists.related, this.related())?.link;
+      return isHttpUrl(link) ? link : null;
+    }
+    return this.related().map((r) => r.link).find(isHttpUrl) || null;
   }
 
   onKey(ev) {

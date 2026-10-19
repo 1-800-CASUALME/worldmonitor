@@ -3,7 +3,7 @@
 // pinning, search, satellite compositing, detail overlay and the brief view.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { describe, it, mock } from 'node:test';
+import { describe, it } from 'node:test';
 
 import { App } from '../src/tui/app.mjs';
 import { createClient } from '../src/tui/data/client.mjs';
@@ -745,7 +745,14 @@ describe('review fixes', () => {
     assert.equal(cache.active, 0);
   });
   it('waits out a cold GIBS render (about a minute) before giving up', () => {
-    mock.timers.enable({ apis: ['setTimeout'] });
+    // A hand-rolled setTimeout stub: node:test mock timers need Node 20.11,
+    // and the CLI supports Node 18.17.
+    const realSetTimeout = globalThis.setTimeout;
+    const timers = [];
+    globalThis.setTimeout = (fn, ms) => {
+      timers.push({ fn, ms });
+      return timers.length;
+    };
     try {
       let signal = null;
       const fetch = (_u, opts) => {
@@ -754,13 +761,14 @@ describe('review fixes', () => {
       };
       const cache = new ImageryCache({ fetch, now: () => 1000 });
       cache.get({ layer: 'globe', bbox: [-180, -90, 180, 90], width: 1080, height: 540 }, 'globe');
-      mock.timers.tick(61000);
-      assert.equal(signal.aborted, false, 'a 61 s render is still awaited');
-      mock.timers.tick(30000);
+      assert.equal(timers.length, 1);
+      assert.ok(timers[0].ms > 61000, 'a 61 s render is still awaited');
+      assert.equal(signal.aborted, false);
+      timers[0].fn();
       assert.equal(signal.aborted, true, 'and abandoned after the timeout');
       cache.close();
     } finally {
-      mock.timers.reset();
+      globalThis.setTimeout = realSetTimeout;
     }
   });
   it('aborts an in-flight fetch once a newer request replaces it in its slot', async () => {
@@ -834,5 +842,45 @@ describe('review fixes', () => {
   it('stores Gulf investment values in dollars', () => {
     const london = catalog.layers.gulfInvestments.find((g) => g.id === 'dpw-london-gateway');
     assert.equal(london.usd, 1.5e9);
+  });
+});
+
+describe('second review round', () => {
+  it('wraps any finite longitude without looping, and passes non-finite ones through', () => {
+    assert.ok(wrapLon(1e17) >= -180 && wrapLon(1e17) < 180);
+    assert.equal(wrapLon(3610), 10);
+    assert.equal(wrapLon(-3590), 10);
+    assert.equal(wrapLon(540), -180);
+    assert.equal(wrapLon(-540), -180);
+    assert.equal(wrapLon(Infinity), Infinity);
+    assert.ok(Number.isNaN(wrapLon(Number.NaN)));
+  });
+  it('shows an out-of-range timestamp as a number instead of throwing', () => {
+    const d = describeItem({ title: 'Bad clock', updatedAt: 1e16 });
+    const row = d.rows.find(([k]) => /updated/i.test(k));
+    assert.ok(row, 'the field is still listed');
+    assert.doesNotMatch(row[1], /ago/);
+  });
+  it('drops non-http(s) links passed to the detail overlay', () => {
+    assert.equal(describeItem({ title: 'x' }, { url: 'file:///etc/passwd' }).url, null);
+    assert.equal(describeItem({ title: 'x' }, { url: 'https://example.com/a' }).url, 'https://example.com/a');
+  });
+  it('keeps non-http(s) brief links out of the overlay and the open key', () => {
+    const { app } = makeApp();
+    const brief = app.views.find((v) => v.id === 'brief');
+    app.store.data.insights = { ...app.store.data.insights, briefStoryLines: [{ n: 1, text: 'Something happened [1].' }], worldBriefSources: [{ title: 'Local', source: 'x', url: 'file:///etc/passwd' }] };
+    const line = brief.lines()[0];
+    assert.equal(brief.describe(line, 'lines').url, null);
+    assert.equal(brief.describe(brief.related()[0], 'related').url, null);
+    assert.equal(brief.selectedUrl(), null);
+  });
+  it('recomputes related items when insights change but the brief text does not', () => {
+    const { app } = makeApp();
+    const brief = app.views.find((v) => v.id === 'brief');
+    const base = { ...app.store.data.insights, briefStoryLines: undefined, worldBrief: 'Something happened [1].' };
+    app.store.data.insights = { ...base, worldBriefSources: [{ title: 'Old source', source: 'a', url: 'https://a.example/' }] };
+    assert.equal(brief.related()[0].title, 'Old source');
+    app.store.data.insights = { ...base, worldBriefSources: [{ title: 'New source', source: 'b', url: 'https://b.example/' }] };
+    assert.equal(brief.related()[0].title, 'New source');
   });
 });

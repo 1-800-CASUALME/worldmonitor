@@ -99,6 +99,16 @@ describe('Screen', () => {
     s.put(4, 0, '⚓'); // no room for its right half
     assert.equal(s.toLines()[0], '🟠x');
   });
+  it('clears the old wide tail when a clip blanks a wide character', () => {
+    const s = new Screen(4, 1);
+    s.put(0, 0, '日');
+    s.pushClip({ x: 0, y: 0, w: 1, h: 1 });
+    s.put(0, 0, '月'); // its right half falls outside the clip
+    s.popClip();
+    s.put(2, 0, 'x');
+    assert.equal(s.toLines()[0], '  x');
+    assert.ok(s.diff(null).includes('  x'), 'the terminal sees x in the third column');
+  });
   it('keeps a wide character drawn twice in the same cells', () => {
     const s = new Screen(4, 1);
     s.text(0, 0, '日');

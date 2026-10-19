@@ -62,15 +62,18 @@ export class Screen {
     if (!this.inClip(x, y)) return;
     // A wide char (CJK, emoji) covers this cell and the next: the terminal
     // advances two columns, so the model must too or the rest of the row drifts.
-    const wide = charWidth(ch) === 2;
-    if (wide && !this.inClip(x + 1, y)) ch = ' ';
+    let wide = charWidth(ch) === 2;
+    if (wide && !this.inClip(x + 1, y)) {
+      ch = ' ';
+      wide = false;
+    }
     const i = y * this.cols + x;
     // Overwriting half of a wide char: blank the other half.
     if (this.ch[i] === WIDE_TAIL && x > 0) this.ch[i - 1] = ' ';
     if (x + 1 < this.cols && this.ch[i + 1] === WIDE_TAIL && !wide) this.ch[i + 1] = ' ';
     this.ch[i] = ch;
     this.setStyle(i, style);
-    if (wide && ch !== ' ') {
+    if (wide) {
       const j = i + 1;
       if (x + 2 < this.cols && this.ch[j + 1] === WIDE_TAIL) this.ch[j + 1] = ' ';
       this.ch[j] = WIDE_TAIL;

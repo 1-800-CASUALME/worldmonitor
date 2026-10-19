@@ -12,13 +12,17 @@ const BODY_KEYS = ['description', 'summary', 'snippet', 'text', 'worldBrief', 'r
 const SKIP_KEYS = new Set(['id', 'uuid', 'hexCode', 'sparkline', 'history', 'coordinates', 'coords', 'points', 'rings', 'geometry', 'path', 'bits', 'memberTitles', 'sources', 'polys', 'line1', 'line2']);
 const FIRST_KEYS = ['source', 'sourceName', 'primarySource', 'category', 'categoryTitle', 'type', 'severity', 'status', 'level', 'country', 'countryName', 'region', 'city', 'operator', 'magnitude', 'price', 'change', 'changePercent'];
 
+// Links come from feeds; only http(s) ones are shown or opened.
+export const isHttpUrl = (v) => typeof v === 'string' && /^https?:/i.test(v);
+
 const isTs = (k, _v) => /(At|Date|Time|Seen|Updated|Started|Ended|Expires|Onset|Published|pubDate)$/i.test(k) || /^(onset|expires|pubDate|date|timestamp|observedAt)$/i.test(k);
 
 function fmtValue(k, v) {
   if (v === null || v === undefined || v === '') return '';
   if (typeof v === 'boolean') return v ? 'yes' : 'no';
   if (typeof v === 'number') {
-    if (isTs(k, v) && v > 1e11) return `${ageOf(v)} ago · ${new Date(v).toISOString().replace('T', ' ').slice(0, 16)}Z`;
+    // Dates past ±8.64e15 ms are invalid and toISOString() would throw.
+    if (isTs(k, v) && v > 1e11 && v <= 8.64e15) return `${ageOf(v)} ago · ${new Date(v).toISOString().replace('T', ' ').slice(0, 16)}Z`;
     if (Number.isInteger(v) && Math.abs(v) < 1e5) return String(v);
     return fmtNum(v);
   }
@@ -61,7 +65,7 @@ export function labelOf(key) {
 export function describeItem(item, opts = {}) {
   if (!item || typeof item !== 'object') return { title: String(item ?? ''), rows: [], body: '' };
   const title = opts.title || TITLE_KEYS.map((k) => item[k]).find((v) => typeof v === 'string' && v.trim()) || Object.values(item).find((v) => typeof v === 'string' && v.trim() && v.length < 80) || 'Details';
-  const url = opts.url || URL_KEYS.map((k) => item[k]).find((v) => typeof v === 'string' && /^https?:/.test(v)) || null;
+  const url = [opts.url, ...URL_KEYS.map((k) => item[k])].find(isHttpUrl) || null;
   const bodyParts = [];
   for (const k of BODY_KEYS) if (typeof item[k] === 'string' && item[k].trim() && item[k] !== title) bodyParts.push(item[k].trim());
   const rows = [];

@@ -7,11 +7,11 @@
 
 export const DEG = Math.PI / 180;
 
+// Arithmetic, not a loop: feeds can carry huge longitudes, and adding 360 to
+// 1e17 leaves it unchanged.
 export function wrapLon(lon) {
-  let l = lon;
-  while (l < -180) l += 360;
-  while (l >= 180) l -= 360;
-  return l;
+  if (!Number.isFinite(lon) || (lon >= -180 && lon < 180)) return lon;
+  return ((((lon + 180) % 360) + 360) % 360) - 180;
 }
 
 export function clamp(v, lo, hi) {
