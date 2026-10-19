@@ -17,6 +17,9 @@
           "path": "scripts/profile-news-hybrid-clustering-7782-dashboard.mjs"
         },
         {
+          "path": "src/services/desktop-sign-in-page.ts"
+        },
+        {
           "path": "src/services/runtime.ts"
         }
       ]
@@ -580,6 +583,9 @@
       "status": "excluded",
       "references": [
         {
+          "path": "api/_desktop-auth.ts"
+        },
+        {
           "path": "api/user/passkey-offer.ts"
         },
         {
@@ -729,6 +735,9 @@
         },
         {
           "path": "scripts/seed-fuel-prices.mjs"
+        },
+        {
+          "path": "scripts/seed-oil-trade-series.mjs"
         }
       ]
     },
@@ -928,6 +937,12 @@
       "references": [
         {
           "path": "scripts/_seed-utils.mjs"
+        },
+        {
+          "path": "scripts/backtest-capital-flow-episodes.mjs"
+        },
+        {
+          "path": "scripts/seed-capital-flows.mjs"
         },
         {
           "path": "scripts/seed-gold-cb-reserves.mjs"
@@ -1393,6 +1408,9 @@
         },
         {
           "path": "scripts/seed-bis-lbs.mjs"
+        },
+        {
+          "path": "scripts/seed-capital-flows.mjs"
         },
         {
           "path": "scripts/seed-education-attainment.mjs"
@@ -2653,6 +2671,9 @@
       "references": [
         {
           "path": "scripts/seed-comtrade-bilateral-hs4.mjs"
+        },
+        {
+          "path": "scripts/seed-oil-trade-series.mjs"
         },
         {
           "path": "scripts/seed-recovery-import-hhi.mjs"
@@ -7710,6 +7731,9 @@
       "references": [
         {
           "path": "scripts/build-chokepoint-transit-snapshot.mjs"
+        },
+        {
+          "path": "scripts/seed-oil-trade-series.mjs"
         }
       ]
     },
@@ -8859,6 +8883,9 @@
           "path": "scripts/build-chokepoint-transit-snapshot.mjs"
         },
         {
+          "path": "scripts/seed-oil-trade-series.mjs"
+        },
+        {
           "path": "scripts/seed-portwatch-chokepoints-ref.mjs"
         },
         {
@@ -9056,6 +9083,9 @@
         },
         {
           "path": "scripts/seed-bis-lbs.mjs"
+        },
+        {
+          "path": "scripts/seed-capital-flows.mjs"
         },
         {
           "path": "server/worldmonitor/economic/v1/_bis-shared.ts"
@@ -12128,12 +12158,15 @@
     {
       "host": "www.eia.gov",
       "provider": "www.eia.gov",
-      "kind": "feed",
+      "kind": "feed+structured",
       "observed": true,
       "license": "Provider terms for this feed publisher; verify before redistribution",
       "attribution": "Credit www.eia.gov and link to the original feed publisher.",
       "status": "terms-review",
       "references": [
+        {
+          "path": "scripts/seed-oil-trade-series.mjs"
+        },
         {
           "path": "src/config/feeds.ts"
         }
@@ -12931,6 +12964,9 @@
         },
         {
           "path": "scripts/seed-jodi-oil.mjs"
+        },
+        {
+          "path": "scripts/seed-oil-trade-series.mjs"
         }
       ]
     },

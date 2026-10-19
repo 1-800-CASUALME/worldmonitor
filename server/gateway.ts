@@ -293,6 +293,7 @@ const RPC_CACHE_TIER: Record<string, CacheTier> = {
   '/api/cyber/v1/list-cyber-threats': 'static',
   '/api/conflict/v1/list-acled-events': 'slow',
   '/api/military/v1/get-theater-posture': 'slow',
+  '/api/intelligence/v1/get-country-signal-observations': 'no-store',
   '/api/military/v1/get-defense-industrial-base': 'daily',
   '/api/infrastructure/v1/get-temporal-baseline': 'slow',
   '/api/aviation/v1/list-airport-delays': 'static',
@@ -378,6 +379,8 @@ const RPC_CACHE_TIER: Record<string, CacheTier> = {
   '/api/economic/v1/get-us-treasury-par-yield-curve': 'daily',
   '/api/economic/v1/get-us-interest-rates': 'daily',
   '/api/economic/v1/get-world-cpi-monthly': 'daily',
+  // Weekly seed of quarterly IMF/BIS sources. A miss returns unavailable:true.
+  '/api/economic/v1/get-capital-flows': 'daily',
   // Daily yield-curve bundle. A miss returns unavailable:true, which the
   // gateway already keeps out of the shared cache.
   '/api/economic/v1/get-government-yield-curve': 'daily',
