@@ -11,6 +11,7 @@ import { Store } from '../src/tui/data/store.mjs';
 import { loadCatalog } from '../src/tui/index.mjs';
 import { createViews } from '../src/tui/views/index.mjs';
 import { DotCanvas } from '../src/tui/map/canvas.mjs';
+import { charWidth } from '../src/tui/term/ansi.mjs';
 import { dayFactor, defaultView, makeProjector, normalizeView, panBy, subsolarPoint, wrapLon, zoomAt } from '../src/tui/map/geo.mjs';
 import { ImageryCache, gibsUrl, latestDailyDate } from '../src/tui/map/imagery.mjs';
 import { LAYERS, buildFeatures, defaultLayerState, layerSources } from '../src/tui/map/layers.mjs';
@@ -60,6 +61,19 @@ function makeApp({ cols = 170, rows = 48, anim = true, fetchImpl = async () => p
 }
 
 const text = (app) => app.screen.toLines().join('\n');
+
+// Terminals draw a wide character over two columns; the cell after it must be
+// the screen's reserved tail ('\0') or the rest of the row drifts on screen.
+function assertCellWidths(s, label = '') {
+  for (let y = 0; y < s.rows; y++) {
+    for (let x = 0; x < s.cols; x++) {
+      const ch = s.ch[y * s.cols + x];
+      const next = x + 1 < s.cols ? s.ch[y * s.cols + x + 1] : null;
+      if (ch === '\u0000') assert.ok(x > 0 && charWidth(s.ch[y * s.cols + x - 1]) === 2, `${label} row ${y} col ${x}: tail without a wide head`);
+      else if (charWidth(ch) === 2) assert.equal(next, '\u0000', `${label} row ${y} col ${x}: ${ch} has no reserved cell`);
+    }
+  }
+}
 const mouse = (app, kind, x, y, button = kind === 'move' ? 3 : 0) => app.handleEvent({ type: 'mouse', kind, x, y, button });
 
 describe('geo projections', () => {
@@ -660,6 +674,30 @@ describe('review fixes', () => {
     const out = s.diff(null);
     assert.ok(!/\u0007/.test(out));
     assert.ok(!/\u001b[^[]/.test(out), 'every escape is one the renderer wrote');
+  });
+  it('keeps an emoji map label two columns wide so the row does not drift', async () => {
+    const { Screen } = await import('../src/tui/term/screen.mjs');
+    const c = new DotCanvas(30, 2);
+    for (let x = 0; x < 60; x++) c.dot(x, 1, '#888888'); // braille under the label row
+    c.label(0, 0, '🟠Drought', '#ffffff', { force: true });
+    const s = new Screen(30, 2);
+    c.blit({ s, t: theme, hits: [] }, { x: 0, y: 0, w: 30, h: 2 });
+    assertCellWidths(s);
+    assert.match(s.toLines()[0], /🟠Drought/);
+  });
+  it('draws every view with each wide character followed by its reserved cell', () => {
+    const { app, map } = makeApp();
+    for (let i = 0; i < app.views.length; i++) {
+      app.switchView(i);
+      app.render();
+      assertCellWidths(app.screen, app.views[i].id);
+    }
+    app.switchView(app.views.indexOf(map));
+    app.handleEvent({ type: 'key', name: '/', ch: '/' });
+    for (const ch of 'marea') app.handleEvent({ type: 'key', name: ch, ch });
+    app.handleEvent({ type: 'key', name: 'enter' });
+    app.render();
+    assertCellWidths(app.screen, 'map pinned');
   });
   it('keeps keys on the map when the layer panel does not fit', () => {
     const { app, map } = makeApp({ cols: 80, rows: 30 });

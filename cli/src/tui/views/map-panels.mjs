@@ -24,7 +24,7 @@ export function drawToolbar(view, ctx, r) {
   b('⌂ RESET', { onClick: () => view.setView({ ...defaultView(), mode: view.view.mode }) });
   b('⌕ SEARCH', { active: Boolean(view.search), onClick: () => view.onKey({ name: '/' }) });
   const onCount = LAYERS.filter((l) => view.layers[l.id] && l.kind !== 'overlay').length;
-  b(`☰ LAYERS ${onCount}`, { active: view.sidebar, activeBg: t.accent2, onClick: () => view.onKey({ name: 'L' }) });
+  b(`≡ LAYERS ${onCount}`, { active: view.sidebar, activeBg: t.accent2, onClick: () => view.onKey({ name: 'L' }) });
   if (view.pinned) b(`✕ ${truncate(view.pinned.name, 18)}`, { active: true, activeBg: t.warn, onClick: () => { view.pinned = null; view.touch(); } });
   const right = [];
   if (view.sat) right.push({ text: view.imageryStatus, fg: t.dim });

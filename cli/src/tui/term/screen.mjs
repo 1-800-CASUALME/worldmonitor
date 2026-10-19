@@ -60,11 +60,25 @@ export class Screen {
 
   put(x, y, ch, style = {}) {
     if (!this.inClip(x, y)) return;
+    // A wide char (CJK, emoji) covers this cell and the next: the terminal
+    // advances two columns, so the model must too or the rest of the row drifts.
+    const wide = charWidth(ch) === 2;
+    if (wide && !this.inClip(x + 1, y)) ch = ' ';
     const i = y * this.cols + x;
     // Overwriting half of a wide char: blank the other half.
     if (this.ch[i] === WIDE_TAIL && x > 0) this.ch[i - 1] = ' ';
-    if (x + 1 < this.cols && this.ch[i + 1] === WIDE_TAIL && charWidth(ch) < 2) this.ch[i + 1] = ' ';
+    if (x + 1 < this.cols && this.ch[i + 1] === WIDE_TAIL && !wide) this.ch[i + 1] = ' ';
     this.ch[i] = ch;
+    this.setStyle(i, style);
+    if (wide && ch !== ' ') {
+      const j = i + 1;
+      if (x + 2 < this.cols && this.ch[j + 1] === WIDE_TAIL) this.ch[j + 1] = ' ';
+      this.ch[j] = WIDE_TAIL;
+      this.setStyle(j, style);
+    }
+  }
+
+  setStyle(i, style) {
     if (style.fg !== undefined) this.fg[i] = style.fg;
     if (style.bg !== undefined) this.bg[i] = style.bg;
     if (style.attr !== undefined) this.attr[i] = style.attr;
@@ -78,19 +92,8 @@ export class Screen {
       const w = charWidth(ch);
       if (w === 0) continue;
       if (used + w > maxWidth) break;
-      if (w === 2) {
-        if (!this.inClip(cx + 1, y)) break;
-        this.put(cx, y, ch, style);
-        // Set the tail directly: put() would see an old tail here and blank the head just drawn.
-        const i = y * this.cols + cx + 1;
-        if (cx + 2 < this.cols && this.ch[i + 1] === WIDE_TAIL) this.ch[i + 1] = ' ';
-        this.ch[i] = WIDE_TAIL;
-        if (style.fg !== undefined) this.fg[i] = style.fg;
-        if (style.bg !== undefined) this.bg[i] = style.bg;
-        if (style.attr !== undefined) this.attr[i] = style.attr;
-      } else {
-        this.put(cx, y, ch, style);
-      }
+      if (w === 2 && !this.inClip(cx + 1, y)) break;
+      this.put(cx, y, ch, style);
       cx += w;
       used += w;
     }

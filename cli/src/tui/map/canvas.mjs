@@ -2,7 +2,7 @@
 // colour per cell, a glyph layer drawn on top of the dots (markers, labels)
 // and a compositor that writes everything into the Screen, optionally over
 // half-block satellite imagery.
-import { mix, sanitize, strWidth } from '../term/ansi.mjs';
+import { charWidth, mix, sanitize, strWidth } from '../term/ansi.mjs';
 
 const BRAILLE_BITS = [
   [0x01, 0x08],
@@ -244,6 +244,7 @@ export class DotCanvas {
           let bg = g.bg || solid || (top ? mix(top, bottom, 0.5) : panel);
           if (!g.bg && f < 1) bg = shadeColor(bg);
           s.put(sx, sy, g.ch, { fg: f < 1 && !g.bg ? shadeColor(g.fg) : g.fg, bg, attr: g.attr });
+          if (charWidth(g.ch) === 2) cx += 1; // the glyph's right half covers the next cell
         } else if (code) {
           let bg = solid || (top ? mix(top, bottom, 0.5) : panel);
           let fg = this.color[ci] || t.map;
