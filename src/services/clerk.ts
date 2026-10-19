@@ -25,6 +25,8 @@ import type { Clerk } from '@clerk/clerk-js';
 import { enqueueSentryCall } from '@/bootstrap/sentry-defer';
 import { EULA_PATH, PRIVACY_PATH, absoluteLegalUrl } from '../../shared/legal';
 import { WEB_APP_ORIGIN } from '@/config/web-origin';
+import { isDesktopRuntime } from '@/config/desktop-runtime';
+import { showToast } from '@/utils/toast';
 
 type ClerkInstance = Clerk;
 type ClerkSession = NonNullable<ClerkInstance['session']>;
@@ -199,6 +201,16 @@ function clerkFapiHost(publishableKey: string): string {
   }
 }
 
+/**
+ * Load options that differ on desktop. Clerk's production Frontend API rejects
+ * the desktop WebView origins (`400 origin_invalid`, #9396), so desktop runs
+ * clerk-js in native mode: no cookies, Frontend API calls through the Rust
+ * relay (see clerk-desktop-relay.ts). Exported for testing.
+ */
+export function clerkRuntimeLoadOptions(desktop: boolean): { standardBrowser?: false } {
+  return desktop ? { standardBrowser: false } : {};
+}
+
 let umdLoadPromise: Promise<void> | null = null;
 
 /** Inject a <script> from the Frontend API and resolve on load. */
@@ -272,6 +284,11 @@ export async function initClerk(): Promise<void> {
   }
   loadPromise = (async () => {
     try {
+      let desktopRelay = false;
+      if (isDesktopRuntime()) {
+        const { installClerkDesktopRelay } = await import('@/services/clerk-desktop-relay');
+        desktopRelay = installClerkDesktopRelay(clerkFapiHost(PUBLISHABLE_KEY));
+      }
       await loadClerkUmd(PUBLISHABLE_KEY);
       const clerk = getClerkInstance();
       if (!clerk) throw new Error('[clerk] window.Clerk unavailable after load');
@@ -286,6 +303,7 @@ export async function initClerk(): Promise<void> {
           },
         },
         afterSignOutUrl: getAfterSignOutUrl(),
+        ...clerkRuntimeLoadOptions(desktopRelay),
       } as Parameters<typeof clerk.load>[0]);
       clerkInstance = clerk;
       attachPendingSubscribers();
@@ -402,6 +420,37 @@ function captureClerkSurfaceFailure(action: string, err: unknown, reason: string
   });
 }
 
+export interface ClerkSurfaceFailureEffects {
+  notify: (message: string) => void;
+  capture: (action: string, err: unknown, reason: string) => void;
+  log: (message: string, err: unknown) => void;
+}
+
+const defaultSurfaceFailureEffects: ClerkSurfaceFailureEffects = {
+  notify: (message) => {
+    if (typeof document !== 'undefined') showToast(message, 6000);
+  },
+  capture: captureClerkSurfaceFailure,
+  log: (message, err) => console.error(message, err),
+};
+
+/**
+ * A Sign in / Create account click that cannot open Clerk must say so. Before
+ * #9396 the failure only reached the console and Sentry, so the button looked
+ * dead. Exported for testing.
+ */
+export function reportClerkSurfaceFailure(
+  action: 'open-sign-in' | 'open-sign-up',
+  reason: string,
+  err: unknown,
+  effects: ClerkSurfaceFailureEffects = defaultSurfaceFailureEffects,
+): void {
+  effects.log(`[clerk] ${action} failed (${reason}):`, err);
+  effects.capture(action, err, reason);
+  const what = action === 'open-sign-in' ? 'Sign in' : 'Create account';
+  effects.notify(`${what} could not open. Check your connection and try again.`);
+}
+
 function scheduleNextFrame(cb: () => void): void {
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => cb());
   else setTimeout(cb, 50);
@@ -458,8 +507,7 @@ function openClerkSurface(action: 'open-sign-in' | 'open-sign-up'): void {
   // (initClerk rejected: dynamic-import 4xx/5xx, transient network) — querying
   // by `reason` must not mix the two or it dilutes the race alert signal.
   const onFail = (reason: string) => (err: unknown): void => {
-    console.error(`[clerk] ${action} failed (${reason}):`, err);
-    captureClerkSurfaceFailure(action, err, reason);
+    reportClerkSurfaceFailure(action, reason, err);
   };
   const openClerk = (): void => runClerkSurfaceOpen(open, onFail('ui-components-not-ready'));
   // The resume hook needs the loaded client, so it runs after the force-load too.

@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod cache_bounds;
+mod clerk_relay;
 
 use std::collections::HashMap;
 use std::env;
@@ -21,11 +22,14 @@ use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Manager, RunEvent, Webview, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 use cache_bounds::validate_cache_write_sizes;
+use clerk_relay::{ClerkClientToken, ClerkFapiRequest, ClerkFapiResponse};
 
 const DEFAULT_LOCAL_API_PORT: u16 = 46123;
 const SIDECAR_PORT_RECOVERY_TIMEOUT_MS: u64 = 30_000;
 const MAX_LOCAL_API_PROXY_BYTES: usize = 16 * 1024 * 1024;
 const KEYRING_SERVICE: &str = "world-monitor";
+const CLERK_CLIENT_KEYRING_ACCOUNT: &str = "clerk-client";
+const CLERK_RELAY_WINDOWS: [&str; 1] = ["main"];
 const LOCAL_API_LOG_FILE: &str = "local-api.log";
 const DESKTOP_LOG_FILE: &str = "desktop.log";
 const MENU_FILE_SETTINGS_ID: &str = "file.settings";
@@ -429,6 +433,110 @@ async fn proxy_local_api_request(
         return Err(format!("Local API route is not proxyable: {route}"));
     }
     send_local_api_request(&state, &request.method, &normalized_path, &request.headers, request.body).await
+}
+
+/// Holds the Clerk native-mode client token. Loaded from the keychain on first
+/// use so a signed-in user stays signed in across launches.
+struct ClerkRelayState {
+    token: tauri::async_runtime::Mutex<Option<Option<ClerkClientToken>>>,
+    http_client: reqwest::Client,
+}
+
+impl Default for ClerkRelayState {
+    fn default() -> Self {
+        Self {
+            token: tauri::async_runtime::Mutex::new(None),
+            http_client: reqwest::Client::builder()
+                .use_native_tls()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_default(),
+        }
+    }
+}
+
+fn load_clerk_client_token() -> Option<ClerkClientToken> {
+    let entry = Entry::new(KEYRING_SERVICE, CLERK_CLIENT_KEYRING_ACCOUNT).ok()?;
+    let json = entry.get_password().ok()?;
+    serde_json::from_str(&json).ok()
+}
+
+fn save_clerk_client_token(token: &ClerkClientToken) -> Result<(), String> {
+    let json = serde_json::to_string(token).map_err(|e| format!("Failed to serialize Clerk client: {e}"))?;
+    Entry::new(KEYRING_SERVICE, CLERK_CLIENT_KEYRING_ACCOUNT)
+        .map_err(|e| format!("Keyring init failed: {e}"))?
+        .set_password(&json)
+        .map_err(|e| format!("Failed to store Clerk client: {e}"))
+}
+
+#[tauri::command]
+async fn clerk_fapi_request(
+    webview: Webview,
+    app: AppHandle,
+    request: ClerkFapiRequest,
+    state: tauri::State<'_, ClerkRelayState>,
+) -> Result<ClerkFapiResponse, String> {
+    if !CLERK_RELAY_WINDOWS.contains(&webview.label()) {
+        return Err(format!("Clerk relay not allowed from window '{}'", webview.label()));
+    }
+    let validated = clerk_relay::validate_request(request)?;
+    let host = validated.url.host_str().unwrap_or_default().to_string();
+
+    // Held across the request so a rotated token from one response is never
+    // overwritten by a concurrent response that carried the older one.
+    let mut slot = state.token.lock().await;
+    let stored = slot.get_or_insert_with(load_clerk_client_token);
+
+    let mut outbound = state.http_client.request(validated.method, validated.url);
+    if let Some(token) = clerk_relay::token_for_host(stored.as_ref(), &host) {
+        outbound = outbound.header(reqwest::header::AUTHORIZATION, token);
+    }
+    if let Some(content_type) = validated.content_type {
+        outbound = outbound.header(reqwest::header::CONTENT_TYPE, content_type);
+    }
+    if let Some(body) = validated.body {
+        outbound = outbound.body(body);
+    }
+
+    let response = outbound
+        .send()
+        .await
+        .map_err(|error| format!("Clerk request failed: {error}"))?;
+    let status = response.status().as_u16();
+    let header_text = |name: reqwest::header::HeaderName| {
+        response
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string)
+    };
+    let content_type = header_text(reqwest::header::CONTENT_TYPE);
+    let authorization = header_text(reqwest::header::AUTHORIZATION);
+
+    if let Some(next) = clerk_relay::next_stored_token(stored.as_ref(), &host, authorization.as_deref()) {
+        if let Err(err) = save_clerk_client_token(&next) {
+            // The session still works for this launch; only persistence failed.
+            append_desktop_log(&app, "WARN", &err);
+        }
+        *stored = Some(next);
+    }
+    drop(slot);
+
+    let mut response = response;
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| format!("Failed to read Clerk response: {error}"))?
+    {
+        clerk_relay::append_capped(&mut bytes, &chunk, clerk_relay::MAX_RESPONSE_BODY_BYTES)?;
+    }
+    Ok(ClerkFapiResponse {
+        status,
+        content_type,
+        body: String::from_utf8_lossy(&bytes).into_owned(),
+    })
 }
 
 #[tauri::command]
@@ -1996,6 +2104,7 @@ fn main() {
         .on_menu_event(handle_menu_event)
         .manage(LocalApiState::default())
         .manage(SecretsCache::load_from_keychain())
+        .manage(ClerkRelayState::default())
         .invoke_handler(tauri::generate_handler![
             list_configured_secret_keys,
             set_secret,
@@ -2016,7 +2125,8 @@ fn main() {
             close_live_channels_window,
             open_url,
             open_youtube_login,
-            fetch_polymarket
+            fetch_polymarket,
+            clerk_fapi_request
         ])
         .setup(|app| {
             // Load persistent cache into memory (avoids 14MB file I/O on every IPC call)
