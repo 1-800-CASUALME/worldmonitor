@@ -1,18 +1,20 @@
 // Map view: a zoomable, pannable world map or globe with every layer the
 // dashboard knows about, optional satellite imagery, hover highlighting with
 // an info card, a layer picker sidebar, search and animations.
-import { mix, strWidth, truncate, wrap } from '../term/ansi.mjs';
+import { mix, truncate, wrap } from '../term/ansi.mjs';
 import { ATTR } from '../term/screen.mjs';
 import { rect, splitH, splitV } from '../ui/layout.mjs';
 import { pulse } from '../ui/fx.mjs';
-import { ListView, button, hit, panel, segments } from '../ui/widgets.mjs';
+import { ListView, panel } from '../ui/widgets.mjs';
+import { imageryRequests, makeSampler } from '../map/backdrop.mjs';
 import { DotCanvas } from '../map/canvas.mjs';
 import { ImageryCache, IMAGERY, imageryById, latestDailyDate, nextImageryId } from '../map/imagery.mjs';
-import { samplePixel } from '../map/png.mjs';
-import { dayFactor, defaultView, destination, fmtCoord, haversineKm, makeProjector, normalizeView, panBy, subsolarPoint, wrapLon, zoomAt } from '../map/geo.mjs';
+import { dayFactor, defaultView, destination, fmtCoord, makeProjector, normalizeView, panBy, subsolarPoint, wrapLon, zoomAt } from '../map/geo.mjs';
 import { decodeWorld, renderGraticule, renderWorld, terminatorPoints, worldMask } from '../map/world.mjs';
-import { LAYERS, LAYER_BY_ID, LAYER_GROUPS, buildFeatures, defaultLayerState, layerSources } from '../map/layers.mjs';
+import { LAYERS, LAYER_BY_ID, buildFeatures, defaultLayerState, layerSources } from '../map/layers.mjs';
 import { groundTrack, propagate } from '../map/orbit.mjs';
+import { pointInRing, polylineKm, segDist } from '../map/shapes.mjs';
+import { drawCard, drawFooter, drawSearch, drawSidebar, drawToolbar, sidebarRows } from './map-panels.mjs';
 
 const SIDEBAR_W = 34;
 const PAN_STEP = 8;
@@ -207,7 +209,7 @@ export class MapView {
         return true;
       }
       if (ev.name === 'enter' || ev.name === 'space') {
-        const row = this.sidebarRows()[this.sidebarList.selected];
+        const row = sidebarRows()[this.sidebarList.selected];
         if (row?.layer) this.toggleLayer(row.layer.id);
         else if (row?.group) this.toggleGroup(row.group.id);
         return true;
@@ -538,146 +540,11 @@ export class MapView {
       this.view = normalizeView({ ...this.view, lon: this.view.lon + 0.12 }, this.canvas.w, this.canvas.h);
     }
     this.refreshFeatures();
-    this.drawToolbar(ctx, toolbarR);
+    drawToolbar(this, ctx, toolbarR);
     this.drawMap(ctx, inner);
-    if (showSidebar) this.drawSidebar(ctx, sideR);
-    this.drawFooter(ctx, footerR);
-    if (this.search) this.drawSearch(ctx, inner);
-  }
-
-  drawToolbar(ctx, r) {
-    const { s, t } = ctx;
-    s.fill(r, ' ', { bg: t.bg });
-    let x = r.x + 1;
-    const b = (text, opts) => {
-      x += button(ctx, x, r.y, text, opts) + 1;
-    };
-    b(this.view.mode === 'globe' ? '◍ GLOBE' : '▭ FLAT', { active: true, activeBg: t.accent, onClick: () => this.toggleMode() });
-    b(`SAT ${this.sat ? 'ON' : 'OFF'}`, { active: this.sat, activeBg: t.good, onClick: () => this.toggleSat() });
-    b(imageryById(this.imagery).short, { active: false, fg: this.sat ? t.text : t.dim, onClick: () => this.cycleImagery() });
-    b(`☾ ${this.layers.dayNight ? 'DAY/NIGHT' : 'NO SHADE'}`, { active: Boolean(this.layers.dayNight), activeBg: t.accent3, onClick: () => this.toggleLayer('dayNight') });
-    b('−', { onClick: () => this.setView(zoomAt(this.view, this.canvas.w, this.canvas.h, 1 / 1.5)) });
-    b('+', { onClick: () => this.setView(zoomAt(this.view, this.canvas.w, this.canvas.h, 1.5)) });
-    b('⌂ RESET', { onClick: () => this.setView({ ...defaultView(), mode: this.view.mode }) });
-    b('⌕ SEARCH', { active: Boolean(this.search), onClick: () => this.onKey({ name: '/' }) });
-    const onCount = LAYERS.filter((l) => this.layers[l.id] && l.kind !== 'overlay').length;
-    b(`☰ LAYERS ${onCount}`, { active: this.sidebar, activeBg: t.accent2, onClick: () => this.onKey({ name: 'L' }) });
-    if (this.pinned) b(`✕ ${truncate(this.pinned.name, 18)}`, { active: true, activeBg: t.warn, onClick: () => { this.pinned = null; this.touch(); } });
-    const right = [];
-    if (this.sat) right.push({ text: this.imageryStatus, fg: t.dim });
-    const c = this.view;
-    right.push({ text: `  ${fmtCoord(c.lat, c.lon)} `, fg: t.text });
-    const rx = r.x + r.w - 1 - right.reduce((a, seg) => a + strWidth(seg.text), 0);
-    if (rx > x) segments(ctx, rx, r.y, right, r.x + r.w - rx, { bg: t.bg });
-  }
-
-  drawFooter(ctx, r) {
-    const { s, t } = ctx;
-    s.fill(r, ' ', { bg: t.bg });
-    const segs = [];
-    if (this.hover && this.proj) {
-      const g = this.proj.fromDot(this.hover.x * 2 + 1, this.hover.y * 4 + 2);
-      if (g) segs.push({ text: ` ◎ ${fmtCoord(g.lat, g.lon)} `, fg: t.accent });
-    }
-    const f = this.hovered || this.pinned;
-    if (f) {
-      segs.push({ text: `${f.glyph || '▸'} `, fg: f.color || t.text });
-      segs.push({ text: `${f.name} `, fg: t.text, attr: ATTR.BOLD });
-      segs.push({ text: `· ${f.layerLabel || f.layer} `, fg: t.dim });
-      if (f.from && f.to) segs.push({ text: `· ${f.fromName || fmtCoord(f.from[1], f.from[0])} → ${f.toName || fmtCoord(f.to[1], f.to[0])} `, fg: t.dim });
-    } else {
-      segs.push({ text: ' hover anything to highlight its layer · click to pin · Enter for details · drag to pan · wheel to zoom', fg: t.dim });
-    }
-    if (this.sat) segs.push({ text: `  imagery ${imageryById(this.imagery).credit}`, fg: t.muted });
-    segments(ctx, r.x, r.y, segs, r.w, { bg: t.bg });
-  }
-
-  drawSidebar(ctx, r) {
-    const { t } = ctx;
-    const focused = this.focus === 'sidebar';
-    const inner = panel(ctx, r, { title: 'Layers', focused, onClick: () => { this.focus = 'sidebar'; this.touch(); } });
-    if (inner.w < 10) return;
-    let x = inner.x;
-    x += button(ctx, x, inner.y, 'ALL', { onClick: () => this.setAllLayers(true) }) + 1;
-    x += button(ctx, x, inner.y, 'NONE', { onClick: () => this.setAllLayers(false) }) + 1;
-    x += button(ctx, x, inner.y, 'DEFAULT', { onClick: () => this.resetLayers() }) + 1;
-    x += button(ctx, x, inner.y, 'HIDE', { onClick: () => this.onKey({ name: 'L' }) });
-    const listR = rect(inner.x, inner.y + 1, inner.w, inner.h - 1);
-    const rows = this.sidebarRows();
-    this.sidebarList.draw(
-      ctx,
-      listR,
-      rows,
-      (row, _i, { width }) => {
-        if (row.group) {
-          const members = LAYERS.filter((l) => l.group === row.group.id);
-          const on = members.filter((l) => this.layers[l.id]).length;
-          return [
-            { text: `${row.group.label.toUpperCase()} `, fg: t.title, attr: ATTR.BOLD },
-            { text: `${on}/${members.length}`, fg: t.dim },
-          ];
-        }
-        const l = row.layer;
-        const on = Boolean(this.layers[l.id]);
-        const count = this.counts[l.id];
-        const countText = l.build ? (on ? String(count ?? 0) : '') : '';
-        const color = t[l.color] || t.text;
-        const focusLayer = (this.hovered || this.pinned)?.layer;
-        const nameW = Math.max(4, width - 4 - 2 - countText.length - 1);
-        return [
-          { text: on ? '◼ ' : '◻ ', fg: on ? color : t.muted },
-          { text: `${l.glyph || ' '} `, fg: on ? color : t.muted },
-          { text: truncate(l.label, nameW).padEnd(nameW), fg: focusLayer === l.id ? t.selText : on ? t.text : t.dim, attr: focusLayer === l.id ? ATTR.BOLD : 0 },
-          { text: ` ${countText}`, fg: t.dim },
-        ];
-      },
-      {
-        focused,
-        onFocus: () => {
-          this.focus = 'sidebar';
-        },
-        onSelect: (row) => {
-          if (row.layer) this.toggleLayer(row.layer.id);
-          else if (row.group) this.toggleGroup(row.group.id);
-        },
-        onActivate: (row) => {
-          if (row.layer) this.toggleLayer(row.layer.id);
-          else if (row.group) this.toggleGroup(row.group.id);
-        },
-      },
-    );
-  }
-
-  sidebarRows() {
-    const rows = [];
-    for (const g of LAYER_GROUPS) {
-      rows.push({ group: g });
-      for (const l of LAYERS) if (l.group === g.id) rows.push({ layer: l });
-    }
-    return rows;
-  }
-
-  drawSearch(ctx, inner) {
-    const { s, t } = ctx;
-    const sch = this.search;
-    const w = Math.min(inner.w - 4, 60);
-    const items = sch.results.slice(0, 10);
-    const h = 3 + items.length;
-    const box = rect(inner.x + 2, inner.y + 1, w, h);
-    this.overlayBoxes.push(box);
-    s.fill(box, ' ', { bg: t.sel });
-    s.box(box, { fg: t.borderFocus, bg: t.sel }, 'round');
-    s.text(box.x + 2, box.y, ' SEARCH ', { fg: t.title, bg: t.sel, attr: ATTR.BOLD });
-    s.text(box.x + 2, box.y + 1, `⌕ ${sch.query}▏`, { fg: t.text, bg: t.sel, attr: ATTR.BOLD }, w - 4);
-    items.forEach((it, i) => {
-      const y = box.y + 2 + i;
-      const active = i === sch.index;
-      s.fill(rect(box.x + 1, y, w - 2, 1), ' ', { bg: active ? t.borderFocus : t.sel });
-      s.text(box.x + 2, y, truncate(it.label, w - 20), { fg: active ? t.selText : t.text, bg: active ? t.borderFocus : t.sel });
-      s.text(box.x + w - 2 - Math.min(14, strWidth(it.sub)), y, truncate(it.sub, 14), { fg: active ? t.selText : t.dim, bg: active ? t.borderFocus : t.sel });
-      hit(ctx, rect(box.x, y, w, 1), { onClick: () => { this.search = null; this.jumpTo(it); } });
-    });
-    if (!items.length && sch.query) s.text(box.x + 2, box.y + 2, 'no matches', { fg: t.dim, bg: t.sel });
+    if (showSidebar) drawSidebar(this, ctx, sideR);
+    drawFooter(this, ctx, footerR);
+    if (this.search) drawSearch(this, ctx, inner);
   }
 
   // --- the map itself ---------------------------------------------------------------
@@ -775,7 +642,7 @@ export class MapView {
 
     // Hover / pin card.
     const f = this.pinned || this.hovered;
-    if (f) this.drawCard(ctx, inner, f, Boolean(this.pinned));
+    if (f) drawCard(this, ctx, inner, f, Boolean(this.pinned));
     if (this.hover && this.app.anim && !this.drag) {
       // crosshair cursor
       const { s } = ctx;
@@ -788,23 +655,6 @@ export class MapView {
     }
   }
 
-  // Imagery requests for the visible area: the whole globe, the flat viewport,
-  // or, when the viewport crosses the antimeridian, one tile on each side of it
-  // (a single world strip would cap at 2048 px and blur when zoomed in).
-  imageryRequests(proj, layer, time) {
-    if (this.view.mode === 'globe') return [{ layer: layer.gibs, bbox: [-180, -90, 180, 90], width: 1080, height: 540, time }];
-    const [west, s, east, n] = proj.bbox();
-    const south = Math.max(-90, s);
-    const north = Math.min(90, n);
-    const pxPerDeg = proj.k / 2;
-    const height = Math.max(8, Math.round((north - south) * pxPerDeg));
-    const box = (w, e) => ({ layer: layer.gibs, bbox: [w, south, e, north], width: Math.max(8, Math.round((e - w) * pxPerDeg)), height, time });
-    if (east - west >= 359.9) return [{ ...box(-180, 180), width: Math.min(2048, Math.max(64, Math.round(360 * pxPerDeg))) }];
-    if (west < -180) return [box(west + 360, 180), box(-180, east)];
-    if (east > 180) return [box(west, 180), box(-180, east - 360)];
-    return [box(west, east)];
-  }
-
   // Imagery sampler for the current frame: returns (cx, cy) -> { top, bottom } | null.
   // Cells are memoised until the view, the tiles, the sun or the theme change, so
   // a still map does not resample every cell on every frame.
@@ -814,7 +664,7 @@ export class MapView {
     const layer = imageryById(this.imagery);
     const time = layer.daily ? latestDailyDate(now) : undefined;
     const base = this.view.mode === 'globe' ? 'globe' : 'view';
-    const reqs = this.imageryRequests(proj, layer, time);
+    const reqs = imageryRequests(this.view, proj, layer, time);
     const entries = reqs.map((req, i) => this.imageryCache.get(req, i ? `${base}2` : base));
     const nights = sun && layer.id !== 'night' ? reqs.map((req, i) => this.imageryCache.get({ ...req, layer: 'VIIRS_Black_Marble', time: undefined }, i ? 'night2' : 'night')) : [];
     const ready = entries.filter((e) => e.status === 'ready');
@@ -847,34 +697,9 @@ export class MapView {
     };
   }
 
-  // tiles / nightTiles: ready cache entries, newest first; each is read with its own extent.
+  // tiles / nightTiles: ready cache entries, newest first (see map/backdrop.mjs).
   sampler(tiles, proj, sun, nightTiles, fade) {
-    const t = this.app.theme;
-    const dark = mix(t.panel, '#000000', 0.5);
-    const sampleAt = (lon, lat) => {
-      const px = sampleTiles(tiles, lon, lat);
-      if (!px) return null;
-      let color = rgb(px);
-      if (sun) {
-        const f = dayFactor(lat, lon, sun);
-        if (f < 1) {
-          let nightColor = '#02040a';
-          const np = sampleTiles(nightTiles, lon, lat);
-          if (np) nightColor = rgb([Math.min(255, np[0] * 1.6 + 4), Math.min(255, np[1] * 1.5 + 6), Math.min(255, np[2] * 1.3 + 12)]);
-          color = mix(nightColor, color, 0.08 + 0.92 * f);
-        }
-      }
-      return fade < 1 ? mix(t.panel, color, fade) : color;
-    };
-    return (cx, cy) => {
-      const gTop = proj.fromDot(cx * 2 + 1, cy * 4 + 1);
-      const gBot = proj.fromDot(cx * 2 + 1, cy * 4 + 3);
-      if (!gTop && !gBot) return null;
-      const top = gTop ? sampleAt(gTop.lon, gTop.lat) : null;
-      const bottom = gBot ? sampleAt(gBot.lon, gBot.lat) : null;
-      if (!top && !bottom) return null;
-      return { top: top || dark, bottom: bottom || dark };
-    };
+    return makeSampler(this.app.theme, tiles, proj, sun, nightTiles, fade);
   }
 
   drawFeatures(ctx, canvas, proj) {
@@ -1063,86 +888,4 @@ export class MapView {
     this.drawn = { points, lines, polys };
   }
 
-  drawCard(ctx, inner, f, pinned) {
-    const { s, t } = ctx;
-    const w = Math.min(46, inner.w - 2);
-    if (w < 24 || inner.h < 8) return;
-    const rows = [];
-    rows.push(['Position', fmtCoord(f.lat, f.lon)]);
-    if (f.from && f.to) rows.push(['Route', `${f.fromName || fmtCoord(f.from[1], f.from[0])} → ${f.toName || fmtCoord(f.to[1], f.to[0])}`]);
-    for (const r of (f.info || []).slice(0, 7)) rows.push(r);
-    const lines = [];
-    for (const [k, v] of rows) {
-      const text = `${k}: ${v}`;
-      for (const l of wrap(text, w - 4).slice(0, 2)) lines.push({ k, text: l });
-    }
-    const h = Math.min(inner.h - 2, lines.length + 4);
-    // Place the card away from the cursor: bottom-left unless the cursor is there.
-    const cursorLeft = this.hover ? this.hover.x < inner.w / 2 : false;
-    const cursorBottom = this.hover ? this.hover.y > inner.h / 2 : false;
-    const x = cursorLeft && cursorBottom ? inner.x + inner.w - w - 1 : inner.x + 1;
-    const y = cursorBottom && !cursorLeft ? inner.y + 1 : inner.y + inner.h - h - 1;
-    const box = rect(x, y, w, h);
-    this.overlayBoxes.push(box);
-    s.fill(box, ' ', { bg: t.sel });
-    s.box(box, { fg: pinned ? t.warn : f.color || t.borderFocus, bg: t.sel }, 'round');
-    const title = ` ${f.glyph ? `${f.glyph} ` : ''}${truncate(f.name, w - 8)} `;
-    s.text(box.x + 1, box.y, title, { fg: f.color || t.title, bg: t.sel, attr: ATTR.BOLD });
-    const sub = `${(f.layerLabel || f.layer || '').toUpperCase()}${pinned ? ' · PINNED' : ''}`;
-    s.text(box.x + 2, box.y + 1, truncate(sub, w - 4), { fg: t.dim, bg: t.sel });
-    lines.slice(0, h - 4).forEach((l, i) => {
-      const y2 = box.y + 2 + i;
-      const idx = l.text.indexOf(':');
-      if (l.text.startsWith(`${l.k}:`) && idx > 0) {
-        s.text(box.x + 2, y2, l.text.slice(0, idx + 1), { fg: t.accent, bg: t.sel });
-        s.text(box.x + 2 + idx + 1, y2, l.text.slice(idx + 1), { fg: t.text, bg: t.sel }, w - 4 - idx - 1);
-      } else s.text(box.x + 2, y2, l.text, { fg: t.text, bg: t.sel }, w - 4);
-    });
-    const hint = pinned ? 'Enter details · o link · c unpin' : 'click to pin · Enter details';
-    s.text(box.x + 2, box.y + h - 1, truncate(hint, w - 4), { fg: t.muted, bg: t.sel });
-    hit(ctx, box, { onClick: () => this.openDetail(f) });
-  }
 }
-
-// Pixel at (lon, lat) from the first tile covering it; each tile is read with its own extent.
-function sampleTiles(tiles, lon, lat) {
-  for (const tile of tiles) {
-    const [w, s, e, n] = tile.req.bbox;
-    if (lat < s || lat > n) continue;
-    let u = e - w >= 359.9 ? (wrapLon(lon) + 180) / 360 : (lon - w) / (e - w);
-    if (u < 0 || u > 1) u = (wrapLon(lon) - w) / (e - w);
-    if (u < 0 || u > 1) continue;
-    return samplePixel(tile.image, u, (n - lat) / (n - s));
-  }
-  return null;
-}
-
-function rgb([r, g, b]) {
-  return `#${[r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')}`;
-}
-
-function segDist(px, py, x0, y0, x1, y1) {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  const len2 = dx * dx + dy * dy;
-  const u = len2 ? Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / len2)) : 0;
-  return Math.hypot(px - (x0 + dx * u), py - (y0 + dy * u));
-}
-
-function pointInRing(px, py, ring) {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i];
-    const [xj, yj] = ring[j];
-    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}
-
-function polylineKm(points) {
-  if (!points || points.length < 2) return 0;
-  let km = 0;
-  for (let i = 1; i < points.length; i++) km += haversineKm(points[i - 1][1], points[i - 1][0], points[i][1], points[i][0]);
-  return km;
-}
-

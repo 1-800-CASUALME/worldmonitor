@@ -126,7 +126,13 @@ Boundary rules from `AGENTS.md` hold: `cli/` imports nothing from `src/` or
   half-block satellite imagery and applies day/night shading.
 - `png.mjs` + `imagery.mjs`: a minimal PNG decoder and a cache that asks NASA
   GIBS (WMS, EPSG:4326, keyless) for exactly the visible bounding box at cell
-  resolution; newest request per slot wins, two in flight, LRU eviction.
+  resolution; newest request per slot wins (the superseded fetch is aborted),
+  two in flight, LRU eviction.
+- `backdrop.mjs`: which tiles a viewport needs (one per side when it crosses
+  the antimeridian) and the sampler that turns ready tiles and the night-lights
+  mosaic into half-block cell colours.
+- `shapes.mjs`: segment distance, point-in-ring and polyline length for hit
+  testing and the card's measurements.
 - `orbit.mjs`: TLE parsing and a Kepler + J2 propagator for satellite
   sub-points and ground tracks.
 - `layers.mjs`: the layer registry. Static registries (cables, pipelines,
@@ -135,11 +141,12 @@ Boundary rules from `AGENTS.md` hold: `cli/` imports nothing from `src/` or
   name, position (or polyline / polygon), colour, size, `info` rows for the
   hover card and detail overlay, and optional heading/speed (dead reckoning)
   or TLE (propagation at draw time).
-- `views/map.mjs`: toolbar, layer sidebar, hover picking (points, then lines,
-  then polygons, then the country under the cursor), pin, detail, search,
-  drag/wheel, keyboard, auto-rotation, base-layer caching per view, and the
+- `views/map.mjs`: hover picking (points, then lines, then polygons, then the
+  country under the cursor), pin, detail, search, drag/wheel, keyboard,
+  auto-rotation, base-layer and imagery-cell caching per view, and the
   animations (sweep, pulses, quake rings, flowing packets on focused lines,
-  terminator, imagery fade-in).
+  terminator, imagery fade-in). `views/map-panels.mjs` draws its toolbar,
+  footer, layer sidebar, search box and info card.
 
 ## Views
 
