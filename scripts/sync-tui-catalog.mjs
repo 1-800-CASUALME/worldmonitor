@@ -347,7 +347,8 @@ export function buildStaticLayers() {
     commodityPorts: COMMODITY_PORTS.map((e) => point(e, { city: e.city, country: e.country, commodities: e.commodities, throughput: e.annualThroughput, significance: e.significance })),
     criticalMinerals: CRITICAL_MINERALS.map((e) => point(e, { mineral: e.mineral, country: e.country, operator: e.operator, status: e.status, significance: e.significance })),
     commodityMiners: COMMODITY_MINERS.map((e) => point(e, { country: e.country, city: e.city, siteType: e.siteType, sector: e.sector, minerals: e.mineralTypes, status: e.status, symbol: e.stockSymbol })),
-    gulfInvestments: GULF_INVESTMENTS.map((e) => compact({ id: e.id, name: e.assetName, lat: r2(e.lat), lon: r2(e.lon), investor: e.investingEntity, from: e.investingCountry, country: e.targetCountry, sector: e.sector, assetType: e.assetType, usd: e.investmentUSD, year: e.yearAnnounced, status: e.status })),
+    // investmentUSD is in USD millions; the map formats whole dollars.
+    gulfInvestments: GULF_INVESTMENTS.map((e) => compact({ id: e.id, name: e.assetName, lat: r2(e.lat), lon: r2(e.lon), investor: e.investingEntity, from: e.investingCountry, country: e.targetCountry, sector: e.sector, assetType: e.assetType, usd: e.investmentUSD == null ? undefined : e.investmentUSD * 1e6, year: e.yearAnnounced, status: e.status })),
     sanctions: SANCTIONED_COUNTRIES_ALPHA2,
   };
 }

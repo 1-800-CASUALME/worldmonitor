@@ -197,7 +197,7 @@ describe('App input', () => {
     assert.equal(saved.length, 0);
     assert.equal(app.prefs.theme, original);
   });
-  it('expands the selected row on Enter and opens its link with o from the overlay', () => {
+  it('expands the selected row on Enter, carrying its link, and closes on Escape', () => {
     const { app, show } = makeApp();
     show('climate');
     app.render();

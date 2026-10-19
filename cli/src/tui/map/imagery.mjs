@@ -95,8 +95,15 @@ export class ImageryCache {
     return this.entries.get(this.key(req)) || null;
   }
 
+  // Abort in-flight fetches so quitting does not wait out the request timeout.
+  close() {
+    this.closed = true;
+    this.queue = [];
+    for (const e of this.entries.values()) if (e.controller) e.controller.abort();
+  }
+
   pump() {
-    while (this.active < this.concurrency && this.queue.length) {
+    while (!this.closed && this.active < this.concurrency && this.queue.length) {
       const entry = this.queue.pop(); // newest first
       if (this.latest.get(entry.slot) !== entry.key) {
         this.entries.delete(entry.key); // superseded before it started
@@ -114,6 +121,7 @@ export class ImageryCache {
     const url = gibsUrl({ ...entry.req, base: this.base });
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), this.timeoutMs) : null;
+    entry.controller = controller;
     try {
       this.requests += 1;
       const res = await this.fetch(url, { signal: controller?.signal, headers: { Accept: 'image/png' } });
@@ -129,7 +137,8 @@ export class ImageryCache {
       entry.failedAt = this.now();
     } finally {
       if (timer) clearTimeout(timer);
-      this.onChange(entry);
+      entry.controller = null;
+      if (!this.closed) this.onChange(entry);
     }
   }
 

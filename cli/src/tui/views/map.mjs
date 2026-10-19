@@ -80,8 +80,15 @@ export class MapView {
     for (const id of layerSources(this.layers)) if (this.store.sources[id]?.lazy) this.store.want(id, on);
   }
 
+  // Called by the app on quit: save a moved or zoomed map, stop imagery fetches.
+  dispose() {
+    if (this.viewChanged) this.persist();
+    this.imageryCache.close();
+  }
+
   persist() {
     if (!this.app.prefs) return;
+    this.viewChanged = false;
     this.app.prefs.map = { view: this.view, layers: this.layers, sat: this.sat, imagery: this.imagery, sidebar: this.sidebar };
     this.app.savePrefs(this.app.prefs);
   }
@@ -106,6 +113,7 @@ export class MapView {
 
   setView(v) {
     this.view = normalizeView(v, this.canvas ? this.canvas.w : 320, this.canvas ? this.canvas.h : 160);
+    this.viewChanged = true;
     this.touch();
   }
 
@@ -137,7 +145,9 @@ export class MapView {
     if (this.layers[id] === next) return;
     this.layers[id] = next;
     const src = LAYER_BY_ID.get(id)?.sources || [];
-    for (const s of src) if (this.store.sources[s]?.lazy) this.store.want(s, next && layerSources(this.layers).includes(s));
+    // Another enabled layer may share the source, so ask the full enabled set.
+    const needed = layerSources(this.layers);
+    for (const s of src) if (this.store.sources[s]?.lazy) this.store.want(s, needed.includes(s));
     this.featureKey = '';
     this.baseKey = '';
     if (this.pinned && this.pinned.layer === id && !next) this.pinned = null;
@@ -190,7 +200,7 @@ export class MapView {
     const w = this.canvas ? this.canvas.w : 320;
     const h = this.canvas ? this.canvas.h : 160;
     const step = ev.shift ? PAN_STEP * 4 : PAN_STEP;
-    if (this.focus === 'sidebar' && this.sidebar) {
+    if (this.focus === 'sidebar' && this.sidebar && this.sidebarShown !== false) {
       if (ev.name === 'left' || ev.name === 'h' || ev.name === 'right' || ev.name === 'l') {
         this.focus = 'map';
         this.touch();
@@ -373,16 +383,21 @@ export class MapView {
         }
         return false;
       }
-      this.hover = { x: ev.x - r.x, y: ev.y - r.y };
-      const next = this.pick(this.hover.x, this.hover.y);
-      if (next !== this.hovered) {
+      const cell = { x: ev.x - r.x, y: ev.y - r.y };
+      // The footer coordinates and the crosshair follow the pointer.
+      if (!this.hover || this.hover.x !== cell.x || this.hover.y !== cell.y) this.app.markDirty();
+      this.hover = cell;
+      const next = this.pick(cell.x, cell.y);
+      if (next?.id !== this.hovered?.id) {
         this.hovered = next;
         this.app.markDirty();
       }
       this.lastInteraction = this.app.now();
       return true;
     }
-    if (ev.kind === 'down' && ev.button === 0 && inside) {
+    // The search box and info card are click targets of their own (app hits).
+    const onOverlay = (this.overlayBoxes || []).some((b) => ev.x >= b.x && ev.y >= b.y && ev.x < b.x + b.w && ev.y < b.y + b.h);
+    if (ev.kind === 'down' && ev.button === 0 && inside && !onOverlay) {
       this.drag = { x: ev.x, y: ev.y, moved: false, view: this.view };
       this.focus = 'map';
       this.touch();
@@ -402,7 +417,7 @@ export class MapView {
         this.hover = { x: ev.x - r.x, y: ev.y - r.y };
         const f = this.pick(this.hover.x, this.hover.y);
         const now = this.app.now();
-        if (f && this.pinned === f && now - (this.lastClickAt || 0) < 500) this.openDetail(f);
+        if (f && this.pinned && this.pinned.id === f.id && now - (this.lastClickAt || 0) < 500) this.openDetail(f);
         else if (f) this.pin(f);
         else if (this.pinned) this.pinned = null;
         this.lastClickAt = now;
@@ -493,6 +508,10 @@ export class MapView {
     const { s, t, now } = ctx;
     const world = this.ensureWorld();
     const showSidebar = this.sidebar && r.w >= 90;
+    // Too narrow for the layer panel: keys stay with the map.
+    this.sidebarShown = showSidebar;
+    if (!showSidebar && this.focus === 'sidebar') this.focus = 'map';
+    this.overlayBoxes = [];
     const [toolbarR, bodyR, footerR] = splitV(r, [1, 'fill', 1]);
     const [mapOuter, sideR] = showSidebar ? splitH(bodyR, ['fill', SIDEBAR_W]) : [bodyR, null];
     const inner = panel(ctx, mapOuter, {
@@ -645,6 +664,7 @@ export class MapView {
     const items = sch.results.slice(0, 10);
     const h = 3 + items.length;
     const box = rect(inner.x + 2, inner.y + 1, w, h);
+    this.overlayBoxes.push(box);
     s.fill(box, ' ', { bg: t.sel });
     s.box(box, { fg: t.borderFocus, bg: t.sel }, 'round');
     s.text(box.x + 2, box.y, ' SEARCH ', { fg: t.title, bg: t.sel, attr: ATTR.BOLD });
@@ -803,12 +823,16 @@ export class MapView {
     return this.sampler(entry, proj, worldWide, now, sun, nightEntry, fade);
   }
 
-  sampler(entry, proj, worldWide, _now, sun, nightEntry, fade) {
+  sampler(entry, proj, _worldWide, _now, sun, nightEntry, fade) {
     const t = this.app.theme;
     const img = entry.image;
     const [w, s, e, n] = entry.req.bbox;
+    // A fallback tile can come from another viewport: read its own extent, and
+    // blend night lights only from a tile that covers the same box.
+    const worldWide = e - w >= 359.9;
     const dark = mix(t.panel, '#000000', 0.5);
-    const nightImg = nightEntry && nightEntry.status === 'ready' ? nightEntry.image : null;
+    const sameBox = nightEntry && nightEntry.req.bbox.join() === entry.req.bbox.join();
+    const nightImg = sameBox && nightEntry.status === 'ready' ? nightEntry.image : null;
     const sampleAt = (lon, lat) => {
       if (lat < s || lat > n) return null;
       let u;
@@ -1055,6 +1079,7 @@ export class MapView {
     const x = cursorLeft && cursorBottom ? inner.x + inner.w - w - 1 : inner.x + 1;
     const y = cursorBottom && !cursorLeft ? inner.y + 1 : inner.y + inner.h - h - 1;
     const box = rect(x, y, w, h);
+    this.overlayBoxes.push(box);
     s.fill(box, ' ', { bg: t.sel });
     s.box(box, { fg: pinned ? t.warn : f.color || t.borderFocus, bg: t.sel }, 'round');
     const title = ` ${f.glyph ? `${f.glyph} ` : ''}${truncate(f.name, w - 8)} `;

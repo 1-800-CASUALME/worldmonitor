@@ -146,7 +146,7 @@ Boundary rules from `AGENTS.md` hold: `cli/` imports nothing from `src/` or
 - Overview: braille world map with live blips (earthquakes, conflicts, unrest,
   wildfires, cyber C2), radar sweep, AI world brief (typewriter), top stories,
   market strip, theater posture, data freshness.
-- Map: the engine above with 55 layers, flat/globe, satellite imagery,
+- Map: the engine above with every layer, flat/globe, satellite imagery,
   day/night, hover highlighting that dims every other layer, info cards,
   search, persistence of view and layer state.
 - Brief: the AI world brief as a page: brief paragraph and numbered story

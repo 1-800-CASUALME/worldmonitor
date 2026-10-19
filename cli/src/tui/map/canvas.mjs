@@ -2,7 +2,7 @@
 // colour per cell, a glyph layer drawn on top of the dots (markers, labels)
 // and a compositor that writes everything into the Screen, optionally over
 // half-block satellite imagery.
-import { mix, strWidth } from '../term/ansi.mjs';
+import { mix, sanitize, strWidth } from '../term/ansi.mjs';
 
 const BRAILLE_BITS = [
   [0x01, 0x08],
@@ -179,7 +179,10 @@ export class DotCanvas {
   }
 
   // Place a text label near a cell; tries right, left, above, below. Returns true when placed.
-  label(cx, cy, text, fg, { bg = null, attr = 0, pri = 0, force = false } = {}) {
+  label(cx, cy, raw, fg, { bg = null, attr = 0, pri = 0, force = false } = {}) {
+    // Labels are feed text and reach the terminal through screen.put(), which
+    // does not sanitize; strip control characters here as Screen.text does.
+    const text = sanitize(raw);
     const len = strWidth(text);
     if (!len) return false;
     const candidates = [

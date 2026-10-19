@@ -81,10 +81,16 @@ export class BriefView extends PaneView {
     const lines = Array.isArray(ins.briefStoryLines) ? ins.briefStoryLines : [];
     if (lines.length) return lines;
     // Fall back to sentences of the brief when the API sends no story lines.
-    return String(ins.worldBrief || '')
-      .split(/(?<=[.!?])\s+/)
-      .filter(Boolean)
-      .map((text, i) => ({ n: i + 1, text }));
+    // Built once per brief so the related cache (keyed on the line) can hit.
+    const brief = String(ins.worldBrief || '');
+    if (this.fallback?.brief !== brief) {
+      const split = brief
+        .split(/(?<=[.!?])\s+/)
+        .filter(Boolean)
+        .map((text, i) => ({ n: i + 1, text }));
+      this.fallback = { brief, lines: split };
+    }
+    return this.fallback.lines;
   }
 
   related() {

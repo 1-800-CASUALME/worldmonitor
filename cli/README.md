@@ -41,7 +41,7 @@ The dashboard boots in a couple of seconds. Views:
 | Key | View | What it shows |
 |---|---|---|
 | `1` | Overview | Braille world map with live blips and a radar sweep, AI world brief, ranked top stories, market strip, theater posture |
-| `2` | Map | Zoomable world map and rotating globe with 55 layers, NASA satellite imagery, hover highlighting, info cards, search |
+| `2` | Map | Zoomable world map and rotating globe with every dashboard layer, NASA satellite imagery, hover highlighting, info cards, search |
 | `3` | Brief | The AI world brief as a page: story lines beside the sources they cite and related live headlines |
 | `4` | News | Digest sections, ranked and classified headlines, story detail |
 | `5` | Markets | Indices, commodities, FX, crypto with sparklines, sector heatmap, macro signals, fear & greed, ETF flows, Gulf markets |
@@ -63,7 +63,7 @@ also clickable, and the wheel scrolls lists.
 The Map view zooms (wheel, `+` `-`) and pans (drag, arrows) a world map drawn
 from the dashboard's own 50 m geometry, or an auto-rotating globe (`g`), with
 NASA satellite imagery (`s`, `i` cycles Blue Marble, daily true colour and
-night lights) and the live day/night terminator (`d`). `L` picks among 55
+night lights) and the live day/night terminator (`d`). `L` picks the
 layers: cables, pipelines, energy storage and disruptions, data centers,
 ports, airports and delays, chokepoints, trade routes, bases, nuclear sites,
 radiation monitors, spaceports, military aircraft, satellites, hotspots,

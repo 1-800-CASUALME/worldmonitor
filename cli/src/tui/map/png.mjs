@@ -5,6 +5,7 @@
 import { inflateSync } from 'node:zlib';
 
 const SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const MAX_SIDE = 4096;
 
 function paeth(a, b, c) {
   const p = a + b - c;
@@ -48,8 +49,11 @@ export function decodePng(input) {
   if (interlace) throw new Error('interlaced PNG not supported');
   const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[colorType];
   if (!channels) throw new Error(`unsupported PNG colour type ${colorType}`);
-  const raw = inflateSync(Buffer.concat(idat));
+  // The map never asks for more than a couple of thousand pixels a side; refuse
+  // anything bigger before allocating, and cap inflate at the size IHDR implies.
+  if (width > MAX_SIDE || height > MAX_SIDE) throw new Error(`PNG too large (${width}x${height})`);
   const stride = width * channels;
+  const raw = inflateSync(Buffer.concat(idat), { maxOutputLength: (stride + 1) * height });
   const out = new Uint8Array(width * height * 4);
   let prev = new Uint8Array(stride);
   let off = 0;

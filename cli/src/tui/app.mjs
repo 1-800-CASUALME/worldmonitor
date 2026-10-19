@@ -203,7 +203,10 @@ export class App {
   }
 
   handleEvent(ev) {
-    this.markDirty();
+    // Pointer motion redraws only when a view says so (map hover, drag), so the
+    // any-event mouse stream neither forces frames nor cancels a pending one.
+    const motion = ev.type === 'mouse' && (ev.kind === 'move' || ev.kind === 'drag' || ev.kind === 'up');
+    if (!motion) this.markDirty();
     if (!this.boot.done) {
       if (ev.type === 'key' && (ev.name === 'q' || (ev.ctrl && ev.name === 'c'))) return this.quit();
       if (this.boot.progress >= 1 || ev.name === 'escape' || ev.name === 'enter' || ev.name === 'space') this.boot.skipped = true;
@@ -286,12 +289,8 @@ export class App {
   handleMouse(ev) {
     // Hover / drag go to the view first (the map uses them); nothing else needs motion.
     if (ev.kind === 'move' || ev.kind === 'drag' || ev.kind === 'up') {
-      if (this.detail || this.help || this.themePicker) {
-        this.dirty = false;
-        return;
-      }
-      if (this.view.onMouse && this.view.onMouse(ev)) return;
-      if (ev.kind !== 'up') this.dirty = false; // plain motion over other views: no redraw needed
+      if (this.detail || this.help || this.themePicker) return;
+      if (this.view.onMouse) this.view.onMouse(ev);
       return;
     }
     if (this.detail && ev.kind === 'down') {
@@ -312,7 +311,8 @@ export class App {
       d.scroll = Math.max(0, Math.min(d.maxScroll ?? Infinity, d.scroll + (ev.kind === 'wheelup' ? -3 : 3)));
       return;
     }
-    if (this.view.onMouse && (ev.kind === 'down' || ev.kind === 'wheelup' || ev.kind === 'wheeldown') && this.view.onMouse(ev)) return;
+    const overlay = this.help || this.themePicker;
+    if (!overlay && this.view.onMouse && (ev.kind === 'down' || ev.kind === 'wheelup' || ev.kind === 'wheeldown') && this.view.onMouse(ev)) return;
     if (ev.kind === 'wheelup' || ev.kind === 'wheeldown') {
       const dir = ev.kind === 'wheelup' ? -1 : 1;
       for (let i = this.hits.length - 1; i >= 0; i--) {
@@ -346,6 +346,7 @@ export class App {
 
   quit() {
     this.quitRequested = true;
+    for (const v of this.views) v.dispose?.();
     if (this.onQuit) this.onQuit();
   }
 

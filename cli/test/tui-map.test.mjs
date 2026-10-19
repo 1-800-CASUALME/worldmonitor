@@ -291,7 +291,7 @@ describe('map view', () => {
     app.handleEvent({ type: 'key', name: '+', ch: '+' });
     assert.ok(map.view.zoom > 2);
     app.render();
-    assert.match(text(app), /zoom ×2\.2|zoom ×2/);
+    assert.ok(text(app).includes(`zoom ×${map.view.zoom.toFixed(1)}`), `toolbar shows zoom ×${map.view.zoom.toFixed(1)}`);
   });
   it('switches to the globe, turns on satellite imagery and composites half blocks', async () => {
     const { app, map, clock } = makeApp();
@@ -451,5 +451,186 @@ describe('brief view', () => {
     app.handleEvent({ type: 'key', name: 'down' });
     app.render();
     assert.match(text(app), /What line 2 is about/i);
+  });
+  it('keeps the fallback story lines stable so the related cache hits', () => {
+    const { app } = makeApp();
+    const brief = app.views.find((v) => v.id === 'brief');
+    const ins = { ...app.store.data.insights, briefStoryLines: undefined, worldBrief: 'First thing happened. Second thing too.' };
+    app.store.data.insights = ins;
+    assert.equal(brief.lines(), brief.lines());
+  });
+});
+
+describe('review fixes', () => {
+  it('saves the map state through the real prefs file', async () => {
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { loadPrefs, savePrefs } = await import('../src/tui/prefs.mjs');
+    const dir = mkdtempSync(join(tmpdir(), 'wm-map-prefs-'));
+    try {
+      const env = { XDG_CONFIG_HOME: dir };
+      savePrefs({ theme: 'neon', animations: true, view: 'map', map: { view: { mode: 'globe', lon: 10, lat: 20, zoom: 2 }, sat: true } }, env);
+      const back = loadPrefs(env);
+      assert.equal(back.map && back.map.view.mode, 'globe');
+      assert.equal(back.map.sat, true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it('saves keyboard pans and zooms when quitting from the map', () => {
+    const { app, map, saved } = makeApp();
+    app.render();
+    app.handleEvent({ type: 'key', name: '+', ch: '+' });
+    app.quit();
+    const last = saved[saved.length - 1];
+    assert.ok(last && last.map, 'map state saved on quit');
+    assert.equal(last.map.view.zoom, map.view.zoom);
+    assert.ok(map.view.zoom > 1);
+  });
+  it('opens the info card and search results on click', () => {
+    const { app, map } = makeApp();
+    app.render();
+    const r = map.mapRect;
+    const cable = map.drawn.lines.find((l) => l.f.layer === 'cables');
+    const [x0, y0] = cable.segs[Math.floor(cable.segs.length / 2)];
+    const cx = r.x + Math.floor(x0 / 2);
+    const cy = r.y + Math.floor(y0 / 4);
+    mouse(app, 'move', cx, cy);
+    mouse(app, 'down', cx, cy);
+    mouse(app, 'up', cx, cy);
+    assert.ok(map.pinned);
+    app.render();
+    const lines = app.screen.toLines();
+    const y = lines.findIndex((l) => l.includes('c unpin'));
+    assert.ok(y > 0, 'pinned card is drawn');
+    mouse(app, 'down', lines[y].indexOf('c unpin'), y);
+    mouse(app, 'up', lines[y].indexOf('c unpin'), y);
+    assert.ok(app.detail, 'clicking the card opens the detail overlay');
+    app.handleEvent({ type: 'key', name: 'escape' });
+
+    app.handleEvent({ type: 'key', name: '/', ch: '/' });
+    for (const ch of 'hormuz') app.handleEvent({ type: 'key', name: ch, ch });
+    app.render();
+    const sl = app.screen.toLines();
+    const qy = sl.findIndex((l) => l.includes('⌕ hormuz'));
+    const ry = qy + 1;
+    mouse(app, 'down', sl[ry].indexOf('│') + 3, ry);
+    mouse(app, 'up', sl[ry].indexOf('│') + 3, ry);
+    assert.equal(map.search, null, 'clicking a result closes the search');
+    assert.ok(map.pinned && /hormuz/i.test(map.pinned.name));
+  });
+  it('does not pan or zoom the map under the help overlay', () => {
+    const { app, map } = makeApp();
+    app.render();
+    const r = map.mapRect;
+    app.handleEvent({ type: 'key', name: '?', ch: '?' });
+    const zoom = map.view.zoom;
+    mouse(app, 'wheelup', r.x + 20, r.y + 5, -1);
+    assert.equal(map.view.zoom, zoom);
+    mouse(app, 'down', r.x + 20, r.y + 5);
+    assert.equal(app.help, false, 'a click closes help');
+    assert.equal(map.drag, null, 'and does not start a drag');
+  });
+  it('keeps a pending redraw when the mouse moves over a view without hover', () => {
+    const { app } = makeApp({ anim: false });
+    app.switchView(app.views.findIndex((v) => v.id === 'news'));
+    app.render();
+    app.toast('hello');
+    mouse(app, 'move', 5, 5);
+    assert.equal(app.dirty, true);
+  });
+  it('keeps a lazy source while another enabled layer still uses it', () => {
+    const { map, store } = makeApp();
+    map.toggleLayer('shipping', true);
+    map.toggleLayer('aisDisruptions', true);
+    map.toggleLayer('shipping', false);
+    assert.ok(store.wanted.has('vessels'), 'AIS disruptions still needs vessels');
+    map.toggleLayer('aisDisruptions', false);
+    assert.ok(!store.wanted.has('vessels'));
+  });
+  it('samples a fallback tile with its own extent, not the new request', () => {
+    const { map } = makeApp();
+    const img = decodePng(png);
+    const entry = { status: 'ready', image: img, req: { bbox: [0, 0, 10, 10] } };
+    const proj = makeProjector(normalizeView({ ...defaultView(), lon: 0, lat: 0, zoom: 1 }, 340, 160), 340, 160);
+    const bg = map.sampler(entry, proj, true, 0, null, null, 1);
+    const [x, y] = proj.toDot(120, 5); // far outside the 0..10 tile
+    assert.equal(bg(Math.floor(x / 2), Math.floor(y / 4)), null);
+  });
+  it('strips control characters from map labels', async () => {
+    const { Screen } = await import('../src/tui/term/screen.mjs');
+    const c = new DotCanvas(40, 4);
+    c.label(4, 4, 'Riot\u001b]0;pwned\u0007', '#ffffff', { force: true });
+    const s = new Screen(40, 4);
+    c.blit({ s, t: theme, hits: [] }, { x: 0, y: 0, w: 40, h: 4 });
+    const out = s.diff(null);
+    assert.ok(!/\u0007/.test(out));
+    assert.ok(!/\u001b[^[]/.test(out), 'every escape is one the renderer wrote');
+  });
+  it('keeps keys on the map when the layer panel does not fit', () => {
+    const { app, map } = makeApp({ cols: 80, rows: 30 });
+    app.render();
+    const before = JSON.stringify(map.layers);
+    for (const name of ['L', 'L']) {
+      app.handleEvent({ type: 'key', name, ch: name, shift: true });
+      app.render();
+    }
+    for (const name of ['down', 'down', 'enter']) {
+      app.handleEvent({ type: 'key', name });
+      app.render();
+    }
+    if (app.detail) app.handleEvent({ type: 'key', name: 'escape' });
+    assert.equal(JSON.stringify(map.layers), before, 'no layers toggled from a hidden panel');
+  });
+  it('opens a country on a second click', () => {
+    const { app, map } = makeApp();
+    map.toggleLayer('cii', true);
+    app.render();
+    const [x, y] = map.proj.toDot(123, -25);
+    const cx = map.mapRect.x + Math.floor(x / 2);
+    const cy = map.mapRect.y + Math.floor(y / 4);
+    mouse(app, 'move', cx, cy);
+    for (let i = 0; i < 2; i++) {
+      mouse(app, 'down', cx, cy);
+      mouse(app, 'up', cx, cy);
+    }
+    assert.ok(app.detail, 'double click on Australia opens its detail');
+  });
+  it('aborts imagery fetches on close', async () => {
+    let aborted = 0;
+    const fetch = (_u, { signal }) =>
+      new Promise((_, reject) => {
+        signal.addEventListener('abort', () => {
+          aborted += 1;
+          reject(new Error('aborted'));
+        });
+      });
+    const cache = new ImageryCache({ fetch, now: () => 1000 });
+    cache.get({ layer: 'a', bbox: [0, 0, 10, 10], width: 8, height: 8 });
+    cache.close();
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal(aborted, 1);
+    assert.equal(cache.active, 0);
+  });
+  it('rejects PNGs with absurd dimensions before allocating', () => {
+    const chunk = (type, data) => {
+      const b = Buffer.alloc(12 + data.length);
+      b.writeUInt32BE(data.length, 0);
+      b.write(type, 4, 'latin1');
+      data.copy(b, 8);
+      return b;
+    };
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(100000, 0);
+    ihdr.writeUInt32BE(100000, 4);
+    ihdr[8] = 8;
+    ihdr[9] = 6;
+    const bomb = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IEND', Buffer.alloc(0))]);
+    assert.throws(() => decodePng(bomb), /too large/);
+  });
+  it('stores Gulf investment values in dollars', () => {
+    const london = catalog.layers.gulfInvestments.find((g) => g.id === 'dpw-london-gateway');
+    assert.equal(london.usd, 1.5e9);
   });
 });
