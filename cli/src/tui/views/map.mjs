@@ -789,75 +789,79 @@ export class MapView {
     }
   }
 
-  // Imagery sampler for the current frame: returns (cx, cy) -> { top, bottom } | null.
-  backgroundFn(proj, _canvas, now, sun) {
-    const t = this.app.theme;
-    const layer = imageryById(this.imagery);
-    const time = layer.daily ? latestDailyDate(now) : undefined;
-    let req;
-    let worldWide = false;
-    if (this.view.mode === 'globe') {
-      req = { layer: layer.gibs, bbox: [-180, -90, 180, 90], width: 1080, height: 540, time };
-      worldWide = true;
-    } else {
-      const [west, south, east, north] = proj.bbox();
-      const pxPerDeg = proj.k / 2;
-      if (east - west >= 359.9 || west < -180 || east > 180) {
-        req = { layer: layer.gibs, bbox: [-180, Math.max(-90, south), 180, Math.min(90, north)], width: Math.min(2048, Math.max(64, Math.round(360 * pxPerDeg))), height: Math.max(8, Math.round((Math.min(90, north) - Math.max(-90, south)) * pxPerDeg)), time };
-        worldWide = true;
-      } else {
-        req = { layer: layer.gibs, bbox: [west, Math.max(-90, south), east, Math.min(90, north)], width: Math.max(8, Math.round((east - west) * pxPerDeg)), height: Math.max(8, Math.round((Math.min(90, north) - Math.max(-90, south)) * pxPerDeg)), time };
-      }
-    }
-    const entry = this.imageryCache.get(req, this.view.mode === 'globe' ? 'globe' : 'view');
-    let nightEntry = null;
-    if (sun && layer.id !== 'night') nightEntry = this.imageryCache.get({ ...req, layer: 'VIIRS_Black_Marble', time: undefined }, 'night');
-    const spin = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[Math.floor(now / 80) % 10];
-    this.imageryStatus = entry.status === 'ready' ? `${layer.short}${time ? ` ${time}` : ''}` : entry.status === 'error' ? `imagery error: ${entry.error}` : `${spin} loading imagery`;
-    if (entry.status !== 'ready') {
-      // Fall back to the previous ready image of the same slot if any (keeps the map from flashing).
-      const prev = [...this.imageryCache.entries.values()].filter((e) => e.status === 'ready' && e.slot === entry.slot && e.req.layer === layer.gibs).sort((a, b) => b.at - a.at)[0];
-      if (!prev) return () => ({ top: mix(t.panel, '#000000', 0.5), bottom: mix(t.panel, '#000000', 0.5) });
-      return this.sampler(prev, proj, worldWide, now, sun, nightEntry, 1);
-    }
-    const fade = this.app.anim ? Math.min(1, (now - (entry.readyAt || now)) / 700) : 1;
-    return this.sampler(entry, proj, worldWide, now, sun, nightEntry, fade);
+  // Imagery requests for the visible area: the whole globe, the flat viewport,
+  // or, when the viewport crosses the antimeridian, one tile on each side of it
+  // (a single world strip would cap at 2048 px and blur when zoomed in).
+  imageryRequests(proj, layer, time) {
+    if (this.view.mode === 'globe') return [{ layer: layer.gibs, bbox: [-180, -90, 180, 90], width: 1080, height: 540, time }];
+    const [west, s, east, n] = proj.bbox();
+    const south = Math.max(-90, s);
+    const north = Math.min(90, n);
+    const pxPerDeg = proj.k / 2;
+    const height = Math.max(8, Math.round((north - south) * pxPerDeg));
+    const box = (w, e) => ({ layer: layer.gibs, bbox: [w, south, e, north], width: Math.max(8, Math.round((e - w) * pxPerDeg)), height, time });
+    if (east - west >= 359.9) return [{ ...box(-180, 180), width: Math.min(2048, Math.max(64, Math.round(360 * pxPerDeg))) }];
+    if (west < -180) return [box(west + 360, 180), box(-180, east)];
+    if (east > 180) return [box(west, 180), box(-180, east - 360)];
+    return [box(west, east)];
   }
 
-  sampler(entry, proj, _worldWide, _now, sun, nightEntry, fade) {
+  // Imagery sampler for the current frame: returns (cx, cy) -> { top, bottom } | null.
+  // Cells are memoised until the view, the tiles, the sun or the theme change, so
+  // a still map does not resample every cell on every frame.
+  backgroundFn(proj, canvas, now, sun) {
     const t = this.app.theme;
-    const img = entry.image;
-    const [w, s, e, n] = entry.req.bbox;
-    // A fallback tile can come from another viewport: read its own extent, and
-    // blend night lights only from a tile that covers the same box.
-    const worldWide = e - w >= 359.9;
     const dark = mix(t.panel, '#000000', 0.5);
-    const sameBox = nightEntry && nightEntry.req.bbox.join() === entry.req.bbox.join();
-    const nightImg = sameBox && nightEntry.status === 'ready' ? nightEntry.image : null;
-    const sampleAt = (lon, lat) => {
-      if (lat < s || lat > n) return null;
-      let u;
-      if (worldWide) u = (wrapLon(lon) + 180) / 360;
-      else {
-        u = (lon - w) / (e - w);
-        if (u < 0 || u > 1) {
-          const lw = wrapLon(lon);
-          u = (lw - w) / (e - w);
-          if (u < 0 || u > 1) return null;
-        }
+    const layer = imageryById(this.imagery);
+    const time = layer.daily ? latestDailyDate(now) : undefined;
+    const base = this.view.mode === 'globe' ? 'globe' : 'view';
+    const reqs = this.imageryRequests(proj, layer, time);
+    const entries = reqs.map((req, i) => this.imageryCache.get(req, i ? `${base}2` : base));
+    const nights = sun && layer.id !== 'night' ? reqs.map((req, i) => this.imageryCache.get({ ...req, layer: 'VIIRS_Black_Marble', time: undefined }, i ? 'night2' : 'night')) : [];
+    const ready = entries.filter((e) => e.status === 'ready');
+    const failed = entries.find((e) => e.status === 'error');
+    const spin = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[Math.floor(now / 80) % 10];
+    this.imageryStatus = ready.length === entries.length ? `${layer.short}${time ? ` ${time}` : ''}` : failed ? `imagery error: ${failed.error}` : `${spin} loading imagery`;
+    let tiles = ready;
+    let fade = 1;
+    if (ready.length < entries.length) {
+      // Keep the previous ready images of these slots underneath while the new ones load.
+      const slots = new Set(entries.map((e) => e.slot));
+      const prev = [...this.imageryCache.entries.values()].filter((e) => e.status === 'ready' && slots.has(e.slot) && e.req.layer === layer.gibs && !ready.includes(e)).sort((a, b) => b.at - a.at);
+      tiles = [...ready, ...prev];
+      if (!tiles.length) return () => ({ top: dark, bottom: dark });
+    } else if (this.app.anim) fade = Math.min(1, (now - Math.max(...entries.map((e) => e.readyAt || now))) / 700);
+    const nightTiles = nights.filter((e) => e.status === 'ready');
+    const v = this.view;
+    const key = [v.mode, v.lon, v.lat, v.zoom, canvas.w, canvas.h, t.panel, fade < 1 ? now : 'still', tiles.map((e) => e.key).join(';'), nightTiles.map((e) => e.key).join(';'), sun ? `${sun.lat.toFixed(1)},${sun.lon.toFixed(1)}` : ''].join('|');
+    if (!this.bgMemo || this.bgMemo.key !== key) this.bgMemo = { key, cells: new Map() };
+    const { cells } = this.bgMemo;
+    const sample = this.sampler(tiles, proj, sun, nightTiles, fade);
+    return (cx, cy) => {
+      const i = cy * 65536 + cx;
+      let cell = cells.get(i);
+      if (cell === undefined) {
+        cell = sample(cx, cy);
+        cells.set(i, cell);
       }
-      const v = (n - lat) / (n - s);
-      const px = samplePixel(img, u, v);
+      return cell;
+    };
+  }
+
+  // tiles / nightTiles: ready cache entries, newest first; each is read with its own extent.
+  sampler(tiles, proj, sun, nightTiles, fade) {
+    const t = this.app.theme;
+    const dark = mix(t.panel, '#000000', 0.5);
+    const sampleAt = (lon, lat) => {
+      const px = sampleTiles(tiles, lon, lat);
       if (!px) return null;
       let color = rgb(px);
       if (sun) {
         const f = dayFactor(lat, lon, sun);
         if (f < 1) {
           let nightColor = '#02040a';
-          if (nightImg) {
-            const np = samplePixel(nightImg, u, v);
-            if (np) nightColor = rgb([Math.min(255, np[0] * 1.6 + 4), Math.min(255, np[1] * 1.5 + 6), Math.min(255, np[2] * 1.3 + 12)]);
-          }
+          const np = sampleTiles(nightTiles, lon, lat);
+          if (np) nightColor = rgb([Math.min(255, np[0] * 1.6 + 4), Math.min(255, np[1] * 1.5 + 6), Math.min(255, np[2] * 1.3 + 12)]);
           color = mix(nightColor, color, 0.08 + 0.92 * f);
         }
       }
@@ -1099,6 +1103,19 @@ export class MapView {
     s.text(box.x + 2, box.y + h - 1, truncate(hint, w - 4), { fg: t.muted, bg: t.sel });
     hit(ctx, box, { onClick: () => this.openDetail(f) });
   }
+}
+
+// Pixel at (lon, lat) from the first tile covering it; each tile is read with its own extent.
+function sampleTiles(tiles, lon, lat) {
+  for (const tile of tiles) {
+    const [w, s, e, n] = tile.req.bbox;
+    if (lat < s || lat > n) continue;
+    let u = e - w >= 359.9 ? (wrapLon(lon) + 180) / 360 : (lon - w) / (e - w);
+    if (u < 0 || u > 1) u = (wrapLon(lon) - w) / (e - w);
+    if (u < 0 || u > 1) continue;
+    return samplePixel(tile.image, u, (n - lat) / (n - s));
+  }
+  return null;
 }
 
 function rgb([r, g, b]) {

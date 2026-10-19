@@ -549,12 +549,51 @@ describe('review fixes', () => {
     map.toggleLayer('aisDisruptions', false);
     assert.ok(!store.wanted.has('vessels'));
   });
+  it('fetches a zoomed view across the antimeridian as two sharp tiles', async () => {
+    const urls = [];
+    const { app, map, clock } = makeApp({ anim: false, fetchImpl: async (u) => (urls.push(u), pngResponse()) });
+    map.setView({ ...map.view, mode: 'flat', lon: 180, lat: 0, zoom: 6 });
+    map.toggleSat();
+    map.layers.dayNight = false;
+    app.render();
+    await new Promise((r) => setTimeout(r, 20));
+    clock.t += 2000;
+    app.render();
+    const boxes = urls.map((u) => new URL(u).searchParams).filter((q) => q.get('LAYERS') !== 'VIIRS_Black_Marble');
+    assert.equal(boxes.length, 2, 'one tile on each side of 180°');
+    for (const q of boxes) assert.ok(Number(q.get('WIDTH')) < 1024, `tile width ${q.get('WIDTH')} matches the zoom, not a world strip`);
+    const lons = boxes.map((q) => q.get('BBOX').split(',').map(Number)).map(([, w, , e]) => [w, e]);
+    assert.ok(lons.some(([, e]) => e === 180) && lons.some(([w]) => w === -180));
+    assert.equal(map.imageryStatus, 'BLUE MARBLE');
+    assert.ok(app.screen.toLines().some((l) => l.includes('▀')));
+  });
+  it('reuses sampled imagery cells while the map is still and resamples after a pan', async () => {
+    const { app, map, clock } = makeApp({ anim: false });
+    map.toggleSat();
+    app.render();
+    await new Promise((r) => setTimeout(r, 20));
+    clock.t += 2000;
+    let samples = 0;
+    const original = map.sampler.bind(map);
+    map.sampler = (...args) => {
+      const fn = original(...args);
+      return (cx, cy) => (samples++, fn(cx, cy));
+    };
+    app.render();
+    const first = samples;
+    assert.ok(first > 100, `first frame samples the imagery (${first})`);
+    app.render();
+    assert.equal(samples, first, 'a still frame reuses every cell');
+    app.handleEvent({ type: 'key', name: 'left' });
+    app.render();
+    assert.ok(samples > first, 'a pan resamples');
+  });
   it('samples a fallback tile with its own extent, not the new request', () => {
     const { map } = makeApp();
     const img = decodePng(png);
     const entry = { status: 'ready', image: img, req: { bbox: [0, 0, 10, 10] } };
     const proj = makeProjector(normalizeView({ ...defaultView(), lon: 0, lat: 0, zoom: 1 }, 340, 160), 340, 160);
-    const bg = map.sampler(entry, proj, true, 0, null, null, 1);
+    const bg = map.sampler([entry], proj, null, [], 1);
     const [x, y] = proj.toDot(120, 5); // far outside the 0..10 tile
     assert.equal(bg(Math.floor(x / 2), Math.floor(y / 4)), null);
   });
