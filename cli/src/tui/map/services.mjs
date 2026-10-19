@@ -13,7 +13,7 @@ export const HOSTS = {
 };
 
 export class Lookups {
-  constructor({ fetch = (...a) => globalThis.fetch(...a), now = () => Date.now(), userAgent = 'worldmonitor-tui', onChange = () => {}, hosts = HOSTS } = {}) {
+  constructor({ fetch = (...a) => globalThis.fetch(...a), now = () => Date.now(), userAgent = 'worldmonitor-tui', onChange = () => {}, hosts = HOSTS, retryDelayMs = 1500 } = {}) {
     this.fetch = fetch;
     this.now = now;
     this.userAgent = userAgent;
@@ -23,6 +23,7 @@ export class Lookups {
     this.lastCall = {};
     this.queues = {};
     this.requests = 0;
+    this.retryDelayMs = retryDelayMs;
   }
 
   // Returns { status: 'loading' | 'ready' | 'error', value, error }.
@@ -37,12 +38,20 @@ export class Lookups {
     this.entries.set(key, e);
     this.schedule(host, async () => {
       try {
-        this.requests += 1;
-        const res = await this.fetch(url, {
-          method: body ? 'POST' : 'GET',
-          headers: { 'User-Agent': this.userAgent, Accept: 'application/json', ...(body ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}) },
-          body,
-        });
+        const request = () => {
+          this.requests += 1;
+          return this.fetch(url, {
+            method: body ? 'POST' : 'GET',
+            headers: { 'User-Agent': this.userAgent, Accept: 'application/json', ...(body ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}) },
+            body,
+          });
+        };
+        let res = await request();
+        if (res.status === 502 || res.status === 503 || res.status === 504 || res.status === 429) {
+          // Busy public servers: try once more after a short pause.
+          await new Promise((r) => setTimeout(r, this.retryDelayMs));
+          res = await request();
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         e.value = parse ? parse(json) : json;

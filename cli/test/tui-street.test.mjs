@@ -18,6 +18,8 @@ import { TileCache, createRasterTileCache, createVectorTileCache, tileKey } from
 import { Lookups, shortAddress, weatherText } from '../src/tui/map/services.mjs';
 import { lonLatToTile, makeProjector, normalizeView, scaleBar, tileToLonLat, tilesForBbox } from '../src/tui/map/geo.mjs';
 import { getTheme } from '../src/tui/ui/theme.mjs';
+import { visualText } from '../src/tui/views/map.mjs';
+import { Screen, stableWidth } from '../src/tui/term/screen.mjs';
 
 const bootstrap = JSON.parse(readFileSync(new URL('./fixtures/bootstrap.json', import.meta.url), 'utf8'));
 const digest = JSON.parse(readFileSync(new URL('./fixtures/digest.json', import.meta.url), 'utf8'));
@@ -126,6 +128,23 @@ describe('vector tiles', () => {
   });
 });
 
+describe('terminal text', () => {
+  it('reverses purely right-to-left names into visual order and leaves mixed text alone', () => {
+    assert.equal(visualText('مسجد'), 'دجسم');
+    assert.equal(visualText('Masjid مسجد'), 'Masjid مسجد');
+    assert.equal(visualText('Kaaba'), 'Kaaba');
+  });
+  it('re-anchors the cursor after glyphs whose width terminals disagree on', () => {
+    assert.ok(stableWidth('a') && stableWidth('°') && stableWidth('⣿') && stableWidth('─'));
+    assert.ok(!stableWidth('☪') && !stableWidth('م') && !stableWidth('卍'));
+    const s = new Screen(10, 1);
+    s.text(0, 0, '☪ab', { fg: '#ffffff', bg: '#000000' });
+    const out = s.diff(null);
+    assert.match(out, /☪\x1b\[1;2H/, 'explicit move after the symbol');
+    assert.doesNotMatch(out, /a\x1b\[1;3H/, 'plain ASCII keeps the implicit advance');
+  });
+});
+
 describe('jpeg + tiles', () => {
   it('decodes a baseline JPEG imagery tile', () => {
     const img = decodeJpeg(jpg);
@@ -226,6 +245,14 @@ describe('lookup services', () => {
     const before = log.length;
     l.reverse(28.38, 36.55);
     assert.equal(log.length, before);
+  });
+  it('retries once when a public server is busy', async () => {
+    let calls = 0;
+    const l = new Lookups({ fetch: async () => { calls += 1; return calls === 1 ? { ok: false, status: 502 } : { ok: true, status: 200, json: async () => ({ ok: 1 }) }; }, now: () => Date.now(), retryDelayMs: 5, hosts: { overpass: { base: 'http://x', minIntervalMs: 0 } } });
+    const e = l.get('k', { host: 'overpass', url: 'http://x' });
+    for (let i = 0; i < 40 && e.status === 'loading'; i++) await new Promise((r) => setTimeout(r, 5));
+    assert.equal(calls, 2);
+    assert.equal(e.status, 'ready');
   });
   it('paces calls per host', async () => {
     const times = [];
