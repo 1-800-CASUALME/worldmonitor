@@ -48,8 +48,13 @@ export function gibsUrl({ layer, bbox, width, height, time, base = GIBS_BASE_URL
   return `${base}?${q.toString()}`;
 }
 
+// GIBS renders an uncached WMS request on demand: a 1080x540 Blue Marble globe
+// took 61 s cold (1.7 s once cached), so a short timeout never lets it load.
+// Quitting aborts in-flight fetches (close()), so the long wait never blocks exit.
+export const IMAGERY_TIMEOUT_MS = 90000;
+
 export class ImageryCache {
-  constructor({ fetch = (...a) => globalThis.fetch(...a), now = () => Date.now(), maxEntries = 32, concurrency = 2, timeoutMs = 25000, base = GIBS_BASE_URL, onChange = () => {} } = {}) {
+  constructor({ fetch = (...a) => globalThis.fetch(...a), now = () => Date.now(), maxEntries = 32, concurrency = 2, timeoutMs = IMAGERY_TIMEOUT_MS, base = GIBS_BASE_URL, onChange = () => {} } = {}) {
     this.fetch = fetch;
     this.now = now;
     this.maxEntries = maxEntries;

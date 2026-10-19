@@ -3,7 +3,7 @@
 // pinning, search, satellite compositing, detail overlay and the brief view.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 
 import { App } from '../src/tui/app.mjs';
 import { createClient } from '../src/tui/data/client.mjs';
@@ -743,6 +743,25 @@ describe('review fixes', () => {
     await new Promise((r) => setTimeout(r, 5));
     assert.equal(aborted, 1);
     assert.equal(cache.active, 0);
+  });
+  it('waits out a cold GIBS render (about a minute) before giving up', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      let signal = null;
+      const fetch = (_u, opts) => {
+        signal = opts.signal;
+        return new Promise(() => {});
+      };
+      const cache = new ImageryCache({ fetch, now: () => 1000 });
+      cache.get({ layer: 'globe', bbox: [-180, -90, 180, 90], width: 1080, height: 540 }, 'globe');
+      mock.timers.tick(61000);
+      assert.equal(signal.aborted, false, 'a 61 s render is still awaited');
+      mock.timers.tick(30000);
+      assert.equal(signal.aborted, true, 'and abandoned after the timeout');
+      cache.close();
+    } finally {
+      mock.timers.reset();
+    }
   });
   it('aborts an in-flight fetch once a newer request replaces it in its slot', async () => {
     const aborted = [];
