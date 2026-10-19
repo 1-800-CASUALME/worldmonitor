@@ -613,6 +613,58 @@ describe('review fixes', () => {
     assert.equal(aborted, 1);
     assert.equal(cache.active, 0);
   });
+  it('aborts an in-flight fetch once a newer request replaces it in its slot', async () => {
+    const aborted = [];
+    const fetch = (u, { signal }) =>
+      new Promise((_, reject) => {
+        signal.addEventListener('abort', () => {
+          aborted.push(new URL(u).searchParams.get('LAYERS'));
+          reject(new Error('aborted'));
+        });
+      });
+    const cache = new ImageryCache({ fetch, now: () => 1000 });
+    const a = cache.get({ layer: 'a', bbox: [0, 0, 10, 10], width: 8, height: 8 }, 'view');
+    cache.get({ layer: 'n', bbox: [0, 0, 10, 10], width: 8, height: 8 }, 'night');
+    cache.get({ layer: 'b', bbox: [0, 0, 10, 10], width: 8, height: 8 }, 'view');
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepEqual(aborted, ['a'], 'only the superseded view fetch is cancelled');
+    assert.equal(cache.peek({ layer: 'a', bbox: [0, 0, 10, 10], width: 8, height: 8 }), null, 'and it can be fetched again later');
+    assert.equal(a.status, 'error');
+    cache.close();
+  });
+  it('evicts the oldest ready images but keeps wanted and loading ones', async () => {
+    let t = 1000;
+    const cache = new ImageryCache({ fetch: async () => pngResponse(), now: () => t, maxEntries: 3 });
+    for (const layer of ['a', 'b', 'c', 'd']) {
+      t += 10;
+      cache.get({ layer, bbox: [0, 0, 10, 10], width: 8, height: 8 }, layer);
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    t += 10;
+    cache.get({ layer: 'e', bbox: [0, 0, 10, 10], width: 8, height: 8 }, 'a');
+    await new Promise((r) => setTimeout(r, 5));
+    assert.ok(cache.entries.size <= 3 + 1);
+    assert.equal(cache.peek({ layer: 'a', bbox: [0, 0, 10, 10], width: 8, height: 8 }), null, 'the oldest image no slot wants is evicted');
+    assert.ok(cache.peek({ layer: 'e', bbox: [0, 0, 10, 10], width: 8, height: 8 }), 'the newest wanted image stays');
+  });
+  it('retries a failed image after 30 s and reports undecodable responses', async () => {
+    let t = 1000;
+    let calls = 0;
+    const cache = new ImageryCache({ fetch: async () => (++calls === 1 ? { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(4) } : pngResponse()), now: () => t });
+    const req = { layer: 'x', bbox: [0, 0, 10, 10], width: 8, height: 8 };
+    cache.get(req);
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal(cache.peek(req).status, 'error');
+    assert.match(cache.peek(req).error, /not a PNG/);
+    t += 10000;
+    cache.get(req);
+    assert.equal(calls, 1, 'no retry inside 30 s');
+    t += 25000;
+    cache.get(req);
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal(calls, 2);
+    assert.equal(cache.peek(req).status, 'ready');
+  });
   it('rejects PNGs with absurd dimensions before allocating', () => {
     const chunk = (type, data) => {
       const b = Buffer.alloc(12 + data.length);

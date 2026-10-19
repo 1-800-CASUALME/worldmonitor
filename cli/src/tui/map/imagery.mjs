@@ -74,7 +74,16 @@ export class ImageryCache {
   // slot: 'view' | 'globe' | 'night' — only the newest request per slot is fetched.
   get(req, slot = 'view') {
     const key = this.key(req);
+    const prevKey = this.latest.get(slot);
     this.latest.set(slot, key);
+    if (prevKey && prevKey !== key) {
+      // The viewport moved on: stop the old fetch so it does not hold a slot.
+      const old = this.entries.get(prevKey);
+      if (old && old.controller && ![...this.latest.values()].includes(prevKey)) {
+        old.controller.abort();
+        this.entries.delete(prevKey);
+      }
+    }
     let entry = this.entries.get(key);
     if (entry) {
       entry.at = this.now();
